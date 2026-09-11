@@ -1,0 +1,726 @@
+<?php
+class CustomerController {
+    private $pdo;
+
+    public function __construct($pdo) {
+        $this->pdo = $pdo;
+    }
+
+    private function sendSemaphoreSMS($number, $message) {
+        $ch = curl_init();
+        $parameters = array(
+            'apikey' => SEMAPHORE_API_KEY, 
+            'number' => $number,
+            'message' => $message,
+            'sendername' => SEMAPHORE_SENDER_NAME 
+        );
+        curl_setopt($ch, CURLOPT_URL, 'https://api.semaphore.co/api/v4/messages');
+        curl_setopt($ch, CURLOPT_POST, 1);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($parameters));
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        $output = curl_exec($ch);
+        curl_close($ch);
+        
+        try {
+            $maskedMessage = preg_replace('/\b\d{6}\b/', '******', $message);
+            $this->pdo->prepare("INSERT INTO SMS_LOGS (contact_number, message, api_response) VALUES (?, ?, ?)")->execute([$number, $maskedMessage, $output]);
+        } catch(Exception $e) { error_log($e->getMessage()); }
+        
+        return $output;
+    }
+
+    public function login() {
+        $contact = trim($_POST['contact_number'] ?? ''); 
+        $pass = $_POST['password'] ?? '';
+        
+        $contact = preg_replace('/[^0-9]/', '', $contact);
+        if (strlen($contact) == 10 && substr($contact, 0, 1) === '9') {
+            $contact = '0' . $contact;
+        }
+
+        $stmt = $this->pdo->prepare("SELECT * FROM CUSTOMER WHERE contact_number = ?"); 
+        $stmt->execute([$contact]);
+        $u = $stmt->fetch();
+        
+        if ($u && password_verify($pass, $u['password'])) {
+            if ($u['is_verified'] == 0) {
+                $otp = random_int(100000, 999999);
+                $expiry = date('Y-m-d H:i:s', strtotime('+10 minutes'));
+                $this->pdo->prepare("UPDATE CUSTOMER SET otp_code = ?, otp_expiry = ? WHERE customer_id = ?")->execute([$otp, $expiry, $u['customer_id']]);
+                $msg = "Your Mababanaba Waters verification code is {$otp}. Valid for 10 minutes. Do not share.";
+                $this->sendSemaphoreSMS($u['contact_number'], $msg);
+                echo json_encode([
+                    'requires_otp' => true, 
+                    'contact_number' => $u['contact_number'],
+                    'message' => 'Account is not yet verified. An OTP code was sent to complete your registration.'
+                ]);
+                exit;
+            }
+
+            session_regenerate_id(true);
+            $_SESSION['customer_id'] = $u['customer_id'];
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+            $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+            if ($ip) {
+                $this->pdo->prepare("DELETE FROM rate_limits WHERE ip_address = ? AND action IN ('customer_login', 'admin_login')")->execute([$ip]);
+            }
+            $this->pdo->prepare("UPDATE CUSTOMER SET last_active = CURRENT_TIMESTAMP WHERE customer_id = ?")->execute([$u['customer_id']]);
+            echo json_encode([
+                'success' => true, 
+                'customer_id' => $u['customer_id'], 
+                'full_name' => $u['full_name'], 
+                'contact_number' => $u['contact_number'], 
+                'address' => $u['address'],
+                'csrf_token' => $_SESSION['csrf_token']
+            ]);
+        } else { 
+            echo json_encode(['error' => 'Invalid mobile number or password']); 
+        }
+        exit;
+    }
+
+    public function register() {
+        $name = trim($_POST['full_name'] ?? ''); 
+        $contact = trim($_POST['contact_number'] ?? ''); 
+        $addr = trim($_POST['address'] ?? ''); 
+        $pass = $_POST['password'] ?? '';
+        
+        if (empty($name) || empty($contact) || empty($addr) || empty($pass)) { 
+            echo json_encode(['error' => 'Missing required fields.']); 
+            exit; 
+        }
+
+        $contact = preg_replace('/[^0-9]/', '', $contact);
+        if (strlen($contact) == 10 && substr($contact, 0, 1) === '9') {
+            $contact = '0' . $contact;
+        }
+        if (!preg_match('/^09\d{9}$/', $contact)) {
+            echo json_encode(['error' => 'Please enter a valid 11-digit mobile number starting with 09.']);
+            exit;
+        }
+        
+        $stmt = $this->pdo->prepare("SELECT * FROM CUSTOMER WHERE contact_number = ?"); 
+        $stmt->execute([$contact]);
+        $existing = $stmt->fetch();
+        
+        $otp = random_int(100000, 999999);
+        $expiry = date('Y-m-d H:i:s', strtotime('+10 minutes'));
+        $hp = password_hash($pass, PASSWORD_DEFAULT);
+
+        if ($existing) { 
+            if ($existing['is_verified'] == 1) {
+                echo json_encode(['error' => 'Mobile number is already registered. Please log in.']); 
+                exit;
+            } else {
+                $this->pdo->prepare("UPDATE CUSTOMER SET full_name = ?, address = ?, password = ?, otp_code = ?, otp_expiry = ?, is_verified = 0 WHERE contact_number = ?")
+                    ->execute([$name, $addr, $hp, $otp, $expiry, $contact]);
+            }
+        } else {
+            $this->pdo->prepare("INSERT INTO CUSTOMER (full_name, contact_number, address, password, otp_code, otp_expiry, is_verified) VALUES (?, ?, ?, ?, ?, ?, 0)")
+                ->execute([$name, $contact, $addr, $hp, $otp, $expiry]);
+        }
+        
+        $msg = "Your Mababanaba Waters verification code is {$otp}. Valid for 10 minutes. Do not share.";
+        $this->sendSemaphoreSMS($contact, $msg);
+        
+        echo json_encode(['requires_otp' => true, 'contact_number' => $contact]);
+        exit;
+    }
+
+    public function verifyOtp() {
+        $contact = trim($_POST['contact_number'] ?? '');
+        $code = trim($_POST['otp_code'] ?? '');
+
+        $contact = preg_replace('/[^0-9]/', '', $contact);
+        if (strlen($contact) == 10 && substr($contact, 0, 1) === '9') {
+            $contact = '0' . $contact;
+        }
+
+        $stmt = $this->pdo->prepare("SELECT customer_id, full_name, contact_number, address, otp_code, otp_expiry, failed_otp_attempts FROM CUSTOMER WHERE contact_number = ?");
+        $stmt->execute([$contact]);
+        $u = $stmt->fetch();
+
+        if (!$u) { echo json_encode(['error' => 'Mobile number not found.']); exit; }
+
+        if (($u['failed_otp_attempts'] ?? 0) >= 5) {
+            $this->pdo->prepare("UPDATE CUSTOMER SET otp_code = NULL, otp_expiry = NULL, failed_otp_attempts = 0 WHERE customer_id = ?")->execute([$u['customer_id']]);
+            echo json_encode(['error' => 'Too many failed attempts. This OTP has been invalidated. Please request a new code.']);
+            exit;
+        }
+
+        if (empty($u['otp_code']) || !hash_equals((string)$u['otp_code'], (string)$code)) {
+            $this->pdo->prepare("UPDATE CUSTOMER SET failed_otp_attempts = failed_otp_attempts + 1 WHERE customer_id = ?")->execute([$u['customer_id']]);
+            $attemptsLeft = 5 - (($u['failed_otp_attempts'] ?? 0) + 1);
+            $errorMsg = $attemptsLeft > 0 ? "Invalid OTP code. $attemptsLeft attempt(s) remaining." : "Invalid OTP code. Code invalidated due to multiple failed attempts.";
+            echo json_encode(['error' => $errorMsg]); 
+            exit; 
+        }
+
+        if (strtotime($u['otp_expiry']) < time()) { echo json_encode(['error' => 'OTP has expired. Please register or login again to request a new one.']); exit; }
+
+        $this->pdo->prepare("UPDATE CUSTOMER SET is_verified = 1, otp_code = NULL, otp_expiry = NULL, failed_otp_attempts = 0, last_active = CURRENT_TIMESTAMP WHERE customer_id = ?")->execute([$u['customer_id']]);
+        
+        session_regenerate_id(true);
+        $_SESSION['customer_id'] = $u['customer_id'];
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+        if ($ip) {
+            $this->pdo->prepare("DELETE FROM rate_limits WHERE ip_address = ? AND action IN ('customer_register', 'verify_registration_otp', 'customer_login')")->execute([$ip]);
+        }
+        echo json_encode([
+            'success' => true, 
+            'customer_id' => $u['customer_id'], 
+            'full_name' => $u['full_name'], 
+            'contact_number' => $u['contact_number'], 
+            'address' => $u['address'],
+            'csrf_token' => $_SESSION['csrf_token']
+        ]);
+        exit;
+    }
+
+    public static function clearStationsCache() {
+        $cacheFile = sys_get_temp_dir() . '/mbbnb_stations_public_cache.json';
+        if (file_exists($cacheFile)) {
+            @unlink($cacheFile);
+        }
+    }
+
+    public function getStations() {
+        $cid = $_SESSION['customer_id'] ?? null;
+        $cacheFile = sys_get_temp_dir() . '/mbbnb_stations_public_cache.json';
+        $cacheTtl = 5; // 5-second transient cache for high-concurrency bursts
+
+        if ($cid === null && file_exists($cacheFile) && (time() - filemtime($cacheFile)) < $cacheTtl) {
+            header('X-Cache: HIT');
+            header('Cache-Control: public, max-age=5, stale-while-revalidate=5');
+            echo file_get_contents($cacheFile);
+            exit;
+        }
+
+        if ($cid === null) {
+            $sql = "SELECT s.*, i.stock_level, i.round_jugs, i.slim_jugs, 
+                    0 as user_points, 
+                    0 as user_lifetime_points, 
+                    IFNULL(AVG(r.rating), 0) as avg_rating,
+                    0 as pending_borrowed
+                    FROM STATION s 
+                    JOIN INVENTORY i ON s.station_id = i.station_id 
+                    LEFT JOIN REVIEWS r ON s.station_id = r.station_id 
+                    WHERE s.status = 'Active' 
+                    GROUP BY s.station_id";
+            $stmt = $this->pdo->query($sql);
+            $stations = $stmt->fetchAll();
+        } else {
+            $sql = "SELECT s.*, i.stock_level, i.round_jugs, i.slim_jugs, 
+                    GREATEST(IFNULL(l.points, 0), (SELECT GREATEST(0, (IFNULL(SUM(o.quantity), 0) * 2) - IFNULL(SUM(o.points_used), 0)) FROM ORDERS o WHERE o.station_id = s.station_id AND o.customer_id = ? AND o.order_status = 'Delivered')) as user_points, 
+                    GREATEST(IFNULL(l.lifetime_points, IFNULL(l.points, 0)), (SELECT IFNULL(SUM(o.quantity), 0) * 3 FROM ORDERS o WHERE o.station_id = s.station_id AND o.customer_id = ? AND o.order_status = 'Delivered')) as user_lifetime_points, 
+                    IFNULL(AVG(r.rating), 0) as avg_rating,
+                    (SELECT COUNT(order_id) FROM ORDERS o WHERE o.station_id = s.station_id AND o.customer_id = ? AND o.borrow_status = 'Pending' AND (o.borrow_round > 0 OR o.borrow_slim > 0)) as pending_borrowed
+                    FROM STATION s 
+                    JOIN INVENTORY i ON s.station_id = i.station_id 
+                    LEFT JOIN CUSTOMER_LOYALTY l ON s.station_id = l.station_id AND l.customer_id = ? 
+                    LEFT JOIN REVIEWS r ON s.station_id = r.station_id 
+                    WHERE s.status = 'Active' 
+                    GROUP BY s.station_id";
+            $stmt = $this->pdo->prepare($sql); 
+            $stmt->execute([$cid, $cid, $cid, $cid]);
+            $stations = $stmt->fetchAll();
+        }
+        
+        $prodStmt = $this->pdo->query("SELECT * FROM PRODUCTS WHERE status = 'Active'");
+        $allProducts = $prodStmt->fetchAll();
+        
+        foreach ($stations as &$st) { 
+            $st['products'] = array_values(array_filter($allProducts, fn($p) => $p['station_id'] == $st['station_id'])); 
+        }
+        
+        $json = json_encode($stations);
+        if ($cid === null) {
+            @file_put_contents($cacheFile, $json);
+            header('X-Cache: MISS');
+            header('Cache-Control: public, max-age=5, stale-while-revalidate=5');
+        }
+
+        echo $json;
+        exit;
+    }
+
+    public function getOrders() {
+        $customer = SecurityContext::requireCustomer($this->pdo);
+        $cid = $customer['customer_id'];
+        $stmt = $this->pdo->prepare("SELECT o.order_id, o.station_id, o.customer_id, o.product_id, o.station_order_number, o.order_date, o.scheduled_date, o.order_status, o.total_price, o.payment_method, o.quantity, o.delivery_address, o.points_used, o.return_round, o.return_slim, o.borrow_round, o.borrow_slim, o.borrow_status, o.container_option, o.returning_borrowed_flag, o.jug_type, o.shipping_fee, o.jug_fee, o.discount_amount, IF(o.payment_proof IS NOT NULL AND o.payment_proof != '', 1, 0) as has_payment_proof, s.station_name, p.name as product_name, p.capacity_gallons, p.capacity_liters, r.rating FROM ORDERS o JOIN STATION s ON o.station_id = s.station_id JOIN PRODUCTS p ON o.product_id = p.product_id LEFT JOIN REVIEWS r ON o.order_id = r.order_id WHERE o.customer_id = ? ORDER BY o.order_date DESC");
+        $stmt->execute([$cid]);
+        echo json_encode($stmt->fetchAll());
+        exit;
+    }
+
+    public function forgotPasswordRequest() {
+        $contact = $_POST['contact_number'] ?? '';
+        $stmt = $this->pdo->prepare("SELECT * FROM CUSTOMER WHERE contact_number = ?");
+        $stmt->execute([$contact]);
+        $u = $stmt->fetch();
+
+        if (!$u) { echo json_encode(['error' => 'This mobile number is not registered.']); exit; }
+
+        $otp = random_int(100000, 999999); 
+        $expiry = date('Y-m-d H:i:s', strtotime('+10 minutes'));
+        $this->pdo->prepare("UPDATE CUSTOMER SET otp_code = ?, otp_expiry = ? WHERE customer_id = ?")->execute([$otp, $expiry, $u['customer_id']]);
+
+        $msg = "Your password reset code is {$otp}. This code is valid for 10 minutes. If you did not request this, please ignore this message.";
+        $this->sendSemaphoreSMS($contact, $msg);
+
+        echo json_encode(['success' => true, 'contact_number' => $contact]);
+        exit;
+    }
+
+    public function resetPasswordSubmit() {
+        $contact = $_POST['contact_number'] ?? '';
+        $code = $_POST['otp_code'] ?? '';
+        $new_pass = $_POST['new_password'] ?? '';
+
+        $stmt = $this->pdo->prepare("SELECT customer_id, otp_code, otp_expiry, failed_otp_attempts FROM CUSTOMER WHERE contact_number = ?");
+        $stmt->execute([$contact]);
+        $u = $stmt->fetch();
+
+        if (!$u) { echo json_encode(['error' => 'Invalid mobile number.']); exit; }
+
+        if (($u['failed_otp_attempts'] ?? 0) >= 5) {
+            $this->pdo->prepare("UPDATE CUSTOMER SET otp_code = NULL, otp_expiry = NULL, failed_otp_attempts = 0 WHERE customer_id = ?")->execute([$u['customer_id']]);
+            echo json_encode(['error' => 'Too many failed attempts. This OTP has been invalidated. Please request a new code.']);
+            exit;
+        }
+
+        if (empty($u['otp_code']) || !hash_equals((string)$u['otp_code'], (string)$code)) {
+            $this->pdo->prepare("UPDATE CUSTOMER SET failed_otp_attempts = failed_otp_attempts + 1 WHERE customer_id = ?")->execute([$u['customer_id']]);
+            $attemptsLeft = 5 - (($u['failed_otp_attempts'] ?? 0) + 1);
+            $errorMsg = $attemptsLeft > 0 ? "Invalid OTP code. $attemptsLeft attempt(s) remaining." : "Invalid OTP code. Code invalidated due to multiple failed attempts.";
+            echo json_encode(['error' => $errorMsg]);
+            exit;
+        }
+
+        if (strtotime($u['otp_expiry']) < time()) { echo json_encode(['error' => 'OTP has expired. Please request a new one.']); exit; }
+
+        $hp = password_hash($new_pass, PASSWORD_DEFAULT);
+        $this->pdo->prepare("UPDATE CUSTOMER SET password = ?, otp_code = NULL, otp_expiry = NULL, failed_otp_attempts = 0 WHERE customer_id = ?")->execute([$hp, $u['customer_id']]);
+        
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+        if ($ip) {
+            $this->pdo->prepare("DELETE FROM rate_limits WHERE ip_address = ? AND action IN ('forgot_password_request', 'reset_password_submit', 'customer_login')")->execute([$ip]);
+        }
+        echo json_encode(['success' => true]);
+        exit;
+    }
+
+    public function requestPasswordChangeOtp() {
+        $cid = $_SESSION['customer_id'] ?? null;
+        $aid = $_SESSION['admin_id'] ?? null;
+        if (!$cid && !$aid) { echo json_encode(['error' => 'Unauthorized']); exit; }
+
+        if ($cid) {
+            $stmt = $this->pdo->prepare("SELECT * FROM CUSTOMER WHERE customer_id = ?");
+            $stmt->execute([$cid]);
+            $u = $stmt->fetch();
+            if (!$u) { echo json_encode(['error' => 'Customer not found.']); exit; }
+            $contact = $u['contact_number'];
+            $otp = random_int(100000, 999999); 
+            $expiry = date('Y-m-d H:i:s', strtotime('+10 minutes'));
+            $this->pdo->prepare("UPDATE CUSTOMER SET otp_code = ?, otp_expiry = ? WHERE customer_id = ?")->execute([$otp, $expiry, $cid]);
+        } else {
+            $stmt = $this->pdo->prepare("SELECT * FROM ADMIN WHERE admin_id = ?");
+            $stmt->execute([$aid]);
+            $u = $stmt->fetch();
+            if (!$u) { echo json_encode(['error' => 'Staff account not found.']); exit; }
+            $contact = $u['contact_number'] ?? null;
+            if (!$contact) {
+                echo json_encode(['error' => 'No mobile number set for this account. Please update your mobile number first.']);
+                exit;
+            }
+            $otp = random_int(100000, 999999); 
+            $expiry = date('Y-m-d H:i:s', strtotime('+10 minutes'));
+            $this->pdo->prepare("UPDATE ADMIN SET otp_code = ?, otp_expiry = ? WHERE admin_id = ?")->execute([$otp, $expiry, $aid]);
+        }
+
+        $msg = "Your Mababanaba Waters password change OTP is {$otp}. Valid for 10 minutes. Do not share.";
+        $this->sendSemaphoreSMS($contact, $msg);
+
+        $masked = substr($contact, 0, 4) . '****' . substr($contact, -3);
+        echo json_encode(['success' => true, 'masked_contact' => $masked]);
+        exit;
+    }
+
+    public function changePasswordSubmit() {
+        $cid = $_SESSION['customer_id'] ?? null;
+        $aid = $_SESSION['admin_id'] ?? null;
+        if (!$cid && !$aid) { echo json_encode(['error' => 'Unauthorized']); exit; }
+
+        $code = trim($_POST['otp_code'] ?? '');
+        $new_pass = $_POST['new_password'] ?? '';
+
+        if (empty($code) || empty($new_pass)) {
+            echo json_encode(['error' => 'Please provide the OTP code and new password.']);
+            exit;
+        }
+
+        if (strlen($new_pass) < 6) {
+            echo json_encode(['error' => 'Password must be at least 6 characters.']);
+            exit;
+        }
+
+        if ($cid) {
+            $stmt = $this->pdo->prepare("SELECT customer_id, otp_code, otp_expiry, failed_otp_attempts FROM CUSTOMER WHERE customer_id = ?");
+            $stmt->execute([$cid]);
+            $u = $stmt->fetch();
+            if (!$u) { echo json_encode(['error' => 'Customer not found.']); exit; }
+
+            if (($u['failed_otp_attempts'] ?? 0) >= 5) {
+                $this->pdo->prepare("UPDATE CUSTOMER SET otp_code = NULL, otp_expiry = NULL, failed_otp_attempts = 0 WHERE customer_id = ?")->execute([$cid]);
+                echo json_encode(['error' => 'Too many failed attempts. This OTP has been invalidated. Please request a new code.']);
+                exit;
+            }
+
+            if (empty($u['otp_code']) || !hash_equals((string)$u['otp_code'], (string)$code)) {
+                $this->pdo->prepare("UPDATE CUSTOMER SET failed_otp_attempts = failed_otp_attempts + 1 WHERE customer_id = ?")->execute([$cid]);
+                $attemptsLeft = 5 - (($u['failed_otp_attempts'] ?? 0) + 1);
+                $errorMsg = $attemptsLeft > 0 ? "Invalid OTP code. $attemptsLeft attempt(s) remaining." : "Invalid OTP code. Code invalidated due to multiple failed attempts.";
+                echo json_encode(['error' => $errorMsg]);
+                exit;
+            }
+            if (strtotime($u['otp_expiry']) < time()) { echo json_encode(['error' => 'OTP has expired. Please request a new code.']); exit; }
+
+            $hp = password_hash($new_pass, PASSWORD_DEFAULT);
+            $this->pdo->prepare("UPDATE CUSTOMER SET password = ?, otp_code = NULL, otp_expiry = NULL, failed_otp_attempts = 0 WHERE customer_id = ?")->execute([$hp, $cid]);
+        } else {
+            $stmt = $this->pdo->prepare("SELECT admin_id, otp_code, otp_expiry, failed_otp_attempts FROM ADMIN WHERE admin_id = ?");
+            $stmt->execute([$aid]);
+            $u = $stmt->fetch();
+            if (!$u) { echo json_encode(['error' => 'Staff account not found.']); exit; }
+
+            if (($u['failed_otp_attempts'] ?? 0) >= 5) {
+                $this->pdo->prepare("UPDATE ADMIN SET otp_code = NULL, otp_expiry = NULL, failed_otp_attempts = 0 WHERE admin_id = ?")->execute([$aid]);
+                echo json_encode(['error' => 'Too many failed attempts. This OTP has been invalidated. Please request a new code.']);
+                exit;
+            }
+
+            if (empty($u['otp_code']) || !hash_equals((string)$u['otp_code'], (string)$code)) {
+                $this->pdo->prepare("UPDATE ADMIN SET failed_otp_attempts = failed_otp_attempts + 1 WHERE admin_id = ?")->execute([$aid]);
+                $attemptsLeft = 5 - (($u['failed_otp_attempts'] ?? 0) + 1);
+                $errorMsg = $attemptsLeft > 0 ? "Invalid OTP code. $attemptsLeft attempt(s) remaining." : "Invalid OTP code. Code invalidated due to multiple failed attempts.";
+                echo json_encode(['error' => $errorMsg]);
+                exit;
+            }
+            if (strtotime($u['otp_expiry']) < time()) { echo json_encode(['error' => 'OTP has expired. Please request a new code.']); exit; }
+
+            $hp = password_hash($new_pass, PASSWORD_DEFAULT);
+            $this->pdo->prepare("UPDATE ADMIN SET password = ?, otp_code = NULL, otp_expiry = NULL, failed_otp_attempts = 0 WHERE admin_id = ?")->execute([$hp, $aid]);
+        }
+        
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+        if ($ip) {
+            $this->pdo->prepare("DELETE FROM rate_limits WHERE ip_address = ? AND action IN ('request_password_change_otp', 'change_password_submit')")->execute([$ip]);
+        }
+        echo json_encode(['success' => true, 'message' => 'Password updated successfully!']);
+        exit;
+    }
+
+    public function requestPhoneChangeOtp() {
+        $cid = $_SESSION['customer_id'] ?? null;
+        $aid = $_SESSION['admin_id'] ?? null;
+        if (!$cid && !$aid) { echo json_encode(['error' => 'Unauthorized']); exit; }
+
+        $newContact = trim($_POST['new_contact_number'] ?? '');
+        if (empty($newContact)) {
+            echo json_encode(['error' => 'Please provide your new mobile number.']);
+            exit;
+        }
+
+        $newContact = preg_replace('/[^0-9]/', '', $newContact);
+        if (strlen($newContact) == 10 && substr($newContact, 0, 1) === '9') {
+            $newContact = '0' . $newContact;
+        }
+        if (!preg_match('/^09\d{9}$/', $newContact)) {
+            echo json_encode(['error' => 'Please enter a valid 11-digit mobile number starting with 09.']);
+            exit;
+        }
+
+        if ($cid) {
+            $stmt = $this->pdo->prepare("SELECT customer_id FROM CUSTOMER WHERE contact_number = ? AND customer_id != ?");
+            $stmt->execute([$newContact, $cid]);
+            if ($stmt->fetch()) {
+                echo json_encode(['error' => 'This mobile number is already registered by another customer.']);
+                exit;
+            }
+        }
+        if ($aid) {
+            $stmt = $this->pdo->prepare("SELECT admin_id FROM ADMIN WHERE contact_number = ? AND admin_id != ?");
+            $stmt->execute([$newContact, $aid]);
+            if ($stmt->fetch()) {
+                echo json_encode(['error' => 'This mobile number is already associated with another staff account.']);
+                exit;
+            }
+        }
+
+        $otp = random_int(100000, 999999);
+        $expiry = date('Y-m-d H:i:s', strtotime('+10 minutes'));
+
+        if ($cid) {
+            $this->pdo->prepare("UPDATE CUSTOMER SET new_temp_contact = ?, otp_code = ?, otp_expiry = ? WHERE customer_id = ?")
+                ->execute([$newContact, $otp, $expiry, $cid]);
+        } else {
+            $this->pdo->prepare("UPDATE ADMIN SET new_temp_contact = ?, otp_code = ?, otp_expiry = ? WHERE admin_id = ?")
+                ->execute([$newContact, $otp, $expiry, $aid]);
+        }
+
+        $msg = "Your Mababanaba Waters OTP to update your mobile number is {$otp}. Valid for 10 minutes. Do not share.";
+        $this->sendSemaphoreSMS($newContact, $msg);
+
+        $masked = substr($newContact, 0, 4) . '****' . substr($newContact, -3);
+        echo json_encode(['success' => true, 'masked_new_contact' => $masked, 'raw_new_contact' => $newContact]);
+        exit;
+    }
+
+    public function changePhoneSubmit() {
+        $cid = $_SESSION['customer_id'] ?? null;
+        $aid = $_SESSION['admin_id'] ?? null;
+        if (!$cid && !$aid) { echo json_encode(['error' => 'Unauthorized']); exit; }
+
+        $code = trim($_POST['otp_code'] ?? '');
+        if (empty($code)) {
+            echo json_encode(['error' => 'Please provide the 6-digit OTP code.']);
+            exit;
+        }
+
+        if ($cid) {
+            $stmt = $this->pdo->prepare("SELECT customer_id, new_temp_contact, otp_code, otp_expiry, failed_otp_attempts FROM CUSTOMER WHERE customer_id = ?");
+            $stmt->execute([$cid]);
+            $u = $stmt->fetch();
+            if (!$u) { echo json_encode(['error' => 'Customer not found.']); exit; }
+
+            if (($u['failed_otp_attempts'] ?? 0) >= 5) {
+                $this->pdo->prepare("UPDATE CUSTOMER SET otp_code = NULL, otp_expiry = NULL, failed_otp_attempts = 0 WHERE customer_id = ?")->execute([$cid]);
+                echo json_encode(['error' => 'Too many failed attempts. This OTP has been invalidated. Please request a new code.']);
+                exit;
+            }
+
+            if (empty($u['otp_code']) || !hash_equals((string)$u['otp_code'], (string)$code)) {
+                $this->pdo->prepare("UPDATE CUSTOMER SET failed_otp_attempts = failed_otp_attempts + 1 WHERE customer_id = ?")->execute([$cid]);
+                $attemptsLeft = 5 - (($u['failed_otp_attempts'] ?? 0) + 1);
+                $errorMsg = $attemptsLeft > 0 ? "Invalid OTP code. $attemptsLeft attempt(s) remaining." : "Invalid OTP code. Code invalidated due to multiple failed attempts.";
+                echo json_encode(['error' => $errorMsg]);
+                exit;
+            }
+            if (strtotime($u['otp_expiry']) < time()) { echo json_encode(['error' => 'OTP has expired. Please request a new code.']); exit; }
+            if (empty($u['new_temp_contact'])) { echo json_encode(['error' => 'No pending phone number change found.']); exit; }
+
+            $newContact = $u['new_temp_contact'];
+            $this->pdo->prepare("UPDATE CUSTOMER SET contact_number = ?, new_temp_contact = NULL, otp_code = NULL, otp_expiry = NULL, failed_otp_attempts = 0 WHERE customer_id = ?")
+                ->execute([$newContact, $cid]);
+
+            $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+            if ($ip) {
+                $this->pdo->prepare("DELETE FROM rate_limits WHERE ip_address = ? AND action IN ('request_phone_change_otp', 'change_phone_submit')")->execute([$ip]);
+            }
+
+            echo json_encode(['success' => true, 'new_contact' => $newContact, 'message' => 'Mobile number updated successfully!']);
+            exit;
+        } else {
+            $stmt = $this->pdo->prepare("SELECT admin_id, new_temp_contact, otp_code, otp_expiry, failed_otp_attempts FROM ADMIN WHERE admin_id = ?");
+            $stmt->execute([$aid]);
+            $u = $stmt->fetch();
+            if (!$u) { echo json_encode(['error' => 'Staff account not found.']); exit; }
+
+            if (($u['failed_otp_attempts'] ?? 0) >= 5) {
+                $this->pdo->prepare("UPDATE ADMIN SET otp_code = NULL, otp_expiry = NULL, failed_otp_attempts = 0 WHERE admin_id = ?")->execute([$aid]);
+                echo json_encode(['error' => 'Too many failed attempts. This OTP has been invalidated. Please request a new code.']);
+                exit;
+            }
+
+            if (empty($u['otp_code']) || !hash_equals((string)$u['otp_code'], (string)$code)) {
+                $this->pdo->prepare("UPDATE ADMIN SET failed_otp_attempts = failed_otp_attempts + 1 WHERE admin_id = ?")->execute([$aid]);
+                $attemptsLeft = 5 - (($u['failed_otp_attempts'] ?? 0) + 1);
+                $errorMsg = $attemptsLeft > 0 ? "Invalid OTP code. $attemptsLeft attempt(s) remaining." : "Invalid OTP code. Code invalidated due to multiple failed attempts.";
+                echo json_encode(['error' => $errorMsg]);
+                exit;
+            }
+            if (strtotime($u['otp_expiry']) < time()) { echo json_encode(['error' => 'OTP has expired. Please request a new code.']); exit; }
+            if (empty($u['new_temp_contact'])) { echo json_encode(['error' => 'No pending phone number change found.']); exit; }
+
+            $newContact = $u['new_temp_contact'];
+            $this->pdo->prepare("UPDATE ADMIN SET contact_number = ?, new_temp_contact = NULL, otp_code = NULL, otp_expiry = NULL, failed_otp_attempts = 0 WHERE admin_id = ?")
+                ->execute([$newContact, $aid]);
+
+            $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+            if ($ip) {
+                $this->pdo->prepare("DELETE FROM rate_limits WHERE ip_address = ? AND action IN ('request_phone_change_otp', 'change_phone_submit')")->execute([$ip]);
+            }
+
+            echo json_encode(['success' => true, 'new_contact' => $newContact, 'message' => 'Mobile number updated successfully!']);
+            exit;
+        }
+    }
+
+    public function placeOrder() {
+        $customer = SecurityContext::requireCustomer($this->pdo);
+        $cid = $customer['customer_id'];
+        $sid = (int)($_POST['station_id'] ?? 0);
+        $cart = json_decode($_POST['cart'] ?? '[]', true);
+        if (empty($cart) || !is_array($cart)) {
+            echo json_encode(['error' => 'Cart cannot be empty.']);
+            exit;
+        }
+
+        $pay = $_POST['payment_method'] ?? 'COD';
+        $addr = $_POST['delivery_address'] ?? '';
+        $proof = $_POST['payment_proof'] ?? null;
+        $schedule = !empty($_POST['scheduled_date']) ? date('Y-m-d H:i:s', strtotime($_POST['scheduled_date'])) : null;
+        $use_points = (isset($_POST['use_points']) && $_POST['use_points'] == '1');
+        $container_opt = $_POST['container_option'] ?? 'borrow';
+        $returning_borrowed = (isset($_POST['returning_borrowed']) && $_POST['returning_borrowed'] == '1') ? 1 : 0;
+
+        if (!empty($proof)) {
+            if (!preg_match('/^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+\/=\s]+$/', $proof)) {
+                echo json_encode(['error' => 'Invalid payment proof format. Please upload a valid image file (JPEG, PNG, or WebP).']);
+                exit;
+            }
+            if (strlen($proof) > 7 * 1024 * 1024) {
+                echo json_encode(['error' => 'Payment proof image is too large. Maximum size is 5MB.']);
+                exit;
+            }
+        }
+        
+        if (!empty($schedule)) {
+            $schedTime = strtotime($schedule);
+            $now = time();
+            if ($schedTime < ($now - 300)) {
+                echo json_encode(['error' => 'Scheduled delivery date and time cannot be in the past.']);
+                exit;
+            }
+            if ($schedTime > ($now + (7 * 86400) + 3600)) {
+                echo json_encode(['error' => 'Pre-orders can only be scheduled up to 1 week (7 days) ahead.']);
+                exit;
+            }
+        }
+
+        try {
+            $this->pdo->beginTransaction();
+            $this->pdo->prepare("SELECT station_id FROM STATION WHERE station_id = ? FOR UPDATE")->execute([$sid]);
+            $stmtSt = $this->pdo->prepare("SELECT opening_time, closing_time, shipping_fee, jug_discount, new_jug_price, is_manually_closed, closure_message, status FROM STATION WHERE station_id = ?"); 
+            $stmtSt->execute([$sid]);
+            $st = $stmtSt->fetch();
+            
+            if (!$st || $st['status'] !== 'Active') {
+                throw new Exception("The selected station is not currently active.");
+            }
+            if ($st['is_manually_closed'] == 1) { throw new Exception($st['closure_message'] ?: "Station is currently closed."); }
+            if (empty($schedule) && (date('H:i:s') < $st['opening_time'] || date('H:i:s') > $st['closing_time'])) { throw new Exception("Station is closed. Please schedule delivery."); }
+
+            if (!empty($schedule)) {
+                $schedDateObj = new DateTime($schedule);
+                $schedTimeString = $schedDateObj->format('H:i:s');
+                if ($schedTimeString < $st['opening_time'] || $schedTimeString > $st['closing_time']) {
+                    throw new Exception("Pre-orders must be scheduled within operating hours (".date('h:i A', strtotime($st['opening_time']))." - ".date('h:i A', strtotime($st['closing_time'])).").");
+                }
+            }
+
+            $totalQty = 0; $cartHash = 0; $totRound = 0; $totSlim = 0;
+            foreach($cart as $item) { 
+                if (empty($item['product_id']) || empty($item['quantity']) || (int)$item['quantity'] <= 0) {
+                    throw new Exception("Invalid item or quantity in your cart.");
+                }
+                $totalQty += (int)$item['quantity']; 
+                $cartHash += (int)$item['product_id']; 
+                if (($item['jug_type'] ?? 'Round') === 'Round') $totRound += (int)$item['quantity'];
+                else $totSlim += (int)$item['quantity'];
+            }
+            
+            $stmt = $this->pdo->prepare("SELECT stock_level FROM INVENTORY WHERE station_id = ? FOR UPDATE"); $stmt->execute([$sid]);
+            if ($stmt->fetch()['stock_level'] < $totalQty) { throw new Exception("Insufficient general stock."); }
+
+            $shippingFee = (float)$st['shipping_fee'];
+
+            if ($use_points) {
+                $stmtC = $this->pdo->prepare("SELECT points FROM CUSTOMER_LOYALTY WHERE customer_id = ? AND station_id = ?"); $stmtC->execute([$cid, $sid]);
+                if ((int)$stmtC->fetchColumn() < 10) { throw new Exception("Not enough loyalty points."); }
+                $this->pdo->prepare("UPDATE CUSTOMER_LOYALTY SET points = points - 10 WHERE customer_id = ? AND station_id = ?")->execute([$cid, $sid]);
+            }
+            
+            $stationOrderNumber = 1;
+            try { 
+                $stmtSON = $this->pdo->prepare("SELECT IFNULL(MAX(station_order_number), 0) + 1 FROM ORDERS WHERE station_id = ? AND customer_id = ?");
+                $stmtSON->execute([$sid, $cid]);
+                $stationOrderNumber = $stmtSON->fetchColumn(); 
+            } catch (Exception $e) { error_log($e->getMessage()); }
+
+            $this->pdo->prepare("UPDATE INVENTORY SET stock_level = stock_level - ?, round_jugs = round_jugs - ?, slim_jugs = slim_jugs - ? WHERE station_id = ?")
+                ->execute([$totalQty, $totRound, $totSlim, $sid]);
+            
+            $isFirst = true; $i = 0; $discountIndex = count($cart) > 0 ? ($cartHash % count($cart)) : 0;
+
+            foreach($cart as $c) {
+                $stmtP = $this->pdo->prepare("SELECT product_id, price FROM PRODUCTS WHERE product_id = ? AND station_id = ? AND status = 'Active'");
+                $stmtP->execute([$c['product_id'], $sid]);
+                $prodRow = $stmtP->fetch();
+                if (!$prodRow) {
+                    throw new Exception("Product #{$c['product_id']} is not available at this station.");
+                }
+                $pricePerItem = (float)$prodRow['price'];
+                $item_total = ($c['quantity'] * $pricePerItem);
+                
+                $c_opt = $c['container_option'] ?? 'owned';
+                $isRound = (($c['jug_type'] ?? 'Round') === 'Round');
+                
+                $curr_rr = ($c_opt === 'owned' && $isRound) ? $c['quantity'] : 0;
+                $curr_rs = ($c_opt === 'owned' && !$isRound) ? $c['quantity'] : 0;
+                $curr_br = ($c_opt === 'borrow' && $isRound) ? $c['quantity'] : 0;
+                $curr_bs = ($c_opt === 'borrow' && !$isRound) ? $c['quantity'] : 0;
+                $curr_jug_buy = ($c_opt === 'buy') ? ($c['quantity'] * (float)$st['new_jug_price']) : 0;
+                
+                $curr_shipping = 0; $curr_discount = 0;
+                if($isFirst) { $curr_shipping = $shippingFee; }
+                if($use_points && $i === $discountIndex) { $curr_discount = $pricePerItem; }
+                
+                $this->pdo->prepare("INSERT INTO ORDERS (station_id, customer_id, product_id, station_order_number, total_price, payment_method, payment_proof, quantity, delivery_address, scheduled_date, points_used, return_round, return_slim, borrow_round, borrow_slim, container_option, returning_borrowed_flag, jug_type, shipping_fee, jug_fee, discount_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                    ->execute([$sid, $cid, $c['product_id'], $stationOrderNumber, $item_total, $pay, $proof, $c['quantity'], $addr, $schedule, ($use_points && $i === $discountIndex ? 10 : 0), $curr_rr, $curr_rs, $curr_br, $curr_bs, $c_opt, $returning_borrowed, $c['jug_type'] ?? 'Round', $curr_shipping, $curr_jug_buy, $curr_discount]);
+                
+                $isFirst = false; $i++;
+            }
+            $this->pdo->commit(); 
+
+            WebPush::sendToStationAdmins($this->pdo, $sid, "🔔 New Order #{$stationOrderNumber}", "A new order ({$totalQty} jugs) was placed. Tap to review.", '/#admin_dashboard');
+
+            echo json_encode(['success' => true]);
+        } catch (Exception $e) { $this->pdo->rollBack(); error_log($e->getMessage()); echo json_encode(['error' => $e->getMessage()]); }
+        exit;
+    }
+
+    public function submitReview() {
+        $customer = SecurityContext::requireCustomer($this->pdo);
+        $cid = $customer['customer_id'];
+        $oid = (int)($_POST['order_id'] ?? 0);
+        $rating = max(1, min(5, intval($_POST['rating'] ?? 5)));
+
+        $stmt = $this->pdo->prepare("SELECT order_id, station_id, station_order_number, order_status FROM ORDERS WHERE order_id = ? AND customer_id = ?"); 
+        $stmt->execute([$oid, $cid]);
+        $ord = $stmt->fetch();
+
+        if (!$ord) {
+            SecurityContext::jsonResponse(404, ['error' => 'Order not found or does not belong to your account.']);
+        }
+        if ($ord['order_status'] !== 'Delivered') {
+            SecurityContext::jsonResponse(400, ['error' => 'You can only review delivered orders.']);
+        }
+
+        if (!empty($ord['station_order_number'])) {
+            $sibStmt = $this->pdo->prepare("SELECT order_id FROM ORDERS WHERE station_order_number = ? AND station_id = ? AND customer_id = ?");
+            $sibStmt->execute([$ord['station_order_number'], $ord['station_id'], $cid]);
+            $siblings = $sibStmt->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($siblings as $sId) {
+                $this->pdo->prepare("INSERT INTO REVIEWS (order_id, station_id, customer_id, rating) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE rating = VALUES(rating)")->execute([$sId, $ord['station_id'], $cid, $rating]);
+            }
+        } else {
+            $this->pdo->prepare("INSERT INTO REVIEWS (order_id, station_id, customer_id, rating) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE rating = VALUES(rating)")->execute([$oid, $ord['station_id'], $cid, $rating]); 
+        }
+        CustomerController::clearStationsCache();
+        echo json_encode(['success' => true]); 
+        exit;
+    }
+}

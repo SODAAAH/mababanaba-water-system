@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+deploy/node_modules/
+
+# Environment files & Secrets (CRITICAL: Never commit these!)
+.env
+.env.local
+.env.*.local
+*.env
+
+# Active session data & local tokens
+api/sessions/*
+!api/sessions/.gitkeep
+!api/sessions/.htaccess
+
+# Runtime migration lock files
+api/.migrated*
+
+# Logs & scratch debug files
+*.log
+scratch_*.txt
+error_log
+api/error_log
+tests/error_log
+
+# Local development & testing (not part of core system)
+tests/
+scripts/
+deploy/
+local_router.php
+scratch/
+
+# OS & IDE metadata
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+

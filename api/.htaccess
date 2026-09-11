@@ -1,0 +1,23 @@
+Options -Indexes
+
+# Block direct access to internal library and configuration files
+<FilesMatch "^(config|migrations|OrderHelper|SecurityContext|WebPush)\.php$">
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+</FilesMatch>
+
+# Block sensitive extensions and hidden files
+<FilesMatch "(^\.env|^\.git|^\.htaccess|\.(sql|bak|ini|log|sh|md)$)">
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+</FilesMatch>

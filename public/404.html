@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+    <title>404 - Page Not Found | Mababanaba Waters</title>
+    <meta name="theme-color" content="#2563eb">
+
+    <link rel="icon" type="image/png" sizes="32x32" href="./logo.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="./logo.png">
+    <link rel="shortcut icon" href="./favicon.ico">
+    <link rel="apple-touch-icon" href="./logo.png">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+                    }
+                }
+            }
+        };
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="css/style.css?v1788958603836">
+</head>
+<body class="bg-[#eef2f6] text-slate-800 antialiased min-h-screen flex flex-col justify-between selection:bg-blue-100 selection:text-blue-700">
+
+    <!-- Top Navigation Bar (Identical to System) -->
+    <nav class="bg-blue-600 text-white shadow-md sticky top-0 z-30 w-full">
+        <div class="max-w-5xl mx-auto px-4 md:px-6 h-16 flex items-center justify-between gap-2">
+            <a href="/" class="flex items-center gap-2 cursor-pointer transition active:scale-95 min-w-0 shrink text-white no-underline">
+                <div class="w-8 h-8 bg-white rounded-full flex items-center justify-center text-blue-600 text-base shadow-sm shrink-0">
+                    <i class="fa-solid fa-droplet"></i>
+                </div>
+                <span class="text-lg md:text-xl font-black tracking-tight truncate text-white">Mababanaba Waters</span>
+            </a>
+            <div class="shrink-0">
+                <a href="/" class="text-xs md:text-sm font-bold bg-white/15 hover:bg-white/25 text-white px-3.5 py-1.5 rounded-xl transition inline-flex items-center gap-1.5 active:scale-95">
+                    <i class="fa-solid fa-house text-xs"></i>
+                    <span>Home</span>
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 flex items-center justify-center px-4 py-8 md:py-12">
+        <div class="w-full max-w-md bg-white rounded-3xl p-6 sm:p-8 md:p-10 shadow-xl shadow-slate-200/60 border border-slate-100 text-center transition-all">
+            <!-- System Water Droplet Icon Badge (Round) -->
+            <div class="w-20 h-20 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-3xl mx-auto mb-5 shadow-inner">
+                <i class="fa-solid fa-droplet"></i>
+            </div>
+
+            <!-- Error Code Pill -->
+            <span class="inline-block px-3 py-1 rounded-full bg-blue-50 text-blue-600 font-extrabold text-xs tracking-wider uppercase mb-3">
+                Error 404
+            </span>
+
+            <!-- Main Heading -->
+            <h1 class="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight mb-2">
+                Page Not Found
+            </h1>
+
+            <!-- Friendly System Subtitle -->
+            <p class="text-slate-500 font-medium text-sm leading-relaxed mb-8 max-w-xs mx-auto">
+                The link you followed may be broken, or the page may have been removed or moved to another address.
+            </p>
+
+            <!-- Action Buttons -->
+            <div class="space-y-3">
+                <a href="/" class="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-5 rounded-xl shadow-md shadow-blue-500/20 hover:shadow-lg transition active:scale-95 text-sm md:text-base no-underline">
+                    <i class="fa-solid fa-house text-sm"></i>
+                    <span>Return to Dashboard</span>
+                </a>
+
+                <button onclick="handleGoBack()" class="w-full flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3 px-5 rounded-xl transition active:scale-95 text-sm cursor-pointer border-none">
+                    <i class="fa-solid fa-arrow-left text-xs"></i>
+                    <span>Go Back</span>
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <!-- System Footer -->
+    <footer class="py-6 text-center text-xs font-semibold text-slate-400 tracking-wide">
+        MABABANABA WATERS &bull; WATER REFILLING SYSTEM
+    </footer>
+
+    <script>
+        function handleGoBack() {
+            // Only navigate back in history if the previous page was within this website
+            if (document.referrer && document.referrer.startsWith(window.location.origin) && document.referrer !== window.location.href) {
+                window.history.back();
+            } else {
+                // Otherwise, safely take the user to the home/dashboard so they stay inside the system
+                window.location.href = '/';
+            }
+        }
+    </script>
+</body>
+</html>
