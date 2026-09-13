@@ -29,27 +29,12 @@
     <link rel="apple-touch-startup-image" href="./logo.png" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)">
     <link rel="apple-touch-startup-image" href="./logo.png" media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2)">
 
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
-                    }
-                }
-            }
-        };
-    </script>
-
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-    <link rel="stylesheet" href="css/style.css?v1788958603836">
+    <link rel="stylesheet" href="css/fonts.css?v1789323596992">
+    <link rel="stylesheet" href="css/tailwind.css?v1789323596992">
+    <link rel="stylesheet" href="css/fontawesome.min.css?v1789323596992">
+    <link rel="stylesheet" href="css/flatpickr.min.css?v1789323596992">
+    <link rel="stylesheet" href="css/style.css?v1789323596992">
+    <script src="js/flatpickr.min.js?v1789323596992"></script>
 </head>
 <body class="bg-slate-100 text-slate-800 antialiased flex flex-col relative select-none">
 
@@ -100,10 +85,20 @@
         </div>
     </div>
 
-    <script src="js/state.js?v1788958603836"></script>
-    <script src="js/ui.js?v1788958603836"></script>
-    <script src="js/api.js?v1788958603836"></script>
-    <script src="js/app.js?v1788958603836"></script>
-
+    <script src="js/state.js?v1789323596992"></script>
+    <script src="js/ui.js?v1789323596992"></script>
+    <script src="js/api.js?v1789323596992"></script>
+    <script src="js/app.js?v1789323596992"></script>
+    <script>
+        // Failsafe loader dismissal
+        setTimeout(() => {
+            const loader = document.getElementById('global-loader');
+            if (loader) {
+                loader.style.opacity = '0';
+                loader.style.pointerEvents = 'none';
+                setTimeout(() => { if (loader && loader.parentNode) loader.remove(); }, 300);
+            }
+        }, 3000);
+    </script>
 </body>
 </html>

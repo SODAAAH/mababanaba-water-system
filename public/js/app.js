@@ -2105,11 +2105,20 @@ window.UI = UI;
 window.CustomDialog = CustomDialog;
 window.App = App;
 
+function dismissLoader() {
+    const loader = document.getElementById('global-loader');
+    if (loader) {
+        loader.classList.add('opacity-0');
+        loader.style.opacity = '0';
+        loader.style.pointerEvents = 'none';
+        setTimeout(() => {
+            if (loader && loader.parentNode) loader.remove();
+        }, 300);
+    }
+}
+
 async function boot() {
-    setTimeout(() => {
-        const loader = document.getElementById('global-loader');
-        if (loader) loader.remove();
-    }, 3000);
+    setTimeout(dismissLoader, 3000);
 
     const topLogo = document.querySelector('nav .cursor-pointer');
     if (topLogo) {
@@ -2147,8 +2156,7 @@ async function boot() {
                         } else {
                             UI.goHome('replace');
                         }
-                        const loader = document.getElementById('global-loader');
-                        if (loader) { loader.classList.add('opacity-0'); setTimeout(() => loader.remove(), 300); }
+                        dismissLoader();
                         return;
                     }
                 } catch (err) {}
@@ -2172,8 +2180,7 @@ async function boot() {
                     } else {
                         UI.goHome('replace');
                     }
-                    const loader = document.getElementById('global-loader');
-                    if (loader) { loader.classList.add('opacity-0'); setTimeout(() => loader.remove(), 300); }
+                    dismissLoader();
                     return;
                 }
             } catch (err) {}
@@ -2183,11 +2190,7 @@ async function boot() {
         UI.navigate('login', 'replace');
     }
 
-    const loader = document.getElementById('global-loader');
-    if (loader) {
-        loader.classList.add('opacity-0');
-        setTimeout(() => loader.remove(), 300);
-    }
+    dismissLoader();
 }
 
 boot();

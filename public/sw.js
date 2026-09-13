@@ -1,5 +1,5 @@
-const STATIC_CACHE_NAME = 'mababanaba-static-v1788958603836';
-const API_CACHE_NAME = 'mababanaba-api-v1788958603836';
+const STATIC_CACHE_NAME = 'mababanaba-static-v1789323596992';
+const API_CACHE_NAME = 'mababanaba-api-v1789323596992';
 
 const ASSETS_TO_CACHE = [
     './',
@@ -9,19 +9,34 @@ const ASSETS_TO_CACHE = [
     './manifest.json',
     './logo.png',
     './favicon.ico',
+    './css/fonts.css',
+    './css/tailwind.css',
+    './css/fontawesome.min.css',
+    './css/flatpickr.min.css',
     './css/style.css',
+    './js/flatpickr.min.js',
     './js/state.js',
     './js/ui.js',
     './js/api.js',
     './js/app.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css',
-    'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap'
+    './fonts/inter-latin-300-normal.woff2',
+    './fonts/inter-latin-400-normal.woff2',
+    './fonts/inter-latin-500-normal.woff2',
+    './fonts/inter-latin-600-normal.woff2',
+    './fonts/inter-latin-700-normal.woff2',
+    './fonts/inter-latin-800-normal.woff2',
+    './fonts/inter-latin-900-normal.woff2',
+    './webfonts/fa-solid-900.woff2',
+    './webfonts/fa-solid-900.ttf',
+    './webfonts/fa-regular-400.woff2',
+    './webfonts/fa-regular-400.ttf',
+    './webfonts/fa-brands-400.woff2',
+    './webfonts/fa-brands-400.ttf'
 ];
 
 self.addEventListener('install', (event) => {
     event.waitUntil(
         caches.open(STATIC_CACHE_NAME).then((cache) => {
-            // Attempt to cache all, but do not fail installation if external CDN is temporarily unreachable
             return Promise.allSettled(
                 ASSETS_TO_CACHE.map(url => cache.add(url).catch(err => console.warn('Pre-cache item skipped:', url, err)))
             );
@@ -74,14 +89,19 @@ self.addEventListener('fetch', (event) => {
                 .then((networkResponse) => {
                     if (networkResponse && networkResponse.status === 200) {
                         const clone = networkResponse.clone();
-                        caches.open(STATIC_CACHE_NAME).then((cache) => cache.put('./index.html', clone));
+                        caches.open(STATIC_CACHE_NAME).then((cache) => {
+                            cache.put('./index.html', clone.clone());
+                            cache.put('./', clone);
+                        });
                     }
                     return networkResponse;
                 })
-                .catch(() => {
-                    return caches.match('./index.html').then((cached) => {
-                        return cached || caches.match('./offline.html');
-                    });
+                .catch(async () => {
+                    const cached = (await caches.match('./index.html', { ignoreSearch: true }))
+                        || (await caches.match('./', { ignoreSearch: true }))
+                        || (await caches.match(request, { ignoreSearch: true }))
+                        || (await caches.match('./offline.html', { ignoreSearch: true }));
+                    return cached || new Response("Offline", { status: 503, headers: { 'Content-Type': 'text/plain' } });
                 })
         );
         return;
@@ -125,10 +145,10 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // 3. Static Assets (CSS, JS, Images, Fonts, External CDNs)
-    // Strategy: Stale-While-Revalidate for seamless offline performance
+    // 3. Static Assets (CSS, JS, Images, Fonts)
+    // Strategy: Stale-While-Revalidate with offline fallback
     event.respondWith(
-        caches.match(request).then((cachedResponse) => {
+        caches.match(request, { ignoreSearch: true }).then((cachedResponse) => {
             const fetchPromise = fetch(request)
                 .then((networkResponse) => {
                     if (networkResponse && (networkResponse.status === 200 || networkResponse.type === 'opaque')) {
@@ -150,7 +170,8 @@ self.addEventListener('fetch', (event) => {
                 if (request.destination === 'image') {
                     return caches.match('./logo.png');
                 }
-                return caches.match('./offline.html');
+                // Do NOT return offline.html for js/css/font assets to prevent syntax errors
+                return new Response('', { status: 404, statusText: 'Not Found' });
             });
         })
     );
