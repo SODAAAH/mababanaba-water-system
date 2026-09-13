@@ -12,7 +12,7 @@ Options -Indexes
 </FilesMatch>
 
 # Block sensitive extensions and hidden files
-<FilesMatch "(^\.env|^\.git|^\.htaccess|\.(sql|bak|ini|log|sh|md)$)">
+<FilesMatch "(^\..*|\.(sql|bak|ini|log|sh|md|json)$)">
     <IfModule !mod_authz_core.c>
         Order allow,deny
         Deny from all

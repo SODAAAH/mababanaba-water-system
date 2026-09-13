@@ -255,12 +255,31 @@ class CustomerController {
     }
 
     public function forgotPasswordRequest() {
-        $contact = $_POST['contact_number'] ?? '';
+        $contact = trim($_POST['contact_number'] ?? '');
+        $contact = preg_replace('/[^0-9]/', '', $contact);
+        if (strlen($contact) == 10 && substr($contact, 0, 1) === '9') {
+            $contact = '0' . $contact;
+        }
+        if (!preg_match('/^09\d{9}$/', $contact)) {
+            echo json_encode(['error' => 'Please enter a valid 11-digit mobile number starting with 09.']);
+            exit;
+        }
+
         $stmt = $this->pdo->prepare("SELECT * FROM CUSTOMER WHERE contact_number = ?");
         $stmt->execute([$contact]);
         $u = $stmt->fetch();
 
         if (!$u) { echo json_encode(['error' => 'This mobile number is not registered.']); exit; }
+
+        // Prevent SMS OTP flooding to the same mobile number (minimum 60-second cooldown)
+        if (!empty($u['otp_expiry'])) {
+            $secondsLeft = strtotime($u['otp_expiry']) - time();
+            if ($secondsLeft > 540) {
+                $cooldown = $secondsLeft - 540;
+                echo json_encode(['error' => "Please wait {$cooldown} second(s) before requesting another code."]);
+                exit;
+            }
+        }
 
         $otp = random_int(100000, 999999); 
         $expiry = date('Y-m-d H:i:s', strtotime('+10 minutes'));
@@ -274,9 +293,19 @@ class CustomerController {
     }
 
     public function resetPasswordSubmit() {
-        $contact = $_POST['contact_number'] ?? '';
-        $code = $_POST['otp_code'] ?? '';
+        $contact = trim($_POST['contact_number'] ?? '');
+        $contact = preg_replace('/[^0-9]/', '', $contact);
+        if (strlen($contact) == 10 && substr($contact, 0, 1) === '9') {
+            $contact = '0' . $contact;
+        }
+
+        $code = trim($_POST['otp_code'] ?? '');
         $new_pass = $_POST['new_password'] ?? '';
+
+        if (empty($new_pass) || strlen($new_pass) < 6) {
+            echo json_encode(['error' => 'Password must be at least 6 characters.']);
+            exit;
+        }
 
         $stmt = $this->pdo->prepare("SELECT customer_id, otp_code, otp_expiry, failed_otp_attempts FROM CUSTOMER WHERE contact_number = ?");
         $stmt->execute([$contact]);
@@ -568,12 +597,22 @@ class CustomerController {
             exit;
         }
 
+        $allowedPay = ['COD', 'GCash', 'Maya'];
         $pay = $_POST['payment_method'] ?? 'COD';
-        $addr = $_POST['delivery_address'] ?? '';
+        if (!in_array($pay, $allowedPay, true)) {
+            echo json_encode(['error' => 'Invalid payment method selected.']);
+            exit;
+        }
+
+        $addr = trim($_POST['delivery_address'] ?? '');
+        if (empty($addr) || strlen($addr) > 500) {
+            echo json_encode(['error' => 'Delivery address is required and must not exceed 500 characters.']);
+            exit;
+        }
+
         $proof = $_POST['payment_proof'] ?? null;
         $schedule = !empty($_POST['scheduled_date']) ? date('Y-m-d H:i:s', strtotime($_POST['scheduled_date'])) : null;
         $use_points = (isset($_POST['use_points']) && $_POST['use_points'] == '1');
-        $container_opt = $_POST['container_option'] ?? 'borrow';
         $returning_borrowed = (isset($_POST['returning_borrowed']) && $_POST['returning_borrowed'] == '1') ? 1 : 0;
 
         if (!empty($proof)) {
@@ -621,15 +660,26 @@ class CustomerController {
                 }
             }
 
+            $allowedOptions = ['owned', 'borrow', 'buy'];
+            $allowedJugTypes = ['Round', 'Slim'];
             $totalQty = 0; $cartHash = 0; $totRound = 0; $totSlim = 0;
             foreach($cart as $item) { 
-                if (empty($item['product_id']) || empty($item['quantity']) || (int)$item['quantity'] <= 0) {
-                    throw new Exception("Invalid item or quantity in your cart.");
+                $qty = (int)($item['quantity'] ?? 0);
+                if (empty($item['product_id']) || $qty <= 0 || $qty > 500) {
+                    throw new Exception("Invalid item or quantity in your cart (maximum 500 units per item).");
                 }
-                $totalQty += (int)$item['quantity']; 
+                $c_opt = $item['container_option'] ?? 'owned';
+                if (!in_array($c_opt, $allowedOptions, true)) {
+                    throw new Exception("Invalid container option selected.");
+                }
+                $j_type = $item['jug_type'] ?? 'Round';
+                if (!in_array($j_type, $allowedJugTypes, true)) {
+                    throw new Exception("Invalid jug type selected.");
+                }
+                $totalQty += $qty; 
                 $cartHash += (int)$item['product_id']; 
-                if (($item['jug_type'] ?? 'Round') === 'Round') $totRound += (int)$item['quantity'];
-                else $totSlim += (int)$item['quantity'];
+                if ($j_type === 'Round') $totRound += $qty;
+                else $totSlim += $qty;
             }
             
             $stmt = $this->pdo->prepare("SELECT stock_level FROM INVENTORY WHERE station_id = ? FOR UPDATE"); $stmt->execute([$sid]);
@@ -663,23 +713,25 @@ class CustomerController {
                     throw new Exception("Product #{$c['product_id']} is not available at this station.");
                 }
                 $pricePerItem = (float)$prodRow['price'];
-                $item_total = ($c['quantity'] * $pricePerItem);
+                $cQty = (int)$c['quantity'];
+                $item_total = ($cQty * $pricePerItem);
                 
-                $c_opt = $c['container_option'] ?? 'owned';
+                $c_opt = in_array($c['container_option'] ?? '', $allowedOptions, true) ? $c['container_option'] : 'owned';
                 $isRound = (($c['jug_type'] ?? 'Round') === 'Round');
+                $jType = $isRound ? 'Round' : 'Slim';
                 
-                $curr_rr = ($c_opt === 'owned' && $isRound) ? $c['quantity'] : 0;
-                $curr_rs = ($c_opt === 'owned' && !$isRound) ? $c['quantity'] : 0;
-                $curr_br = ($c_opt === 'borrow' && $isRound) ? $c['quantity'] : 0;
-                $curr_bs = ($c_opt === 'borrow' && !$isRound) ? $c['quantity'] : 0;
-                $curr_jug_buy = ($c_opt === 'buy') ? ($c['quantity'] * (float)$st['new_jug_price']) : 0;
+                $curr_rr = ($c_opt === 'owned' && $isRound) ? $cQty : 0;
+                $curr_rs = ($c_opt === 'owned' && !$isRound) ? $cQty : 0;
+                $curr_br = ($c_opt === 'borrow' && $isRound) ? $cQty : 0;
+                $curr_bs = ($c_opt === 'borrow' && !$isRound) ? $cQty : 0;
+                $curr_jug_buy = ($c_opt === 'buy') ? ($cQty * (float)$st['new_jug_price']) : 0;
                 
                 $curr_shipping = 0; $curr_discount = 0;
                 if($isFirst) { $curr_shipping = $shippingFee; }
                 if($use_points && $i === $discountIndex) { $curr_discount = $pricePerItem; }
                 
                 $this->pdo->prepare("INSERT INTO ORDERS (station_id, customer_id, product_id, station_order_number, total_price, payment_method, payment_proof, quantity, delivery_address, scheduled_date, points_used, return_round, return_slim, borrow_round, borrow_slim, container_option, returning_borrowed_flag, jug_type, shipping_fee, jug_fee, discount_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-                    ->execute([$sid, $cid, $c['product_id'], $stationOrderNumber, $item_total, $pay, $proof, $c['quantity'], $addr, $schedule, ($use_points && $i === $discountIndex ? 10 : 0), $curr_rr, $curr_rs, $curr_br, $curr_bs, $c_opt, $returning_borrowed, $c['jug_type'] ?? 'Round', $curr_shipping, $curr_jug_buy, $curr_discount]);
+                    ->execute([$sid, $cid, $c['product_id'], $stationOrderNumber, $item_total, $pay, $proof, $cQty, $addr, $schedule, ($use_points && $i === $discountIndex ? 10 : 0), $curr_rr, $curr_rs, $curr_br, $curr_bs, $c_opt, $returning_borrowed, $jType, $curr_shipping, $curr_jug_buy, $curr_discount]);
                 
                 $isFirst = false; $i++;
             }
@@ -688,7 +740,15 @@ class CustomerController {
             WebPush::sendToStationAdmins($this->pdo, $sid, "🔔 New Order #{$stationOrderNumber}", "A new order ({$totalQty} jugs) was placed. Tap to review.", '/#admin_dashboard');
 
             echo json_encode(['success' => true]);
-        } catch (Exception $e) { $this->pdo->rollBack(); error_log($e->getMessage()); echo json_encode(['error' => $e->getMessage()]); }
+        } catch (Exception $e) {
+            $this->pdo->rollBack();
+            error_log("placeOrder error: " . $e->getMessage());
+            if ($e instanceof PDOException) {
+                echo json_encode(['error' => 'A database error occurred while placing your order. Please try again.']);
+            } else {
+                echo json_encode(['error' => $e->getMessage()]);
+            }
+        }
         exit;
     }
 

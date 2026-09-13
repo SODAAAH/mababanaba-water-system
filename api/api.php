@@ -23,7 +23,9 @@ if (!is_dir($session_path)) {
 }
 session_save_path($session_path);
 
-$isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443);
+$isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+    || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443)
+    || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
 
 session_set_cookie_params([
     'lifetime' => $lifetime,
@@ -38,36 +40,34 @@ session_start();
 header("Content-Type: application/json");
 header("X-Content-Type-Options: nosniff");
 
-try {
-    $pdo = new PDO("mysql:host=$host;dbname=$db;charset=utf8mb4", $user, $pass);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-    $pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
-    $pdo->exec("SET time_zone = '+08:00'");
+$action = $_GET['action'] ?? '';
 
-    if (!file_exists(__DIR__ . '/.migrated_v5')) {
-        require_once __DIR__ . '/migrations.php';
-        run_migrations($pdo);
-    }
-    
-} catch (PDOException $e) { 
-    error_log("Database connection failed: " . $e->getMessage());
-    echo json_encode(['error' => 'Database connection failed.']); 
-    exit; 
-}
+// Read-only actions that safely accept GET requests
+$readOnlyActions = [
+    '',
+    'check_session',
+    'ping',
+    'get_payment_proof',
+    'get_stations',
+    'get_customer_orders',
+    'sa_get_stations',
+    'sa_get_users',
+    'get_admin_dashboard_data',
+    'get_sales_report',
+    'get_admin_loyalty',
+    'get_vapid_public_key'
+];
 
-
-
-if (!isset($_SESSION['last_auto_cancel_check']) || (time() - $_SESSION['last_auto_cancel_check']) > 30) {
-    $_SESSION['last_auto_cancel_check'] = time();
-    OrderHelper::autoCancelExpiredOrders($pdo);
+// Enforce that all state-mutating actions strictly require POST
+if (!in_array($action, $readOnlyActions, true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['error' => 'Method Not Allowed. This action requires a POST request.']);
+    exit;
 }
 
 if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
-
-$action = $_GET['action'] ?? '';
 
 // Public authentication and guest actions exempt from pre-session CSRF validation
 $csrfExempt = [
@@ -89,6 +89,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !in_array($action, $csrfExempt, tru
         echo json_encode(['error' => 'Invalid CSRF token. Refresh the page and try again.']);
         exit;
     }
+}
+
+try {
+    $pdo = new PDO("mysql:host=$host;dbname=$db;charset=utf8mb4", $user, $pass);
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+    $pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
+    $pdo->exec("SET time_zone = '+08:00'");
+
+    if (!file_exists(__DIR__ . '/.migrated_v5')) {
+        require_once __DIR__ . '/migrations.php';
+        run_migrations($pdo);
+    }
+    
+} catch (PDOException $e) { 
+    error_log("Database connection failed: " . $e->getMessage());
+    http_response_code(500);
+    echo json_encode(['error' => 'Database connection failed.']); 
+    exit; 
+}
+
+if (!isset($_SESSION['last_auto_cancel_check']) || (time() - $_SESSION['last_auto_cancel_check']) > 30) {
+    $_SESSION['last_auto_cancel_check'] = time();
+    OrderHelper::autoCancelExpiredOrders($pdo);
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($_POST)) {
@@ -234,7 +258,7 @@ switch ($action) {
             exit;
         } catch (Exception $e) {
             error_log("get_payment_proof error: " . $e->getMessage());
-            echo json_encode(['payment_proof' => null, 'error' => $e->getMessage()]);
+            echo json_encode(['payment_proof' => null, 'error' => 'Order lookup failed.']);
             exit;
         }
 

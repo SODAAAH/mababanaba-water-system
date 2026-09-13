@@ -59,19 +59,34 @@ class AdminController {
 
     public function saAddStation() {
         $this->requireSuperAdmin();
+        $stName = trim($_POST['station_name'] ?? '');
+        $addr = trim($_POST['address'] ?? '');
+        $contact = trim($_POST['contact'] ?? '');
+        $adminUser = trim($_POST['admin_username'] ?? '');
+        $adminPass = $_POST['admin_password'] ?? '';
+
+        if (empty($stName) || empty($addr) || empty($contact) || empty($adminUser) || empty($adminPass)) {
+            echo json_encode(['error' => 'All fields are required.']);
+            exit;
+        }
+        if (strlen($adminPass) < 6) {
+            echo json_encode(['error' => 'Admin password must be at least 6 characters.']);
+            exit;
+        }
+
         $this->pdo->beginTransaction();
         try {
-            $this->pdo->prepare("INSERT INTO STATION (station_name, address, contact_number) VALUES (?, ?, ?)")->execute([$_POST['station_name'], $_POST['address'], $_POST['contact']]);
+            $this->pdo->prepare("INSERT INTO STATION (station_name, address, contact_number) VALUES (?, ?, ?)")->execute([$stName, $addr, $contact]);
             $sid = $this->pdo->lastInsertId();
             $this->pdo->prepare("INSERT INTO INVENTORY (station_id, stock_level, round_jugs, slim_jugs) VALUES (?, 0, 0, 0)")->execute([$sid]);
-            $hp = password_hash($_POST['admin_password'], PASSWORD_DEFAULT);
-            $this->pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role) VALUES (?, ?, ?, 'Admin')")->execute([$sid, $_POST['admin_username'], $hp]);
+            $hp = password_hash($adminPass, PASSWORD_DEFAULT);
+            $this->pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role) VALUES (?, ?, ?, 'Admin')")->execute([$sid, $adminUser, $hp]);
             $this->pdo->commit(); 
             echo json_encode(['success'=>true]);
         } catch (Exception $e) {
             $this->pdo->rollBack();
-            error_log($e->getMessage());
-            echo json_encode(['error' => $e->getMessage()]);
+            error_log("saAddStation error: " . $e->getMessage());
+            echo json_encode(['error' => 'Failed to create station. Username or contact number may already exist.']);
         }
         exit;
     }
@@ -363,14 +378,20 @@ class AdminController {
 
     public function adminUpdateLogistics() {
         $admin = $this->requireStationAdmin();
-        $this->pdo->prepare("UPDATE STATION SET shipping_fee = ?, jug_discount = ?, new_jug_price = ? WHERE station_id = ?")->execute([$_POST['shipping_fee'], $_POST['jug_discount'], $_POST['new_jug_price'], $admin['station_id']]);
+        $shipping = max(0, (float)($_POST['shipping_fee'] ?? 0));
+        $discount = max(0, (float)($_POST['jug_discount'] ?? 0));
+        $newPrice = max(0, (float)($_POST['new_jug_price'] ?? 0));
+        $this->pdo->prepare("UPDATE STATION SET shipping_fee = ?, jug_discount = ?, new_jug_price = ? WHERE station_id = ?")->execute([$shipping, $discount, $newPrice, $admin['station_id']]);
         echo json_encode(['success'=>true]); 
         exit;
     }
         
     public function adminUpdateAdvancedInventory() {
         $admin = $this->requireStationAdmin();
-        $this->pdo->prepare("UPDATE INVENTORY SET stock_level = ?, round_jugs = ?, slim_jugs = ? WHERE station_id = ?")->execute([$_POST['stock_level'], $_POST['round_jugs'], $_POST['slim_jugs'], $admin['station_id']]);
+        $stock = max(0, (int)($_POST['stock_level'] ?? 0));
+        $round = max(0, (int)($_POST['round_jugs'] ?? 0));
+        $slim = max(0, (int)($_POST['slim_jugs'] ?? 0));
+        $this->pdo->prepare("UPDATE INVENTORY SET stock_level = ?, round_jugs = ?, slim_jugs = ? WHERE station_id = ?")->execute([$stock, $round, $slim, $admin['station_id']]);
         echo json_encode(['success'=>true]); 
         exit;
     }
@@ -399,7 +420,13 @@ class AdminController {
 
     public function adminUpdateHours() {
         $admin = $this->requireStationAdmin();
-        $this->pdo->prepare("UPDATE STATION SET opening_time = ?, closing_time = ? WHERE station_id = ?")->execute([$_POST['opening'], $_POST['closing'], $admin['station_id']]);
+        $opening = trim($_POST['opening'] ?? '');
+        $closing = trim($_POST['closing'] ?? '');
+        if (!preg_match('/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/', $opening) || !preg_match('/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/', $closing)) {
+            echo json_encode(['error' => 'Invalid operating hours format (HH:MM expected).']);
+            exit;
+        }
+        $this->pdo->prepare("UPDATE STATION SET opening_time = ?, closing_time = ? WHERE station_id = ?")->execute([$opening, $closing, $admin['station_id']]);
         CustomerController::clearStationsCache();
         echo json_encode(['success'=>true]); 
         exit;
@@ -408,7 +435,7 @@ class AdminController {
     public function adminUpdateClosure() {
         $admin = $this->requireStationAdmin();
         $is_closed = isset($_POST['is_closed']) && $_POST['is_closed'] == '1' ? 1 : 0;
-        $message = !empty($_POST['closure_message']) ? $_POST['closure_message'] : null;
+        $message = !empty($_POST['closure_message']) ? substr(trim($_POST['closure_message']), 0, 255) : null;
         $this->pdo->prepare("UPDATE STATION SET is_manually_closed = ?, closure_message = ? WHERE station_id = ?")->execute([$is_closed, $message, $admin['station_id']]);
         CustomerController::clearStationsCache();
         echo json_encode(['success'=>true]); 
@@ -417,7 +444,9 @@ class AdminController {
 
     public function adminUpdateMaintenance() {
         $admin = $this->requireStationAdmin();
-        $this->pdo->prepare("UPDATE STATION SET last_cleaned_date = ?, last_filter_changed_date = ? WHERE station_id = ?")->execute([$_POST['last_cleaned_date'], $_POST['last_filter_changed_date'], $admin['station_id']]);
+        $clean = !empty($_POST['last_cleaned_date']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $_POST['last_cleaned_date']) ? $_POST['last_cleaned_date'] : null;
+        $filter = !empty($_POST['last_filter_changed_date']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $_POST['last_filter_changed_date']) ? $_POST['last_filter_changed_date'] : null;
+        $this->pdo->prepare("UPDATE STATION SET last_cleaned_date = ?, last_filter_changed_date = ? WHERE station_id = ?")->execute([$clean, $filter, $admin['station_id']]);
         CustomerController::clearStationsCache();
         echo json_encode(['success'=>true]); 
         exit;
@@ -425,11 +454,33 @@ class AdminController {
 
     public function adminUpdatePaymentProfile() {
         $admin = $this->requireStationAdmin();
-        $g_qr = $_POST['gcash_qr'] ?? null; $m_qr = $_POST['maya_qr'] ?? null;
+        $g_name = substr(trim($_POST['gcash_name'] ?? ''), 0, 100);
+        $g_num = substr(trim($_POST['gcash_number'] ?? ''), 0, 20);
+        $m_name = substr(trim($_POST['maya_name'] ?? ''), 0, 100);
+        $m_num = substr(trim($_POST['maya_number'] ?? ''), 0, 20);
+        $g_qr = $_POST['gcash_qr'] ?? null;
+        $m_qr = $_POST['maya_qr'] ?? null;
+
+        $validateQr = function($qr) {
+            if (empty($qr)) return null;
+            if (!preg_match('/^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+\/=\s]+$/', $qr) || strlen($qr) > 7 * 1024 * 1024) {
+                return false;
+            }
+            return $qr;
+        };
+
         $sql = "UPDATE STATION SET gcash_name=?, gcash_number=?, maya_name=?, maya_number=? ";
-        $params = [$_POST['gcash_name'], $_POST['gcash_number'], $_POST['maya_name'], $_POST['maya_number']];
-        if ($g_qr) { $sql .= ", gcash_qr=? "; $params[] = $g_qr; }
-        if ($m_qr) { $sql .= ", maya_qr=? "; $params[] = $m_qr; }
+        $params = [$g_name, $g_num, $m_name, $m_num];
+        if ($g_qr) {
+            $checked = $validateQr($g_qr);
+            if ($checked === false) { echo json_encode(['error' => 'Invalid GCash QR image format.']); exit; }
+            $sql .= ", gcash_qr=? "; $params[] = $checked;
+        }
+        if ($m_qr) {
+            $checked = $validateQr($m_qr);
+            if ($checked === false) { echo json_encode(['error' => 'Invalid Maya QR image format.']); exit; }
+            $sql .= ", maya_qr=? "; $params[] = $checked;
+        }
         $sql .= " WHERE station_id=?"; $params[] = $admin['station_id'];
         $this->pdo->prepare($sql)->execute($params); 
         CustomerController::clearStationsCache();
@@ -451,17 +502,28 @@ class AdminController {
         $stmt = $this->pdo->prepare("SELECT admin_id FROM ADMIN WHERE username = ? AND admin_id != ?"); 
         $stmt->execute([$user, $aid]);
         if($stmt->fetch()) { echo json_encode(['error' => 'Username already taken.']); exit; }
-        if (!empty($pass)) { $this->pdo->prepare("UPDATE ADMIN SET username = ?, password = ? WHERE admin_id = ?")->execute([$user, password_hash($pass, PASSWORD_DEFAULT), $aid]); } else { $this->pdo->prepare("UPDATE ADMIN SET username = ? WHERE admin_id = ?")->execute([$user, $aid]); }
+        if (!empty($pass)) {
+            if (strlen($pass) < 6) { echo json_encode(['error' => 'Password must be at least 6 characters.']); exit; }
+            $this->pdo->prepare("UPDATE ADMIN SET username = ?, password = ? WHERE admin_id = ?")->execute([$user, password_hash($pass, PASSWORD_DEFAULT), $aid]);
+        } else {
+            $this->pdo->prepare("UPDATE ADMIN SET username = ? WHERE admin_id = ?")->execute([$user, $aid]);
+        }
         echo json_encode(['success' => true]); 
         exit;
     }
 
     public function adminAddProduct() {
         $admin = $this->requireStationAdmin();
-        $gallons = isset($_POST['capacity_gallons']) && is_numeric($_POST['capacity_gallons']) ? (float)$_POST['capacity_gallons'] : 5.0;
-        $liters = isset($_POST['capacity_liters']) && is_numeric($_POST['capacity_liters']) ? (float)$_POST['capacity_liters'] : ($gallons == 5.0 ? 20.0 : round($gallons * 3.78541, 1));
+        $name = trim($_POST['name'] ?? '');
+        $price = (float)($_POST['price'] ?? 0);
+        if (empty($name) || $price <= 0) {
+            echo json_encode(['error' => 'Product name and a positive price are required.']);
+            exit;
+        }
+        $gallons = isset($_POST['capacity_gallons']) && is_numeric($_POST['capacity_gallons']) ? max(0.1, (float)$_POST['capacity_gallons']) : 5.0;
+        $liters = isset($_POST['capacity_liters']) && is_numeric($_POST['capacity_liters']) ? max(0.1, (float)$_POST['capacity_liters']) : ($gallons == 5.0 ? 20.0 : round($gallons * 3.78541, 1));
         $this->pdo->prepare("INSERT INTO PRODUCTS (station_id, name, price, capacity_gallons, capacity_liters) VALUES (?, ?, ?, ?, ?)")
-            ->execute([$admin['station_id'], $_POST['name'], $_POST['price'], $gallons, $liters]); 
+            ->execute([$admin['station_id'], $name, $price, $gallons, $liters]); 
         CustomerController::clearStationsCache();
         echo json_encode(['success'=>true]); 
         exit;
@@ -469,17 +531,22 @@ class AdminController {
         
     public function adminEditProduct() {
         $admin = $this->requireStationAdmin();
-        $name = $_POST['name'] ?? null;
-        $price = $_POST['price'];
-        $gallons = isset($_POST['capacity_gallons']) && is_numeric($_POST['capacity_gallons']) ? (float)$_POST['capacity_gallons'] : 5.0;
-        $liters = isset($_POST['capacity_liters']) && is_numeric($_POST['capacity_liters']) ? (float)$_POST['capacity_liters'] : ($gallons == 5.0 ? 20.0 : round($gallons * 3.78541, 1));
+        $pid = (int)($_POST['product_id'] ?? 0);
+        $name = isset($_POST['name']) ? trim($_POST['name']) : null;
+        $price = (float)($_POST['price'] ?? 0);
+        if ($price <= 0 || ($name !== null && empty($name))) {
+            echo json_encode(['error' => 'Valid product details and a positive price are required.']);
+            exit;
+        }
+        $gallons = isset($_POST['capacity_gallons']) && is_numeric($_POST['capacity_gallons']) ? max(0.1, (float)$_POST['capacity_gallons']) : 5.0;
+        $liters = isset($_POST['capacity_liters']) && is_numeric($_POST['capacity_liters']) ? max(0.1, (float)$_POST['capacity_liters']) : ($gallons == 5.0 ? 20.0 : round($gallons * 3.78541, 1));
         
-        if ($name) {
+        if ($name !== null) {
             $this->pdo->prepare("UPDATE PRODUCTS SET name = ?, price = ?, capacity_gallons = ?, capacity_liters = ? WHERE product_id = ? AND station_id = ?")
-                ->execute([$name, $price, $gallons, $liters, $_POST['product_id'], $admin['station_id']]); 
+                ->execute([$name, $price, $gallons, $liters, $pid, $admin['station_id']]); 
         } else {
             $this->pdo->prepare("UPDATE PRODUCTS SET price = ?, capacity_gallons = ?, capacity_liters = ? WHERE product_id = ? AND station_id = ?")
-                ->execute([$price, $gallons, $liters, $_POST['product_id'], $admin['station_id']]); 
+                ->execute([$price, $gallons, $liters, $pid, $admin['station_id']]); 
         }
         CustomerController::clearStationsCache();
         echo json_encode(['success'=>true]); 
@@ -496,7 +563,14 @@ class AdminController {
 
     public function adminAddStaff() {
         $admin = $this->requireStationAdmin();
-        $this->pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role) VALUES (?, ?, ?, 'Delivery Staff')")->execute([$admin['station_id'], $_POST['username'], password_hash($_POST['password'], PASSWORD_DEFAULT)]); 
+        $user = trim($_POST['username'] ?? '');
+        $pass = $_POST['password'] ?? '';
+        if (empty($user) || strlen($pass) < 6) {
+            echo json_encode(['error' => 'Username is required and password must be at least 6 characters.']);
+            exit;
+        }
+        $this->pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role) VALUES (?, ?, ?, 'Delivery Staff')")
+            ->execute([$admin['station_id'], $user, password_hash($pass, PASSWORD_DEFAULT)]); 
         echo json_encode(['success'=>true]); 
         exit;
     }

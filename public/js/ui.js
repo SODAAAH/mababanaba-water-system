@@ -1004,7 +1004,7 @@ const UI = {
         if (validRecentGroups.length > 0) {
             const lastOrder = validRecentGroups[0] || null;
             if (lastOrder) State.lastOrderGroup = lastOrder;
-            const itemsSummary = lastOrder ? lastOrder.items.map(i => `${i.quantity}x ${i.product_name}`).join(', ') : '';
+            const itemsSummary = lastOrder ? lastOrder.items.map(i => `${i.quantity}x ${escapeHtml(i.product_name)}`).join(', ') : '';
 
             smartHubHtml = `
                 <div class="bg-gradient-to-r from-blue-50/90 via-white to-blue-50/40 rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-blue-200 shadow-md mb-6 flex items-center justify-between gap-3">
@@ -1105,14 +1105,14 @@ const UI = {
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center justify-between gap-2 mb-1">
-                                <h4 class="font-black text-slate-800 text-base leading-tight truncate group-hover:text-blue-600 transition-colors">${s.station_name}</h4>
+                                <h4 class="font-black text-slate-800 text-base leading-tight truncate group-hover:text-blue-600 transition-colors">${escapeHtml(s.station_name)}</h4>
                                 <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border shrink-0 ${stRank.badgeBg}">
                                     <i class="fa-solid ${stRank.icon} mr-1"></i>${stRank.name}
                                 </span>
                             </div>
                             <p class="text-xs text-slate-500 truncate mb-2.5 flex items-center gap-1">
                                 <i class="fa-solid fa-location-dot text-slate-400 text-[10px] shrink-0"></i>
-                                <span class="truncate">${s.address}</span>
+                                <span class="truncate">${escapeHtml(s.address)}</span>
                             </p>
                             <div class="flex items-center justify-between gap-2 text-xs pt-2 border-t border-slate-100">
                                 <div class="flex items-center gap-2 text-xs text-slate-600 min-w-0">
@@ -1285,7 +1285,7 @@ const UI = {
             const currentProgress = (lifetimePts || pts) - rank.min;
             progressPct = Math.min(100, Math.max(5, Math.round((currentProgress / totalGap) * 100)));
             const ptsNeeded = Math.max(0, rank.nextMin - (lifetimePts || pts));
-            progressText = `<strong>${ptsNeeded} pts</strong> needed to reach <span class="font-bold uppercase">${rank.nextRank}</span> at ${curStation.station_name || 'this station'}`;
+            progressText = `<strong>${ptsNeeded} pts</strong> needed to reach <span class="font-bold uppercase">${rank.nextRank}</span> at ${escapeHtml(curStation.station_name || 'this station')}`;
         }
 
         const tiers = [
@@ -1307,7 +1307,7 @@ const UI = {
                         <select onchange="State.selectedLoyaltyStation=this.value; UI.renderCustomerLoyalty();" class="w-full bg-white border border-slate-200 text-slate-800 text-sm font-bold rounded-2xl px-4 py-2.5 pr-10 outline-none focus:ring-2 focus:ring-blue-500 transition-all appearance-none cursor-pointer shadow-sm">
                             ${stations.map(st => `
                                 <option value="${st.station_id}" ${st.station_id == curStationId ? 'selected' : ''}>
-                                    ${st.station_name}
+                                    ${escapeHtml(st.station_name)}
                                 </option>
                             `).join('')}
                         </select>
@@ -1325,7 +1325,7 @@ const UI = {
                                 <i class="fa-solid ${rank.icon}"></i> ${rank.name} Member
                             </span>
                         </div>
-                        <h2 class="text-2xl sm:text-3xl font-black mt-2">${curStation.station_name ? `${curStation.station_name}` : 'Loyalty & Rewards'}</h2>
+                        <h2 class="text-2xl sm:text-3xl font-black mt-2">${curStation.station_name ? `${escapeHtml(curStation.station_name)}` : 'Loyalty & Rewards'}</h2>
                         <div class="mt-4 flex items-baseline gap-2">
                             <span class="text-4xl sm:text-5xl font-black">${pts}</span>
                             <span class="text-base font-bold opacity-80">Reward Points</span>
@@ -1337,7 +1337,7 @@ const UI = {
                 <!-- Progress to Next Tier -->
                 <div class="bg-white rounded-3xl p-6 shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5">
                     <div class="flex justify-between items-center text-xs font-bold mb-2 text-slate-700">
-                        <span class="flex items-center gap-1.5"><i class="fa-solid fa-route text-blue-600"></i> Next Rank Progress at ${curStation.station_name || 'Station'}</span>
+                        <span class="flex items-center gap-1.5"><i class="fa-solid fa-route text-blue-600"></i> Next Rank Progress at ${escapeHtml(curStation.station_name || 'Station')}</span>
                         <span class="text-blue-600 font-black">${progressPct}%</span>
                     </div>
                     <div class="w-full bg-slate-100 rounded-full h-3.5 overflow-hidden p-0.5 border border-slate-200">
@@ -1370,7 +1370,7 @@ const UI = {
 
                 <!-- All 6 Ranks RoadMap -->
                 <div class="bg-white rounded-3xl p-6 shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5">
-                    <h3 class="text-xs font-black text-slate-400 uppercase tracking-wider mb-4">Loyalty Rank Tiers at ${curStation.station_name || 'Station'}</h3>
+                    <h3 class="text-xs font-black text-slate-400 uppercase tracking-wider mb-4">Loyalty Rank Tiers at ${escapeHtml(curStation.station_name || 'Station')}</h3>
                     <div class="space-y-3">
                         ${tiers.map(t => {
                             const isCurrent = rank.name === t.name;
@@ -1454,7 +1454,7 @@ const UI = {
             <div class="flex items-center gap-4 mb-4 pb-4 border-b border-slate-100">
                 <div class="w-16 h-16 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center text-3xl shadow-inner shrink-0"><i class="fa-solid fa-store"></i></div>
                 <div class="min-w-0 flex-1">
-                    <h2 class="text-2xl font-black text-slate-800 truncate">${station.station_name}</h2>
+                    <h2 class="text-2xl font-black text-slate-800 truncate">${escapeHtml(station.station_name)}</h2>
                     <div class="flex items-center gap-2 mt-1.5 flex-wrap">
                         <span class="px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider border ${stRank.badgeBg}">
                             <i class="fa-solid ${stRank.icon} mr-1"></i>${stRank.name} Member
@@ -1483,7 +1483,7 @@ const UI = {
                 <i class="fa-solid fa-circle-exclamation text-red-500 mt-1"></i>
                 <div>
                     <h4 class="font-black text-red-800">Station Currently Closed</h4>
-                    <p class="text-xs text-red-600 font-medium mt-1">${station.closure_message || 'This station is temporarily not accepting orders.'}</p>
+                    <p class="text-xs text-red-600 font-medium mt-1">${escapeHtml(station.closure_message || 'This station is temporarily not accepting orders.')}</p>
                 </div>
             </div>
             ` : ''}
@@ -1769,7 +1769,7 @@ const UI = {
                 <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-6 space-y-5">
                     <div>
                         <label class="block text-sm font-bold text-slate-700 mb-2">Delivery Address</label>
-                        <textarea id="co-address" required rows="2" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition">${State.user.data.address}</textarea>
+                        <textarea id="co-address" required rows="2" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition">${escapeHtml(State.user.data.address)}</textarea>
                     </div>
                     <div>
                         <label class="block text-sm font-bold text-slate-700 mb-2">Delivery Schedule</label>
@@ -1807,8 +1807,8 @@ const UI = {
                     <div id="co-cashless-ui-gcash" class="hidden space-y-4 pt-4 border-t border-slate-100">
                         <div class="p-4 bg-slate-50 rounded-2xl border border-blue-200">
                             <p class="text-xs font-bold text-blue-500 uppercase mb-2">Station GCash Detail</p>
-                            <p class="text-sm font-bold text-slate-800">${station.gcash_name || 'Not provided'}</p>
-                            <p class="text-sm text-slate-700 font-bold tracking-wider mt-1">${station.gcash_number || 'N/A'}</p>
+                            <p class="text-sm font-bold text-slate-800">${escapeHtml(station.gcash_name || 'Not provided')}</p>
+                            <p class="text-sm text-slate-700 font-bold tracking-wider mt-1">${escapeHtml(station.gcash_number || 'N/A')}</p>
                             ${station.gcash_qr ? `<img src="${station.gcash_qr}" class="mt-3 max-w-[150px] mx-auto rounded-xl border border-slate-200 shadow-sm">` : ''}
                         </div>
                         <div class="pt-2">
@@ -1820,8 +1820,8 @@ const UI = {
                     <div id="co-cashless-ui-maya" class="hidden space-y-4 pt-4 border-t border-slate-100">
                         <div class="p-4 bg-slate-50 rounded-2xl border border-emerald-200">
                             <p class="text-xs font-bold text-emerald-500 uppercase mb-2">Station Maya Detail</p>
-                            <p class="text-sm font-bold text-slate-800">${station.maya_name || 'Not provided'}</p>
-                            <p class="text-sm text-slate-700 font-bold tracking-wider mt-1">${station.maya_number || 'N/A'}</p>
+                            <p class="text-sm font-bold text-slate-800">${escapeHtml(station.maya_name || 'Not provided')}</p>
+                            <p class="text-sm text-slate-700 font-bold tracking-wider mt-1">${escapeHtml(station.maya_number || 'N/A')}</p>
                             ${station.maya_qr ? `<img src="${station.maya_qr}" class="mt-3 max-w-[150px] mx-auto rounded-xl border border-slate-200 shadow-sm">` : ''}
                         </div>
                         <div class="pt-2">
@@ -2019,7 +2019,7 @@ const UI = {
                                 <i class="fa-solid fa-store"></i>
                             </div>
                             <div class="min-w-0 flex-1">
-                                <h4 class="font-black text-slate-900 text-base leading-tight truncate">${o.station_name}</h4>
+                                <h4 class="font-black text-slate-900 text-base leading-tight truncate">${escapeHtml(o.station_name)}</h4>
                                 <div class="flex items-center gap-1 mt-1 text-[10px] text-slate-500 whitespace-nowrap overflow-hidden">
                                     <span class="font-bold text-blue-600 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded text-[9px] shrink-0">Order #${o.station_order_number || o.order_id}</span>
                                     <span class="text-slate-400 shrink-0">•</span>
@@ -2042,8 +2042,8 @@ const UI = {
                     <div class="flex items-center justify-between text-sm py-1">
                         <div class="flex items-center gap-2 min-w-0">
                             <span class="bg-blue-100/70 text-blue-800 font-black text-xs px-2 py-0.5 rounded-md shrink-0">${item.quantity}x</span>
-                            <span class="font-bold text-slate-800 truncate">${item.product_name}</span>
-                            <span class="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase shrink-0">${item.jug_type}</span>
+                            <span class="font-bold text-slate-800 truncate">${escapeHtml(item.product_name)}</span>
+                            <span class="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase shrink-0">${escapeHtml(item.jug_type)}</span>
                         </div>
                         <span class="font-bold text-slate-800 shrink-0 ml-2">₱${parseFloat(item.total_price).toFixed(2)}</span>
                     </div>
@@ -2660,7 +2660,7 @@ const UI = {
             group.items.forEach(item => {
                 html += `
                     <div class="flex items-center justify-between text-sm font-medium text-slate-700 py-1">
-                        <span><i class="fa-solid fa-bottle-water w-5 text-blue-400 text-center"></i> <span class="font-black text-slate-900 mr-1">${item.quantity}x</span>${item.product_name} <span class="text-[10px] uppercase text-slate-400 ml-1">(${item.jug_type})</span></span>
+                        <span><i class="fa-solid fa-bottle-water w-5 text-blue-400 text-center"></i> <span class="font-black text-slate-900 mr-1">${item.quantity}x</span>${escapeHtml(item.product_name)} <span class="text-[10px] uppercase text-slate-400 ml-1">(${escapeHtml(item.jug_type)})</span></span>
                         <span class="font-black text-slate-900">₱${parseFloat(item.total_price).toFixed(2)}</span>
                     </div>
                 `;
@@ -3501,7 +3501,7 @@ const UI = {
                                     <i class="fa-solid ${rank.icon} mr-1"></i>${rank.name}
                                 </span>
                             </div>
-                            <p class="text-xs text-slate-500 font-medium mt-0.5"><i class="fa-solid fa-phone mr-1 text-slate-400"></i>${cust.contact_number}</p>
+                            <p class="text-xs text-slate-500 font-medium mt-0.5"><i class="fa-solid fa-phone mr-1 text-slate-400"></i>${escapeHtml(cust.contact_number)}</p>
                             <div class="flex items-center gap-4 mt-2 text-xs text-slate-500">
                                 <span><strong class="text-slate-700">${cust.total_orders}</strong> orders</span>
                                 <span><strong class="text-slate-700">${cust.total_containers}</strong> jugs</span>
@@ -3593,18 +3593,17 @@ const UI = {
             products.forEach(p => {
                 const capGal = parseFloat(p.capacity_gallons || 5.0);
                 const capLit = parseFloat(p.capacity_liters || (capGal === 5.0 ? 20.0 : Math.round(capGal * 3.785)));
-                const escapedName = (p.name || '').replace(/'/g, "\\'");
                 html += `
                     <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-5 flex justify-between items-center gap-3">
                         <div class="min-w-0 flex-1 pr-2">
-                            <h4 class="font-black text-slate-800 text-lg leading-tight truncate">${p.name}</h4>
+                            <h4 class="font-black text-slate-800 text-lg leading-tight truncate">${escapeHtml(p.name)}</h4>
                             <div class="flex items-center gap-2 mt-1">
                                 <span class="text-blue-600 font-black text-sm">₱${parseFloat(p.price).toFixed(2)}</span>
                                 <span class="text-[10px] font-bold text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">${capGal} Gal (${capLit}L)</span>
                             </div>
                         </div>
                         <div class="flex gap-2 shrink-0">
-                            <button onclick="App.promptEditProduct(${p.product_id}, ${p.price}, '${escapedName}', ${capGal})" class="w-10 h-10 rounded-xl bg-slate-50 text-slate-600 hover:bg-blue-50 hover:text-blue-600 flex items-center justify-center transition" title="Edit Item">
+                            <button data-pid="${p.product_id}" data-price="${p.price}" data-name="${escapeHtml(p.name)}" data-gal="${capGal}" onclick="App.promptEditProduct(this.dataset.pid, this.dataset.price, this.dataset.name, this.dataset.gal)" class="w-10 h-10 rounded-xl bg-slate-50 text-slate-600 hover:bg-blue-50 hover:text-blue-600 flex items-center justify-center transition" title="Edit Item">
                                 <i class="fa-solid fa-pen"></i>
                             </button>
                             <button onclick="App.deleteProduct(${p.product_id})" class="w-10 h-10 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 flex items-center justify-center transition" title="Delete Item">
@@ -3698,7 +3697,7 @@ const UI = {
                     </style>
                     <div id="closure_msg_wrap" class="${station.is_manually_closed == 1 ? '' : 'hidden'}">
                         <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Closure Message (Optional)</label>
-                        <input type="text" id="set_closure_msg" placeholder="e.g. Closed for emergency maintenance" value="${station.closure_message || ''}" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl">
+                        <input type="text" id="set_closure_msg" placeholder="e.g. Closed for emergency maintenance" value="${escapeHtml(station.closure_message || '')}" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl">
                     </div>
                     <button type="submit" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-3 rounded-xl shadow-md transition flex justify-center items-center">Update Status</button>
                 </form>
@@ -3766,8 +3765,8 @@ const UI = {
                 <form onsubmit="App.updatePaymentProfile(event)" class="space-y-5">
                     <div class="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
                         <h4 class="font-bold text-slate-700 text-sm">GCash Settings</h4>
-                        <input type="text" id="set_gcash_name" placeholder="GCash Account Name" value="${station.gcash_name || ''}" class="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm">
-                        <input type="tel" id="set_gcash_num" placeholder="GCash Mobile Number" value="${station.gcash_number || ''}" maxlength="11" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,11)" class="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm">
+                        <input type="text" id="set_gcash_name" placeholder="GCash Account Name" value="${escapeHtml(station.gcash_name || '')}" class="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm">
+                        <input type="tel" id="set_gcash_num" placeholder="GCash Mobile Number" value="${escapeHtml(station.gcash_number || '')}" maxlength="11" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,11)" class="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm">
                         <div>
                             <label class="block text-xs font-bold text-slate-500 mb-1">Upload New GCash QR Image</label>
                             <input type="file" id="set_gcash_qr" accept="image/*" class="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-100 file:text-blue-700">
@@ -3775,8 +3774,8 @@ const UI = {
                     </div>
                     <div class="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
                         <h4 class="font-bold text-slate-700 text-sm">Maya Settings</h4>
-                        <input type="text" id="set_maya_name" placeholder="Maya Account Name" value="${station.maya_name || ''}" class="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm">
-                        <input type="tel" id="set_maya_num" placeholder="Maya Mobile Number" value="${station.maya_number || ''}" maxlength="11" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,11)" class="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm">
+                        <input type="text" id="set_maya_name" placeholder="Maya Account Name" value="${escapeHtml(station.maya_name || '')}" class="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm">
+                        <input type="tel" id="set_maya_num" placeholder="Maya Mobile Number" value="${escapeHtml(station.maya_number || '')}" maxlength="11" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,11)" class="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm">
                         <div>
                             <label class="block text-xs font-bold text-slate-500 mb-1">Upload New Maya QR Image</label>
                             <input type="file" id="set_maya_qr" accept="image/*" class="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-100 file:text-blue-700">
@@ -3795,7 +3794,7 @@ const UI = {
                 <form onsubmit="App.updateSecurity(event)" class="space-y-4">
                     <div>
                         <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Admin Username</label>
-                        <input type="text" id="sec-user" required value="${State.user.data.username}" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold">
+                        <input type="text" id="sec-user" required value="${escapeHtml(State.user.data.username || '')}" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold">
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-slate-500 uppercase mb-1">New Password (leave blank to keep current)</label>
@@ -3835,7 +3834,7 @@ const UI = {
                 const isRevoked = s.status === 'Revoked';
                 html += `
                     <div class="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
-                        <span class="font-bold text-slate-700 ${isRevoked ? 'line-through text-slate-400' : ''}">${s.username}</span>
+                        <span class="font-bold text-slate-700 ${isRevoked ? 'line-through text-slate-400' : ''}">${escapeHtml(s.username)}</span>
                         <button onclick="App.toggleStaffStatus(${s.admin_id}, '${isRevoked ? 'Active' : 'Revoked'}')" class="text-xs font-bold px-3 py-1.5 rounded-lg ${isRevoked ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">
                             ${isRevoked ? 'Activate' : 'Revoke'}
                         </button>
@@ -4013,7 +4012,7 @@ const UI = {
             group.items.forEach(item => {
                 html += `
                     <div class="flex items-center text-sm font-bold text-slate-700">
-                        <i class="fa-solid fa-bottle-water w-5 text-blue-400 text-center"></i> <span class="font-black text-slate-900 mr-1">${item.quantity}x</span>${item.product_name} <span class="text-[10px] uppercase text-slate-400 ml-1">(${item.jug_type})</span>
+                        <i class="fa-solid fa-bottle-water w-5 text-blue-400 text-center"></i> <span class="font-black text-slate-900 mr-1">${item.quantity}x</span>${escapeHtml(item.product_name)} <span class="text-[10px] uppercase text-slate-400 ml-1">(${escapeHtml(item.jug_type)})</span>
                     </div>
                 `;
             });
@@ -4208,11 +4207,11 @@ const UI = {
                             <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                                 <div>
                                     <div class="flex items-center gap-3 mb-1">
-                                        <h3 class="font-black text-slate-800 text-lg">${s.station_name}</h3>
+                                        <h3 class="font-black text-slate-800 text-lg">${escapeHtml(s.station_name)}</h3>
                                         <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${s.status}</span>
                                     </div>
-                                    <p class="text-xs text-slate-500 font-medium"><i class="fa-solid fa-user-shield mr-1 text-slate-400"></i>Admin: <strong class="text-slate-700">${s.admin_username || 'None'}</strong></p>
-                                    <p class="text-xs text-slate-500 font-medium mt-0.5"><i class="fa-solid fa-location-dot mr-1 text-slate-400"></i>${s.address || 'No address'}</p>
+                                    <p class="text-xs text-slate-500 font-medium"><i class="fa-solid fa-user-shield mr-1 text-slate-400"></i>Admin: <strong class="text-slate-700">${escapeHtml(s.admin_username || 'None')}</strong></p>
+                                    <p class="text-xs text-slate-500 font-medium mt-0.5"><i class="fa-solid fa-location-dot mr-1 text-slate-400"></i>${escapeHtml(s.address || 'No address')}</p>
                                 </div>
                                 <div class="flex gap-2">
                                     <button onclick="App.toggleStationStatus(${s.station_id}, '${isActive ? 'Suspended' : 'Active'}')" class="px-3.5 py-2 rounded-xl text-xs font-bold ${isActive ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'} transition">
@@ -4289,7 +4288,7 @@ const UI = {
                                 <select id="sa-modal-admin-station" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-blue-500 outline-none">
                                     <option value="">-- Choose Station --</option>
                                     ${(usersData.stations || stations || []).map(st => `
-                                        <option value="${st.station_id}">${st.station_name}</option>
+                                        <option value="${st.station_id}">${escapeHtml(st.station_name)}</option>
                                     `).join('')}
                                 </select>
                             </div>
@@ -4391,24 +4390,24 @@ const UI = {
                             </div>
                             <div class="min-w-0">
                                 <div class="flex items-center gap-2 flex-wrap">
-                                    <h4 class="font-black text-slate-800 text-base leading-snug truncate">${a.username}</h4>
+                                    <h4 class="font-black text-slate-800 text-base leading-snug truncate">${escapeHtml(a.username)}</h4>
                                     <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${roleBadge}">${a.role}</span>
                                     <span class="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${a.status}</span>
                                 </div>
                                 <p class="text-xs text-slate-500 mt-1">
-                                    <i class="fa-solid fa-store mr-1 text-slate-400"></i>Station: <strong class="text-slate-700">${a.station_name || (a.role === 'Super Admin' ? 'Global / All Stations' : 'Unassigned')}</strong>
+                                    <i class="fa-solid fa-store mr-1 text-slate-400"></i>Station: <strong class="text-slate-700">${escapeHtml(a.station_name || (a.role === 'Super Admin' ? 'Global / All Stations' : 'Unassigned'))}</strong>
                                 </p>
                             </div>
                         </div>
                         <div class="flex items-center gap-2 self-end sm:self-center">
-                            <button onclick='App.openAdminUserModal(${JSON.stringify(a)})' class="p-2 rounded-xl bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-600 transition" title="Edit User">
+                            <button onclick="App.openAdminUserModal(JSON.parse(decodeURIComponent('${encodeURIComponent(JSON.stringify(a))}')))" class="p-2 rounded-xl bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-600 transition" title="Edit User">
                                 <i class="fa-solid fa-pen-to-square"></i>
                             </button>
                             ${a.role !== 'Super Admin' ? `
                                 <button onclick="App.toggleAdminStatus(${a.admin_id}, '${isActive ? 'Revoked' : 'Active'}')" class="px-3 py-1.5 rounded-xl text-xs font-bold ${isActive ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'} transition">
                                     ${isActive ? 'Suspend' : 'Activate'}
                                 </button>
-                                <button onclick="App.deleteAdminUser(${a.admin_id}, '${a.username}')" class="p-2 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 transition" title="Delete User">
+                                <button onclick="App.deleteAdminUser(${a.admin_id}, decodeURIComponent('${encodeURIComponent(a.username || '')}'))" class="p-2 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 transition" title="Delete User">
                                     <i class="fa-solid fa-trash"></i>
                                 </button>
                             ` : ''}

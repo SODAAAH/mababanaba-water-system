@@ -948,10 +948,10 @@ const App = {
             return CustomToast.show(`${station.station_name} is currently closed or unavailable.`, 'error');
         }
 
-        const summary = last.items.map(i => `${i.quantity}x ${i.product_name} (${i.jug_type || 'Round'})`).join(' + ');
+        const summary = last.items.map(i => `${i.quantity}x ${escapeHtml(i.product_name)} (${escapeHtml(i.jug_type || 'Round')})`).join(' + ');
 
         CustomDialog.confirm(
-            `Place 1-Tap Reorder for <strong>${summary}</strong> from <strong>${last.station_name}</strong> for <strong>₱${last.total_price.toFixed(2)}</strong> via <strong>${last.payment_method}</strong>?`,
+            `Place 1-Tap Reorder for <strong>${summary}</strong> from <strong>${escapeHtml(last.station_name)}</strong> for <strong>₱${last.total_price.toFixed(2)}</strong> via <strong>${escapeHtml(last.payment_method)}</strong>?`,
             'Confirm 1-Tap Reorder'
         ).then(async (confirmed) => {
             if (!confirmed) return;
