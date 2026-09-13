@@ -11,12 +11,23 @@ The frontend is built as an installable PWA with full offline caching support.
 - **Database:** MySQL / MariaDB
 - **PWA:** Service Worker (offline caching)
 
-## Project Layout
+## Project Structure
 
-- `public/` - Web root and static assets (HTML, CSS, JS, fonts, service worker)
-- `api/` - Backend endpoints, controllers, and security helpers
-- `database/` - Database schema (`schema.sql`)
-- `deploy/` - Deployment scripts
+```text
+├── api/                  # Backend REST API, controllers, and helpers
+├── database/             # Database schema (schema.sql) and security documentation
+├── public/               # Frontend web root and static assets
+│   ├── css/              # Application styles and compiled Tailwind CSS
+│   ├── fonts/            # Local Inter font files
+│   ├── js/               # Frontend application logic
+│   ├── webfonts/         # Font Awesome icon assets
+│   ├── index.html        # Single Page Application root
+│   ├── manifest.json     # PWA manifest
+│   └── sw.js             # Service worker with offline caching
+├── .env.example          # Environment variable template
+├── package.json          # Build scripts and dependencies
+└── tailwind.config.js    # Tailwind CSS configuration
+```
 
 ## Getting Started
 
@@ -72,12 +83,4 @@ For continuous rebuilds during frontend work:
 
 ```bash
 npm run watch:css
-```
-
-## Deployment
-
-Deployments to production can be run via:
-
-```bash
-node deploy/deploy.js
 ```
