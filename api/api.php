@@ -16,10 +16,9 @@ ini_set('session.cookie_lifetime', $lifetime);
 ini_set('session.gc_maxlifetime', $lifetime);
 ini_set('session.use_strict_mode', 1);
 
-$session_path = __DIR__ . '/sessions';
+$session_path = sys_get_temp_dir() . '/mbbnb_sessions';
 if (!is_dir($session_path)) {
-    @mkdir($session_path, 0755, true);
-    @file_put_contents($session_path . '/.htaccess', "<IfModule !mod_authz_core.c>\nOrder allow,deny\nDeny from all\n</IfModule>\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n");
+    @mkdir($session_path, 0700, true);
 }
 session_save_path($session_path);
 
@@ -37,8 +36,10 @@ session_set_cookie_params([
 ]);
 
 session_start();
-header("Content-Type: application/json");
+header("Content-Type: application/json; charset=utf-8");
 header("X-Content-Type-Options: nosniff");
+header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+header("Pragma: no-cache");
 
 $action = $_GET['action'] ?? '';
 
@@ -329,7 +330,6 @@ switch ($action) {
     case 'admin_toggle_staff': getAdminController($pdo)->adminToggleStaff(); break;
     case 'get_admin_loyalty': getAdminController($pdo)->getAdminLoyalty(); break;
     case 'update_order_status': getAdminController($pdo)->updateOrderStatus(); break;
-    case 'admin_test_push': getAdminController($pdo)->adminTestPush(); break;
 
     case 'get_vapid_public_key':
         echo json_encode(['vapid_public_key' => WebPush::getVapidPublicKey()]);

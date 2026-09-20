@@ -78,24 +78,4 @@ class SecurityContext {
         }
         return $admin;
     }
-
-    public static function canAccessOrder(PDO $pdo, int $orderId, ?int $stationId = null, ?int $customerId = null, string $role = ''): bool {
-        if ($role === 'Super Admin') {
-            return true;
-        }
-
-        if ($customerId) {
-            $stmt = $pdo->prepare("SELECT 1 FROM ORDERS WHERE order_id = ? AND customer_id = ?");
-            $stmt->execute([$orderId, $customerId]);
-            return (bool)$stmt->fetchColumn();
-        }
-
-        if ($stationId) {
-            $stmt = $pdo->prepare("SELECT 1 FROM ORDERS WHERE order_id = ? AND station_id = ?");
-            $stmt->execute([$orderId, $stationId]);
-            return (bool)$stmt->fetchColumn();
-        }
-
-        return false;
-    }
 }

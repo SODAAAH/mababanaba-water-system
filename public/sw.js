@@ -1,5 +1,5 @@
-const STATIC_CACHE_NAME = 'mababanaba-static-v1789325048126';
-const API_CACHE_NAME = 'mababanaba-api-v1789325048126';
+const STATIC_CACHE_NAME = 'mababanaba-static-v1789908431012';
+const API_CACHE_NAME = 'mababanaba-api-v1789908431012';
 
 const ASSETS_TO_CACHE = [
     './',
@@ -67,16 +67,6 @@ self.addEventListener('message', (event) => {
         self.skipWaiting();
     }
 });
-
-function stripQuery(url) {
-    try {
-        const u = new URL(url);
-        u.search = '';
-        return u.toString();
-    } catch (e) {
-        return url;
-    }
-}
 
 self.addEventListener('fetch', (event) => {
     const request = event.request;

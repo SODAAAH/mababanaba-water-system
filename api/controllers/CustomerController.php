@@ -688,7 +688,7 @@ class CustomerController {
             $shippingFee = (float)$st['shipping_fee'];
 
             if ($use_points) {
-                $stmtC = $this->pdo->prepare("SELECT points FROM CUSTOMER_LOYALTY WHERE customer_id = ? AND station_id = ?"); $stmtC->execute([$cid, $sid]);
+                $stmtC = $this->pdo->prepare("SELECT points FROM CUSTOMER_LOYALTY WHERE customer_id = ? AND station_id = ? FOR UPDATE"); $stmtC->execute([$cid, $sid]);
                 if ((int)$stmtC->fetchColumn() < 10) { throw new Exception("Not enough loyalty points."); }
                 $this->pdo->prepare("UPDATE CUSTOMER_LOYALTY SET points = points - 10 WHERE customer_id = ? AND station_id = ?")->execute([$cid, $sid]);
             }
@@ -730,8 +730,10 @@ class CustomerController {
                 if($isFirst) { $curr_shipping = $shippingFee; }
                 if($use_points && $i === $discountIndex) { $curr_discount = $pricePerItem; }
                 
+                // Attach large payment proof to the primary item in the cart; siblings share station_order_number
+                $proofToSave = $isFirst ? $proof : null;
                 $this->pdo->prepare("INSERT INTO ORDERS (station_id, customer_id, product_id, station_order_number, total_price, payment_method, payment_proof, quantity, delivery_address, scheduled_date, points_used, return_round, return_slim, borrow_round, borrow_slim, container_option, returning_borrowed_flag, jug_type, shipping_fee, jug_fee, discount_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-                    ->execute([$sid, $cid, $c['product_id'], $stationOrderNumber, $item_total, $pay, $proof, $cQty, $addr, $schedule, ($use_points && $i === $discountIndex ? 10 : 0), $curr_rr, $curr_rs, $curr_br, $curr_bs, $c_opt, $returning_borrowed, $jType, $curr_shipping, $curr_jug_buy, $curr_discount]);
+                    ->execute([$sid, $cid, $c['product_id'], $stationOrderNumber, $item_total, $pay, $proofToSave, $cQty, $addr, $schedule, ($use_points && $i === $discountIndex ? 10 : 0), $curr_rr, $curr_rs, $curr_br, $curr_bs, $c_opt, $returning_borrowed, $jType, $curr_shipping, $curr_jug_buy, $curr_discount]);
                 
                 $isFirst = false; $i++;
             }

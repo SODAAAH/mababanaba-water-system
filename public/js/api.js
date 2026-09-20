@@ -6,7 +6,7 @@ const API = {
             const toRemove = [];
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
-                if (key && key.startsWith('cache_')) {
+                if (key && (key.startsWith('cache_') || key.startsWith('mbbnb_') || key.includes('session'))) {
                     toRemove.push(key);
                 }
             }
@@ -96,8 +96,10 @@ const API = {
                 if (json && json.error) throw new Error("API_ERR:" + json.error);
                 if (json && json.csrf_token) State.csrfToken = json.csrf_token;
 
-                // Cache successful GET responses for instant offline access
-                if (method === 'GET' && json && !json.error) {
+                // Cache successful GET responses for instant offline access (public non-sensitive actions only)
+                const actionBase = action.split('&')[0];
+                const publicCacheable = ['get_stations', 'get_vapid_public_key'];
+                if (method === 'GET' && json && !json.error && publicCacheable.includes(actionBase)) {
                     try { 
                         localStorage.setItem(cleanActionKey, JSON.stringify({
                             data: json,
@@ -132,7 +134,8 @@ const API = {
                     if (json && json.error) throw new Error(json.error);
                     if (json && json.csrf_token) State.csrfToken = json.csrf_token;
 
-                    if (method === 'GET' && json && !json.error) {
+                    const actionBaseFallback = action.split('&')[0];
+                    if (method === 'GET' && json && !json.error && ['get_stations', 'get_vapid_public_key'].includes(actionBaseFallback)) {
                         try { 
                             localStorage.setItem(cleanActionKey, JSON.stringify({
                                 data: json,

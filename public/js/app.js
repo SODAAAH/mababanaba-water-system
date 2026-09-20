@@ -2294,7 +2294,7 @@ if ('serviceWorker' in navigator) {
                 } catch(e) {}
             } else if (window.UI && window.UI._currentView === 'delivery_dashboard') {
                 try {
-                    const freshDeliv = await API.request('get_delivery_dashboard_data', 'GET', null, true);
+                    const freshDeliv = await API.request('get_admin_dashboard_data', 'GET', null, true);
                     if (freshDeliv) {
                         State.deliveryData = freshDeliv;
                         window.UI._updateDeliveryList();

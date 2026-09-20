@@ -601,6 +601,15 @@ const UI = {
                 State.heartbeatInterval = null;
             }
             if (window.API && window.API.clearCache) API.clearCache();
+            if ('caches' in window) {
+                try {
+                    caches.keys().then(names => {
+                        names.forEach(name => {
+                            if (name.includes('api')) caches.delete(name);
+                        });
+                    });
+                } catch(ce) {}
+            }
             State.csrfToken = null;
             this.navigate('login', 'replace');
             API.request('check_session').catch(() => {});
@@ -2443,17 +2452,6 @@ const UI = {
         State.adminOrderTab = 'active';
         this.closeAdminActiveDropdown();
         this._switchAdminTab();
-    },
-
-    selectAdminActiveTab() {
-        if (State.adminOrderTab !== 'active') {
-            State.adminOrderTab = 'active';
-            this._switchAdminTab();
-        }
-    },
-
-    handleAdminOrderFilter(val) {
-        this.selectAdminFilterOption(val);
     },
 
     selectAdminHistoryTab() {

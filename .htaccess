@@ -1,0 +1,29 @@
+# Root hardening .htaccess
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Prevent direct access to sensitive configuration, database, and repository files
+    RewriteRule ^(\.env|\.git|\.gitignore|database|package\.json|package-lock\.json|tailwind\.config\.js|README\.md) - [F,L,NC]
+
+    # If DocumentRoot is set to this directory instead of public/, redirect root requests to /public/
+    RewriteCond %{REQUEST_URI} !^/public/
+    RewriteCond %{REQUEST_URI} !^/api/
+    RewriteRule ^$ public/ [L,R=301]
+
+    RewriteCond %{REQUEST_URI} !^/public/
+    RewriteCond %{REQUEST_URI} !^/api/
+    RewriteCond %{DOCUMENT_ROOT}/public%{REQUEST_URI} -f
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
+
+<FilesMatch "(^\.env|^\.git|\.(sql|bak|config|ini|log|sh|md)$|composer\.|package(-lock)?\.json)">
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+</FilesMatch>

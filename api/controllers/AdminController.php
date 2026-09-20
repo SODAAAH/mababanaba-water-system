@@ -577,7 +577,20 @@ class AdminController {
 
     public function adminToggleStaff() {
         $admin = $this->requireStationAdmin();
-        $this->pdo->prepare("UPDATE ADMIN SET status = ? WHERE admin_id = ? AND station_id = ?")->execute([$_POST['status'], $_POST['admin_id'], $admin['station_id']]); 
+        $targetAdminId = (int)($_POST['admin_id'] ?? 0);
+        $status = in_array($_POST['status'] ?? '', ['Active', 'Revoked'], true) ? $_POST['status'] : 'Active';
+
+        if ($targetAdminId === (int)$admin['admin_id']) {
+            echo json_encode(['error' => 'You cannot modify your own administrative account status.']);
+            exit;
+        }
+
+        $stmt = $this->pdo->prepare("UPDATE ADMIN SET status = ? WHERE admin_id = ? AND station_id = ? AND role = 'Delivery Staff'");
+        $stmt->execute([$status, $targetAdminId, $admin['station_id']]);
+        if ($stmt->rowCount() === 0) {
+            echo json_encode(['error' => 'Staff account not found or cannot be modified.']);
+            exit;
+        }
         echo json_encode(['success'=>true]); 
         exit;
     }

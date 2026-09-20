@@ -1,5 +1,6 @@
 <?php
 function run_migrations($pdo) {
+    $isDev = (($_ENV['APP_ENV'] ?? 'production') === 'development');
     $migrationLockFile = __DIR__ . '/.migrated_v2';
     if (!file_exists($migrationLockFile)) {
         try { $pdo->query("SELECT shipping_fee FROM STATION LIMIT 1"); } catch (Exception $e) { $pdo->exec("ALTER TABLE STATION ADD COLUMN shipping_fee DECIMAL(10,2) DEFAULT 0.00"); }
@@ -48,8 +49,6 @@ function run_migrations($pdo) {
             ");
         } catch (Exception $e) {}
 
-        try { $pdo->query("SELECT new_temp_contact FROM CUSTOMER LIMIT 1"); } catch (Exception $e) { $pdo->exec("ALTER TABLE CUSTOMER ADD COLUMN new_temp_contact VARCHAR(20) DEFAULT NULL"); }
-        try { $pdo->query("SELECT contact_number FROM ADMIN LIMIT 1"); } catch (Exception $e) { $pdo->exec("ALTER TABLE ADMIN ADD COLUMN contact_number VARCHAR(20) NULL, ADD COLUMN otp_code VARCHAR(10) DEFAULT NULL, ADD COLUMN otp_expiry DATETIME DEFAULT NULL, ADD COLUMN new_temp_contact VARCHAR(20) DEFAULT NULL"); }
         try { $pdo->query("SELECT failed_otp_attempts FROM CUSTOMER LIMIT 1"); } catch (Exception $e) { $pdo->exec("ALTER TABLE CUSTOMER ADD COLUMN failed_otp_attempts INT DEFAULT 0"); }
         try { $pdo->query("SELECT failed_otp_attempts FROM ADMIN LIMIT 1"); } catch (Exception $e) { $pdo->exec("ALTER TABLE ADMIN ADD COLUMN failed_otp_attempts INT DEFAULT 0"); }
         try { $pdo->exec("CREATE INDEX idx_orders_status_date ON ORDERS(order_status, order_date)"); } catch (Exception $e) {}
@@ -94,27 +93,29 @@ function run_migrations($pdo) {
                     $pdo->prepare("UPDATE INVENTORY SET stock_level = GREATEST(stock_level, 500), round_jugs = GREATEST(round_jugs, 200), slim_jugs = GREATEST(slim_jugs, 200) WHERE station_id = ?")->execute([$sid]);
                 }
             }
-            // Seed dedicated test station admins for Station 1, 2, 3
-            $testPass = password_hash('StationTest@123', PASSWORD_DEFAULT);
-            foreach ([1 => 'station1_admin', 2 => 'station2_admin', 3 => 'station3_admin'] as $sid => $uname) {
-                $chk = $pdo->prepare("SELECT admin_id FROM ADMIN WHERE username = ?");
-                $chk->execute([$uname]);
-                if (!$chk->fetch()) {
-                    $pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role, status) VALUES (?, ?, ?, 'Admin', 'Active')")->execute([$sid, $uname, $testPass]);
+            // Seed dedicated test station admins for Station 1, 2, 3 only in development
+            if ($isDev) {
+                $testPass = password_hash('StationTest@123', PASSWORD_DEFAULT);
+                foreach ([1 => 'station1_admin', 2 => 'station2_admin', 3 => 'station3_admin'] as $sid => $uname) {
+                    $chk = $pdo->prepare("SELECT admin_id FROM ADMIN WHERE username = ?");
+                    $chk->execute([$uname]);
+                    if (!$chk->fetch()) {
+                        $pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role, status) VALUES (?, ?, ?, 'Admin', 'Active')")->execute([$sid, $uname, $testPass]);
+                    }
                 }
-            }
-            // Seed verified test customers
-            $custPass = password_hash('CustTest@123', PASSWORD_DEFAULT);
-            foreach ([
-                ['09111111111', 'Test Customer 1', '123 Station 1 St'],
-                ['09222222222', 'Test Customer 2', '456 Station 2 Ave'],
-                ['09333333333', 'Test Customer 3', '789 Station 3 Blvd']
-            ] as $cdata) {
-                $cchk = $pdo->prepare("SELECT customer_id FROM CUSTOMER WHERE contact_number = ?");
-                $cchk->execute([$cdata[0]]);
-                if (!$cchk->fetch()) {
-                    $pdo->prepare("INSERT INTO CUSTOMER (contact_number, full_name, address, password, is_verified) VALUES (?, ?, ?, ?, 1)")
-                        ->execute([$cdata[0], $cdata[1], $cdata[2], $custPass]);
+                // Seed verified test customers
+                $custPass = password_hash('CustTest@123', PASSWORD_DEFAULT);
+                foreach ([
+                    ['09111111111', 'Test Customer 1', '123 Station 1 St'],
+                    ['09222222222', 'Test Customer 2', '456 Station 2 Ave'],
+                    ['09333333333', 'Test Customer 3', '789 Station 3 Blvd']
+                ] as $cdata) {
+                    $cchk = $pdo->prepare("SELECT customer_id FROM CUSTOMER WHERE contact_number = ?");
+                    $cchk->execute([$cdata[0]]);
+                    if (!$cchk->fetch()) {
+                        $pdo->prepare("INSERT INTO CUSTOMER (contact_number, full_name, address, password, is_verified) VALUES (?, ?, ?, ?, 1)")
+                            ->execute([$cdata[0], $cdata[1], $cdata[2], $custPass]);
+                    }
                 }
             }
             // Clear stations cache to reflect fresh seed data
@@ -128,17 +129,19 @@ function run_migrations($pdo) {
 
     $migrationLockFileV4 = __DIR__ . '/.migrated_v4';
     if (!file_exists($migrationLockFileV4)) {
-        try {
-            $staffPass = password_hash('StaffTest@123', PASSWORD_DEFAULT);
-            foreach ([1 => 'station1_staff', 2 => 'station2_staff', 3 => 'station3_staff'] as $sid => $uname) {
-                $chk = $pdo->prepare("SELECT admin_id FROM ADMIN WHERE username = ?");
-                $chk->execute([$uname]);
-                if (!$chk->fetch()) {
-                    $pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role, status) VALUES (?, ?, ?, 'Delivery Staff', 'Active')")->execute([$sid, $uname, $staffPass]);
+        if ($isDev) {
+            try {
+                $staffPass = password_hash('StaffTest@123', PASSWORD_DEFAULT);
+                foreach ([1 => 'station1_staff', 2 => 'station2_staff', 3 => 'station3_staff'] as $sid => $uname) {
+                    $chk = $pdo->prepare("SELECT admin_id FROM ADMIN WHERE username = ?");
+                    $chk->execute([$uname]);
+                    if (!$chk->fetch()) {
+                        $pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role, status) VALUES (?, ?, ?, 'Delivery Staff', 'Active')")->execute([$sid, $uname, $staffPass]);
+                    }
                 }
+            } catch (Exception $e) {
+                error_log("Migration v4 error: " . $e->getMessage());
             }
-        } catch (Exception $e) {
-            error_log("Migration v4 error: " . $e->getMessage());
         }
         @file_put_contents($migrationLockFileV4, date('c'));
     }
@@ -146,37 +149,39 @@ function run_migrations($pdo) {
     $migrationLockFileV5 = __DIR__ . '/.migrated_v5';
     if (!file_exists($migrationLockFileV5)) {
         try {
-            $staffPass = password_hash('StaffTest@123', PASSWORD_DEFAULT);
-            $staffList = [
-                [1, 'station1_staff1'], [1, 'station1_staff2'],
-                [2, 'station2_staff1'], [2, 'station2_staff2'],
-                [3, 'station3_staff1'], [3, 'station3_staff2']
-            ];
-            foreach ($staffList as $s) {
-                $chk = $pdo->prepare("SELECT admin_id FROM ADMIN WHERE username = ?");
-                $chk->execute([$s[1]]);
-                if (!$chk->fetch()) {
-                    $pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role, status) VALUES (?, ?, ?, 'Delivery Staff', 'Active')")->execute([$s[0], $s[1], $staffPass]);
+            if ($isDev) {
+                $staffPass = password_hash('StaffTest@123', PASSWORD_DEFAULT);
+                $staffList = [
+                    [1, 'station1_staff1'], [1, 'station1_staff2'],
+                    [2, 'station2_staff1'], [2, 'station2_staff2'],
+                    [3, 'station3_staff1'], [3, 'station3_staff2']
+                ];
+                foreach ($staffList as $s) {
+                    $chk = $pdo->prepare("SELECT admin_id FROM ADMIN WHERE username = ?");
+                    $chk->execute([$s[1]]);
+                    if (!$chk->fetch()) {
+                        $pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role, status) VALUES (?, ?, ?, 'Delivery Staff', 'Active')")->execute([$s[0], $s[1], $staffPass]);
+                    }
                 }
-            }
 
-            // Seed 98 distinct verified customer accounts
-            $custPass = password_hash('CustTest@123', PASSWORD_DEFAULT);
-            $values = [];
-            $params = [];
-            for ($i = 1; $i <= 98; $i++) {
-                $num = sprintf('%02d', $i);
-                $phone = '091000000' . $num;
-                $name = 'Customer ' . $num;
-                $addr = 'Address Customer ' . $num;
-                $values[] = "(?, ?, ?, ?, 1)";
-                $params[] = $phone;
-                $params[] = $name;
-                $params[] = $addr;
-                $params[] = $custPass;
+                // Seed 98 distinct verified customer accounts
+                $custPass = password_hash('CustTest@123', PASSWORD_DEFAULT);
+                $values = [];
+                $params = [];
+                for ($i = 1; $i <= 98; $i++) {
+                    $num = sprintf('%02d', $i);
+                    $phone = '091000000' . $num;
+                    $name = 'Customer ' . $num;
+                    $addr = 'Address Customer ' . $num;
+                    $values[] = "(?, ?, ?, ?, 1)";
+                    $params[] = $phone;
+                    $params[] = $name;
+                    $params[] = $addr;
+                    $params[] = $custPass;
+                }
+                $sql = "INSERT INTO CUSTOMER (contact_number, full_name, address, password, is_verified) VALUES " . implode(',', $values) . " ON DUPLICATE KEY UPDATE is_verified = 1";
+                $pdo->prepare($sql)->execute($params);
             }
-            $sql = "INSERT INTO CUSTOMER (contact_number, full_name, address, password, is_verified) VALUES " . implode(',', $values) . " ON DUPLICATE KEY UPDATE is_verified = 1";
-            $pdo->prepare($sql)->execute($params);
 
             // Ensure ample inventory for 98 orders across all 3 stations
             $pdo->exec("UPDATE INVENTORY SET stock_level = GREATEST(stock_level, 2000), round_jugs = GREATEST(round_jugs, 1000), slim_jugs = GREATEST(slim_jugs, 1000) WHERE station_id IN (1, 2, 3)");
