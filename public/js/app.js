@@ -107,20 +107,21 @@ const App = {
         }
     },
     
-    sendNativeNotification(title, body) {
+    sendNativeNotification(title, body, tag = null) {
         if (!("Notification" in window)) return;
         if (Notification.permission === "granted") {
             try {
                 navigator.serviceWorker.ready.then(function(registration) {
                     registration.showNotification(title, {
                         body: body,
-                        icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cGF0aCBmaWxsPSIjMGVhNWU5IiBkPSJNMzYwLjUgMTguMWMtNi4zLTIuNC0xMy41LTItMTkuNSAyLjFMOTYuMSAxNzEuMWwtOS4zIDEwQzYzLjcgMjA3LjYgNDggMjQwLjggNDggMjc0LjdjMCAxMjQuNyAxMDEuMyAyMjYuMyAyMjYuMyAyMjYuM3MyMjYuMy0xMDEuNiAyMjYuMy0yMjYuM2MwLTMzLjktMTUuNy02Ny4xLTM4LjctOTMuNmwtOS4zLTEwTDIxMC45IDIwLjFjLTYtNC4xLTEzLjItNC41LTE5LjUtMi4xeiIvPjwvc3ZnPg==',
-                        vibrate: [200, 100, 200, 100, 200],
-                        badge: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cGF0aCBmaWxsPSIjMGVhNWU5IiBkPSJNMzYwLjUgMTguMWMtNi4zLTIuNC0xMy41LTItMTkuNSAyLjFMOTYuMSAxNzEuMWwtOS4zIDEwQzYzLjcgMjA3LjYgNDggMjQwLjggNDggMjc0LjdjMCAxMjQuNyAxMDEuMyAyMjYuMyAyMjYuMyAyMjYuM3MyMjYuMy0xMDEuNiAyMjYuMy0yMjYuM2MwLTMzLjktMTUuNy02Ny4xLTM4LjctOTMuNmwtOS4zLTEwTDIxMC45IDIwLjFjLTYtNC4xLTEzLjItNC41LTE5LjUtMi4xeiIvPjwvc3ZnPg=='
+                        icon: './logo.png',
+                        badge: './logo.png',
+                        tag: tag || ('mbbnb-order-' + Date.now()),
+                        vibrate: [200, 100, 200, 100, 200]
                     });
                 });
             } catch (e) {
-                new Notification(title, { body: body });
+                new Notification(title, { body: body, icon: './logo.png', tag: tag || undefined });
             }
         }
     },
@@ -2359,5 +2360,19 @@ window.addEventListener('offline', () => {
     console.log('App: Network disconnected, switching to offline mode');
     if (window.UI && window.UI.updateOfflineState) {
         window.UI.updateOfflineState(true);
+    }
+});
+
+// Automatically pause/resume polling when tab visibility changes
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        if (State.pollingInterval) {
+            clearInterval(State.pollingInterval);
+            State.pollingInterval = null;
+        }
+    } else {
+        if (window.App && window.App.refreshCurrentView) {
+            window.App.refreshCurrentView();
+        }
     }
 });

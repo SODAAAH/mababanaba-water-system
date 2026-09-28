@@ -86,10 +86,32 @@ const API = {
                     const errTxt = await res.text();
                     const errJson = JSON.parse(errTxt);
                     if (errJson && errJson.error) errMsg = errJson.error;
+                    if (errJson && errJson.message) errMsg = errJson.message;
                 } catch(ign) {}
+                if (errMsg.includes('Imunify360') || errMsg.includes('bot-protection')) {
+                    errMsg = "Access temporarily flagged by server security (Imunify360). Please whitelist your IP in cPanel or wait a few moments.";
+                }
                 throw new Error(errMsg);
             }
             const text = await res.text();
+            const trimmed = text.trim();
+            const isHtml = trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html') || trimmed.startsWith('<head');
+            const isWafChallenge = isHtml && (
+                text.includes('wsidchk') || 
+                text.includes('Please wait while your request is being verified') || 
+                text.includes('imunify360') ||
+                text.includes('One moment, please...')
+            );
+
+            if (isWafChallenge) {
+                console.warn('WAF security verification challenge detected from server.');
+                if (typeof CustomToast !== 'undefined' && !silent) {
+                    CustomToast.show('Security verification required. Tap to verify with server.', 'warning', 10000, () => {
+                        window.location.reload();
+                    });
+                }
+                throw new Error("Security verification required by server firewall. Please refresh the page to verify.");
+            }
             
             try {
                 const json = JSON.parse(text);
@@ -152,11 +174,17 @@ const API = {
 
                     return json;
                 } catch (fallbackErr) {
-                    if (fallbackErr.message && (fallbackErr.message.includes('Unauthorized') || fallbackErr.message.includes('Invalid CSRF'))) {
+                    if (fallbackErr.message && (
+                        fallbackErr.message.includes('Unauthorized') || 
+                        fallbackErr.message.includes('Invalid CSRF') ||
+                        fallbackErr.message.includes('Security verification') ||
+                        fallbackErr.message.includes('Imunify360')
+                    )) {
                         throw fallbackErr;
                     }
                     console.error("Raw Server Response:", text);
                     if(text.includes('<br') || text.includes('<b>')) throw new Error("Server configuration error (PHP Warning).");
+                    if (isHtml) throw new Error("Received an unexpected HTML response from server. Please refresh the page.");
                     throw new Error(e.message || "Invalid JSON from server");
                 }
             }

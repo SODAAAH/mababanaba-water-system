@@ -1,5 +1,5 @@
-const STATIC_CACHE_NAME = 'mababanaba-static-v1789908431012';
-const API_CACHE_NAME = 'mababanaba-api-v1789908431012';
+const STATIC_CACHE_NAME = 'mababanaba-static-v1790230200000';
+const API_CACHE_NAME = 'mababanaba-api-v1790230200000';
 
 const ASSETS_TO_CACHE = [
     './',
@@ -76,13 +76,25 @@ self.addEventListener('fetch', (event) => {
     if (request.mode === 'navigate') {
         event.respondWith(
             fetch(request)
-                .then((networkResponse) => {
+                .then(async (networkResponse) => {
                     if (networkResponse && networkResponse.status === 200) {
-                        const clone = networkResponse.clone();
-                        caches.open(STATIC_CACHE_NAME).then((cache) => {
-                            cache.put('./index.html', clone.clone());
-                            cache.put('./', clone);
-                        });
+                        const contentType = networkResponse.headers.get('content-type') || '';
+                        if (contentType.includes('text/html')) {
+                            const clone = networkResponse.clone();
+                            const text = await clone.text();
+                            // Strictly avoid caching WAF anti-bot splash screens as our app shell
+                            if (text.includes('id="app-root"') || text.includes('Mababanaba')) {
+                                caches.open(STATIC_CACHE_NAME).then((cache) => {
+                                    const appResponse = new Response(text, {
+                                        status: networkResponse.status,
+                                        statusText: networkResponse.statusText,
+                                        headers: networkResponse.headers
+                                    });
+                                    cache.put('./index.html', appResponse.clone());
+                                    cache.put('./', appResponse);
+                                });
+                            }
+                        }
                     }
                     return networkResponse;
                 })
@@ -109,8 +121,12 @@ self.addEventListener('fetch', (event) => {
             fetch(request)
                 .then((networkResponse) => {
                     if (networkResponse && networkResponse.status === 200) {
-                        const clone = networkResponse.clone();
-                        caches.open(API_CACHE_NAME).then((cache) => cache.put(request, clone));
+                        const contentType = networkResponse.headers.get('content-type') || '';
+                        // Only cache verified JSON responses; never cache HTML WAF challenges
+                        if (contentType.includes('application/json')) {
+                            const clone = networkResponse.clone();
+                            caches.open(API_CACHE_NAME).then((cache) => cache.put(request, clone));
+                        }
                     }
                     return networkResponse;
                 })
@@ -191,7 +207,7 @@ self.addEventListener('push', (event) => {
         icon: payload.icon || (origin + '/logo.png'),
         badge: origin + '/logo.png',
         vibrate: [200, 100, 200, 100, 200],
-        tag: 'mbbnb-' + Date.now(),
+        tag: payload.tag || ('mbbnb-order-' + (payload.order_id || (payload.title && payload.title.match(/#(\d+)/) ? payload.title.match(/#(\d+)/)[1] : Date.now()))),
         renotify: true,
         requireInteraction: true,
         data: {

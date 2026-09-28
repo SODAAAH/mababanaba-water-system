@@ -256,11 +256,15 @@ class WebPush {
             $stmt->execute([$customerId]);
             $subs = $stmt->fetchAll();
 
+            preg_match('/#(\d+)/', $title, $m);
+            $tag = !empty($m[1]) ? ('mbbnb-order-' . $m[1]) : ('mbbnb-' . time());
+
             $payload = [
                 'title' => $title,
                 'body' => $body,
                 'icon' => './logo.png',
-                'url' => $url
+                'url' => $url,
+                'tag' => $tag
             ];
 
             foreach ($subs as $sub) {
@@ -280,11 +284,15 @@ class WebPush {
             $stmt->execute([$stationId]);
             $subs = $stmt->fetchAll();
 
+            preg_match('/#(\d+)/', $title, $m);
+            $tag = !empty($m[1]) ? ('mbbnb-order-' . $m[1]) : ('mbbnb-' . time());
+
             $payload = [
                 'title' => $title,
                 'body' => $body,
                 'icon' => './logo.png',
-                'url' => $url
+                'url' => $url,
+                'tag' => $tag
             ];
 
             foreach ($subs as $sub) {

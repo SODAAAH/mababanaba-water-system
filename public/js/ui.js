@@ -1237,7 +1237,7 @@ const UI = {
                         }
                     }
                 } catch(e) {}
-            }, 5000);
+            }, 25000);
 
         } catch (e) {
             console.error(e);
@@ -1609,7 +1609,7 @@ const UI = {
                     }
                 } catch(e){}
             }
-        }, 5000);
+        }, 25000);
     },
 
     async renderCustomerCheckout() {
@@ -2158,9 +2158,11 @@ const UI = {
                     changedOrders.forEach(newOrder => {
                         const gKey = newOrder.station_order_number ? `${newOrder.station_id}-${newOrder.station_order_number}` : `solo-${newOrder.order_id}`;
                         if (!seenGroupKeys.has(gKey)) {
-                            seenGroupKeys.add(gKey);
-                            const notifyMsg = `Your Order #${newOrder.station_order_number || newOrder.order_id} is now ${newOrder.order_status}!`;
-                            App.sendNativeNotification('Order Update', notifyMsg);
+                            const orderNum = newOrder.station_order_number || newOrder.order_id;
+                            const notifyMsg = `Your Order #${orderNum} is now ${newOrder.order_status}!`;
+                            if (!State.pushSubscriptionSynced) {
+                                App.sendNativeNotification('Order Update', notifyMsg, 'order-' + orderNum);
+                            }
                         }
                     });
                 }
@@ -2176,7 +2178,7 @@ const UI = {
         };
 
         const hasActive = State.myOrders?.some(o => !['Delivered', 'Cancelled'].includes(o.order_status));
-        const intervalMs = hasActive ? 1500 : 3500;
+        const intervalMs = hasActive ? 8000 : 25000;
         State.pollingInterval = setInterval(pollFn, intervalMs);
     },
 
@@ -2838,9 +2840,11 @@ const UI = {
                     newlyPlacedOrders.forEach(firstNew => {
                         const gKey = firstNew.station_order_number ? `${firstNew.customer_id}-${firstNew.station_order_number}` : `solo-${firstNew.order_id}`;
                         if (!seenGroupKeys.has(gKey)) {
-                            seenGroupKeys.add(gKey);
-                            const notifyMsg = `New Order #${firstNew.station_order_number || firstNew.order_id} received from ${firstNew.full_name}!`;
-                            App.sendNativeNotification('New Order', notifyMsg);
+                            const orderNum = firstNew.station_order_number || firstNew.order_id;
+                            const notifyMsg = `New Order #${orderNum} received from ${firstNew.full_name}!`;
+                            if (!State.pushSubscriptionSynced) {
+                                App.sendNativeNotification('New Order', notifyMsg, 'order-' + orderNum);
+                            }
                         }
                     });
                 }
@@ -2858,7 +2862,7 @@ const UI = {
                     if (stockEl) stockEl.innerText = totalStock;
                 }
             } catch(e) {}
-        }, 1500);
+        }, 8000);
     },
 
     async renderAdminInventory() {
@@ -2983,7 +2987,7 @@ const UI = {
                     }
                 } catch(e){}
             }
-        }, 5000);
+        }, 30000);
     },
 
     onSalesTabChange(tab) {
@@ -4104,9 +4108,11 @@ const UI = {
                     newlyAssigned.forEach(first => {
                         const gKey = first.station_order_number ? `${first.customer_id}-${first.station_order_number}` : `solo-${first.order_id}`;
                         if (!seenGroupKeys.has(gKey)) {
-                            seenGroupKeys.add(gKey);
-                            const notifyMsg = `New delivery assigned! Order #${first.station_order_number || first.order_id} for ${first.full_name}.`;
-                            App.sendNativeNotification('Delivery Assignment', notifyMsg);
+                            const orderNum = first.station_order_number || first.order_id;
+                            const notifyMsg = `New delivery assigned! Order #${orderNum} for ${first.full_name}.`;
+                            if (!State.pushSubscriptionSynced) {
+                                App.sendNativeNotification('Delivery Assignment', notifyMsg, 'order-' + orderNum);
+                            }
                         }
                     });
                 }
@@ -4119,7 +4125,7 @@ const UI = {
                     this._updateDeliveryList();
                 }
             } catch(e) {}
-        }, 1500);
+        }, 8000);
     },
     
     async renderSuperAdminDashboard() {

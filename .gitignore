@@ -35,5 +35,7 @@ scratch/
 Thumbs.db
 .vscode/
 .idea/
+.agents/
+
 
 
