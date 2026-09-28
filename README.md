@@ -14,9 +14,11 @@ The frontend is built as an installable Progressive Web App (PWA) with full offl
 ## Project Structure
 
 ```text
-├── api/                  # Backend REST API, controllers, and helpers
-│   ├── controllers/      # AdminController.php & CustomerController.php
+├── api/                  # Backend REST API, controllers, and services
+│   ├── controllers/      # Customer, Admin facade, StationAdmin, Delivery, SuperAdmin
+│   ├── services/         # SmsService (Semaphore SMS with masked audit logging)
 │   ├── OrderHelper.php   # Order status and auto-cancellation logic
+│   ├── ResponseHelper.php# Standardized JSON response formatting
 │   ├── SecurityContext.php # Role-based permission checks & station scoping
 │   ├── WebPush.php       # Native VAPID Web Push implementation
 │   ├── api.php           # REST routing entry point & dispatcher

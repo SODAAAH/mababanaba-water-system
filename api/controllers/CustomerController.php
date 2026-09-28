@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/../services/SmsService.php';
+
 class CustomerController {
     private $pdo;
 
@@ -7,26 +9,7 @@ class CustomerController {
     }
 
     private function sendSemaphoreSMS($number, $message) {
-        $ch = curl_init();
-        $parameters = array(
-            'apikey' => SEMAPHORE_API_KEY, 
-            'number' => $number,
-            'message' => $message,
-            'sendername' => SEMAPHORE_SENDER_NAME 
-        );
-        curl_setopt($ch, CURLOPT_URL, 'https://api.semaphore.co/api/v4/messages');
-        curl_setopt($ch, CURLOPT_POST, 1);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($parameters));
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        $output = curl_exec($ch);
-        curl_close($ch);
-        
-        try {
-            $maskedMessage = preg_replace('/\b\d{6}\b/', '******', $message);
-            $this->pdo->prepare("INSERT INTO SMS_LOGS (contact_number, message, api_response) VALUES (?, ?, ?)")->execute([$number, $maskedMessage, $output]);
-        } catch(Exception $e) { error_log($e->getMessage()); }
-        
-        return $output;
+        return SmsService::send($this->pdo, $number, $message);
     }
 
     public function login() {

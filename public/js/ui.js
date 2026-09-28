@@ -4513,7 +4513,54 @@ const UI = {
         this.html(html);
     }
 };
+
+
+// --- S-Grade Modularity: Sub-namespace Domain Modules ---
+UI.Core = {
+    escapeHtml: (typeof escapeHtml !== 'undefined' ? escapeHtml : null),
+    showToast: (...args) => UI.showToast(...args),
+    showPrivacyPolicy: (...args) => UI.showPrivacyPolicy(...args),
+    updateOfflineState: (...args) => UI.updateOfflineState(...args),
+    CustomDialog: (typeof CustomDialog !== 'undefined' ? CustomDialog : null),
+    CustomToast: (typeof CustomToast !== 'undefined' ? CustomToast : null)
+};
+
+UI.Auth = {
+    renderLogin: (...args) => UI.renderLogin(...args),
+    renderRegister: (...args) => UI.renderRegister(...args),
+    renderOTPVerify: (...args) => UI.renderOTPVerify(...args),
+    renderForgotPassword: (...args) => UI.renderForgotPassword(...args),
+    renderResetPassword: (...args) => UI.renderResetPassword(...args),
+    renderChangePassword: (...args) => UI.renderChangePassword(...args),
+    renderChangePhone: (...args) => UI.renderChangePhone(...args)
+};
+
+UI.Customer = {
+    renderDashboard: (...args) => UI.renderCustomerDashboard(...args),
+    renderStation: (...args) => UI.renderCustomerStation(...args),
+    renderCheckout: (...args) => UI.renderCustomerCheckout(...args),
+    renderOrders: (...args) => UI.renderCustomerOrders(...args),
+    renderLoyalty: (...args) => UI.renderCustomerLoyalty(...args),
+    renderReviewModal: (...args) => UI.renderReviewModal(...args)
+};
+
+UI.Admin = {
+    renderDashboard: (...args) => UI.renderAdminDashboard(...args),
+    renderSalesReport: (...args) => UI.renderAdminSalesReport(...args),
+    renderInventory: (...args) => UI.renderAdminInventory(...args),
+    renderProducts: (...args) => UI.renderAdminProducts(...args),
+    renderLoyalty: (...args) => UI.renderAdminLoyalty(...args),
+    renderSettings: (...args) => UI.renderAdminSettings(...args),
+    renderSuperAdminDashboard: (...args) => UI.renderSuperAdminDashboard(...args),
+    renderSuperAdminAddStation: (...args) => UI.renderSuperAdminAddStation(...args)
+};
+
+UI.Delivery = {
+    renderDashboard: (...args) => UI.renderDeliveryDashboard(...args)
+};
+
 if (typeof window !== 'undefined') window.UI = UI;
+
 
 
 

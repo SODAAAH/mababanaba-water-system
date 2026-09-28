@@ -2100,11 +2100,63 @@ const App = {
     }
 };
 
+// --- S-Grade Modularity: Sub-namespace Domain Modules ---
+App.Auth = {
+    handleLogin: (...args) => App.handleLogin(...args),
+    handleAdminLogin: (...args) => App.handleAdminLogin(...args),
+    handleRegister: (...args) => App.handleRegister(...args),
+    handleOTPVerify: (...args) => App.handleOTPVerify(...args),
+    handleForgotPassword: (...args) => App.handleForgotPassword(...args),
+    handleResetPassword: (...args) => App.handleResetPassword(...args),
+    logout: (...args) => App.logout(...args)
+};
+
+App.Customer = {
+    selectStation: (...args) => App.selectStation(...args),
+    updateCart: (...args) => App.updateCart(...args),
+    handlePaymentMethodChange: (...args) => App.handlePaymentMethodChange(...args),
+    submitOrder: (...args) => App.submitOrder(...args),
+    getLoyaltyRank: (...args) => App.getLoyaltyRank(...args),
+    renderOrderAgain: (...args) => App.renderOrderAgain(...args),
+    submitReview: (...args) => App.submitReview(...args)
+};
+
+App.Admin = {
+    updateOrderStatus: (...args) => App.updateOrderStatus(...args),
+    updateLogistics: (...args) => App.updateLogistics(...args),
+    updateAdvancedInventory: (...args) => App.updateAdvancedInventory(...args),
+    updateHours: (...args) => App.updateHours(...args),
+    updateClosure: (...args) => App.updateClosure(...args),
+    updateMaintenance: (...args) => App.updateMaintenance(...args),
+    updatePaymentProfile: (...args) => App.updatePaymentProfile(...args),
+    addProduct: (...args) => App.addProduct(...args),
+    editProduct: (...args) => App.editProduct(...args),
+    deleteProduct: (...args) => App.deleteProduct(...args),
+    addStaff: (...args) => App.addStaff(...args),
+    toggleStaff: (...args) => App.toggleStaff(...args)
+};
+
+App.Delivery = {
+    deliveryAcceptOrder: (...args) => App.deliveryAcceptOrder(...args),
+    deliveryOutForDelivery: (...args) => App.deliveryOutForDelivery(...args),
+    deliveryCompleteOrder: (...args) => App.deliveryCompleteOrder(...args),
+    adminMarkReturned: (...args) => App.adminMarkReturned(...args)
+};
+
+App.Sync = {
+    pollCustomerOrders: (...args) => App.pollCustomerOrders(...args),
+    pollAdminOrders: (...args) => App.pollAdminOrders(...args),
+    pollDeliveryOrders: (...args) => App.pollDeliveryOrders(...args),
+    promptPwaInstall: (...args) => App.promptPwaInstall(...args),
+    initPushNotifications: (...args) => App.initPushNotifications(...args)
+};
+
 window.State = State;
 window.API = API;
 window.UI = UI;
 window.CustomDialog = CustomDialog;
 window.App = App;
+
 
 function dismissLoader() {
     const loader = document.getElementById('global-loader');
