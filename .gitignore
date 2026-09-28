@@ -27,7 +27,6 @@ tests/error_log
 tests/
 scripts/
 deploy/
-local_router.php
 scratch/
 
 # OS & IDE metadata
