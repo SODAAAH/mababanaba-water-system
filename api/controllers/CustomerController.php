@@ -723,6 +723,7 @@ class CustomerController {
             $this->pdo->commit(); 
 
             WebPush::sendToStationAdmins($this->pdo, $sid, "🔔 New Order #{$stationOrderNumber}", "A new order ({$totalQty} jugs) was placed. Tap to review.", '/#admin_dashboard');
+            WebPush::sendToCustomer($this->pdo, $cid, "✅ Order #{$stationOrderNumber} Placed", "Your refilling order of {$totalQty} jugs was placed successfully. Waiting for station acceptance.", '/#customer_orders');
 
             echo json_encode(['success' => true]);
         } catch (Exception $e) {

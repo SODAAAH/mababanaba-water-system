@@ -280,22 +280,22 @@ class WebPush {
 
     public static function sendToStationAdmins($pdo, $stationId, $title, $body, $url = '/#admin_dashboard') {
         try {
-            $stmt = $pdo->prepare("SELECT ps.id, ps.endpoint, ps.p256dh, ps.auth FROM PUSH_SUBSCRIPTIONS ps JOIN ADMIN a ON ps.user_id = a.admin_id WHERE a.station_id = ?");
+            $stmt = $pdo->prepare("SELECT ps.id, ps.endpoint, ps.p256dh, ps.auth, a.role FROM PUSH_SUBSCRIPTIONS ps JOIN ADMIN a ON ps.user_id = a.admin_id WHERE (a.station_id = ? OR a.role = 'Super Admin')");
             $stmt->execute([$stationId]);
             $subs = $stmt->fetchAll();
 
             preg_match('/#(\d+)/', $title, $m);
             $tag = !empty($m[1]) ? ('mbbnb-order-' . $m[1]) : ('mbbnb-' . time());
 
-            $payload = [
-                'title' => $title,
-                'body' => $body,
-                'icon' => './logo.png',
-                'url' => $url,
-                'tag' => $tag
-            ];
-
             foreach ($subs as $sub) {
+                $targetUrl = ($sub['role'] === 'Delivery Staff') ? '/#delivery_dashboard' : $url;
+                $payload = [
+                    'title' => $title,
+                    'body' => $body,
+                    'icon' => './logo.png',
+                    'url' => $targetUrl,
+                    'tag' => $tag
+                ];
                 $res = self::sendPush($sub['endpoint'], $sub['p256dh'], $sub['auth'], $payload);
                 if (isset($res['http_code']) && ($res['http_code'] === 410 || $res['http_code'] === 404)) {
                     $pdo->prepare("DELETE FROM PUSH_SUBSCRIPTIONS WHERE id = ?")->execute([$sub['id']]);

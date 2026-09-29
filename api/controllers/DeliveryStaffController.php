@@ -179,6 +179,9 @@ class DeliveryStaffController {
                 $pushBody = "Your order has been cancelled by the station.";
             }
             WebPush::sendToCustomer($this->pdo, $oInfo['customer_id'], $pushTitle, $pushBody, '/#customer_orders');
+            if (($admin['role'] ?? '') === 'Delivery Staff' && in_array($status, ['Delivered', 'Cancelled'], true)) {
+                WebPush::sendToStationAdmins($this->pdo, $sid, "📋 Order #{$son} {$status}", "Order was marked {$status} by {$admin['username']}.", '/#admin_dashboard');
+            }
             
             echo json_encode(['success' => true]);
         } catch (PDOException $e) { 

@@ -126,6 +126,33 @@ const App = {
         }
     },
 
+    playNotificationChime() {
+        try {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtx) return;
+            const ctx = new AudioCtx();
+            if (ctx.state === 'suspended') {
+                ctx.resume().catch(() => {});
+            }
+            const now = ctx.currentTime;
+            
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(587.33, now);
+            osc.frequency.exponentialRampToValueAtTime(880, now + 0.12);
+            
+            gain.gain.setValueAtTime(0.25, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+            
+            osc.start(now);
+            osc.stop(now + 0.45);
+        } catch(e) {}
+    },
+
     async promptPwaInstall() {
         const banner = document.getElementById('pwa-install-banner');
         if (banner) banner.classList.add('hidden');
@@ -2332,6 +2359,26 @@ if ('serviceWorker' in navigator) {
 
     navigator.serviceWorker.addEventListener('message', async (event) => {
         if (event.data && event.data.type === 'ORDER_PUSH_RECEIVED') {
+            const payload = event.data.payload || {};
+            
+            // Audible chime feedback
+            if (window.App && window.App.playNotificationChime) {
+                window.App.playNotificationChime();
+            }
+
+            // Visible in-app toast notification with navigation callback
+            if (payload.title && typeof CustomToast !== 'undefined') {
+                const toastMsg = payload.body ? `${payload.title}\n${payload.body}` : payload.title;
+                CustomToast.show(toastMsg, 'info', 7000, () => {
+                    if (payload.url) {
+                        const hashPart = payload.url.split('#')[1];
+                        if (hashPart && window.UI && window.UI.navigate) {
+                            window.UI.navigate(hashPart);
+                        }
+                    }
+                });
+            }
+
             if (window.UI && window.UI._prefetchCache) {
                 delete window.UI._prefetchCache['customer_orders'];
                 delete window.UI._prefetchCache['admin_dashboard_data'];

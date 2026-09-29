@@ -1,5 +1,5 @@
-const STATIC_CACHE_NAME = 'mababanaba-static-v1790659016882';
-const API_CACHE_NAME = 'mababanaba-api-v1790659016882';
+const STATIC_CACHE_NAME = 'mababanaba-static-v1790660167454';
+const API_CACHE_NAME = 'mababanaba-api-v1790660167454';
 
 const ASSETS_TO_CACHE = [
     './',
@@ -215,16 +215,34 @@ self.addEventListener('push', (event) => {
         }
     };
 
-    event.waitUntil(
-        Promise.all([
-            self.registration.showNotification(payload.title, options),
-            clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-                for (let client of windowClients) {
-                    client.postMessage({ type: 'ORDER_PUSH_RECEIVED', payload: payload });
-                }
-            })
-        ])
-    );
+    const showNotificationSafe = async () => {
+        try {
+            await self.registration.showNotification(payload.title, options);
+        } catch (err) {
+            try {
+                await self.registration.showNotification(payload.title, {
+                    body: payload.body,
+                    icon: payload.icon || (origin + '/logo.png'),
+                    badge: payload.badge || (origin + '/logo.png'),
+                    tag: payload.tag,
+                    data: options.data
+                });
+            } catch (fallbackErr) {
+                console.warn('Fallback showNotification error:', fallbackErr);
+            }
+        }
+    };
+
+    const notifyClients = async () => {
+        try {
+            const windowClients = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+            for (let client of windowClients) {
+                client.postMessage({ type: 'ORDER_PUSH_RECEIVED', payload: payload });
+            }
+        } catch (e) {}
+    };
+
+    event.waitUntil(Promise.all([showNotificationSafe(), notifyClients()]));
 });
 
 self.addEventListener('notificationclick', (event) => {
