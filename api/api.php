@@ -45,7 +45,6 @@ header("Pragma: no-cache");
 
 $action = $_GET['action'] ?? '';
 
-// Read-only actions that safely accept GET requests
 $readOnlyActions = [
     '',
     'check_session',
@@ -61,7 +60,6 @@ $readOnlyActions = [
     'get_vapid_public_key'
 ];
 
-// Enforce that all state-mutating actions strictly require POST
 if (!in_array($action, $readOnlyActions, true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['error' => 'Method Not Allowed. This action requires a POST request.']);
@@ -72,7 +70,6 @@ if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 
-// Public authentication and guest actions exempt from pre-session CSRF validation
 $csrfExempt = [
     'customer_login',
     'admin_login',

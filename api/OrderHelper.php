@@ -2,9 +2,6 @@
 require_once __DIR__ . '/WebPush.php';
 
 class OrderHelper {
-    /**
-     * Automatically cancel pending orders older than 5 minutes, restock inventory, refund loyalty points, and send web push alerts.
-     */
     public static function autoCancelExpiredOrders(PDO $pdo): int {
         $lockFile = sys_get_temp_dir() . '/mbbnb_auto_cancel.lock';
         if (file_exists($lockFile) && (time() - filemtime($lockFile)) < 30) {

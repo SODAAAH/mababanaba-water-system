@@ -1,8 +1,4 @@
 <?php
-/**
- * ResponseHelper
- * Standardized HTTP and JSON response helper for API endpoints.
- */
 class ResponseHelper {
     public static function json(int $statusCode, array $data): void {
         http_response_code($statusCode);

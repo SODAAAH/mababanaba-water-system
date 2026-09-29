@@ -67,7 +67,6 @@ function run_migrations($pdo) {
         try { $pdo->exec("CREATE INDEX idx_orders_station_status_date ON ORDERS(station_id, order_status, order_date)"); } catch (Exception $e) {}
 
         try {
-            // Seed products for Station 2 if missing
             $st2 = (int)$pdo->query("SELECT COUNT(*) FROM PRODUCTS WHERE station_id = 2 AND status = 'Active'")->fetchColumn();
             if ($st2 === 0) {
                 $pdo->exec("INSERT INTO PRODUCTS (station_id, name, price, status, capacity_gallons, capacity_liters) VALUES 
@@ -75,7 +74,6 @@ function run_migrations($pdo) {
                     (2, 'Mineral Water', 35.00, 'Active', 5.00, 20.00),
                     (2, 'Alkaline Water', 50.00, 'Active', 5.00, 20.00)");
             }
-            // Seed products for Station 3 if missing
             $st3 = (int)$pdo->query("SELECT COUNT(*) FROM PRODUCTS WHERE station_id = 3 AND status = 'Active'")->fetchColumn();
             if ($st3 === 0) {
                 $pdo->exec("INSERT INTO PRODUCTS (station_id, name, price, status, capacity_gallons, capacity_liters) VALUES 
@@ -83,7 +81,6 @@ function run_migrations($pdo) {
                     (3, 'Mineral Water', 30.00, 'Active', 5.00, 20.00),
                     (3, 'Alkaline Water', 55.00, 'Active', 5.00, 20.00)");
             }
-            // Ensure INVENTORY records exist with positive stock for Station 1, 2, 3
             foreach ([1, 2, 3] as $sid) {
                 $inv = $pdo->prepare("SELECT COUNT(*) FROM INVENTORY WHERE station_id = ?");
                 $inv->execute([$sid]);
@@ -93,7 +90,6 @@ function run_migrations($pdo) {
                     $pdo->prepare("UPDATE INVENTORY SET stock_level = GREATEST(stock_level, 500), round_jugs = GREATEST(round_jugs, 200), slim_jugs = GREATEST(slim_jugs, 200) WHERE station_id = ?")->execute([$sid]);
                 }
             }
-            // Seed dedicated test station admins for Station 1, 2, 3 only in development
             if ($isDev) {
                 $testPass = password_hash('StationTest@123', PASSWORD_DEFAULT);
                 foreach ([1 => 'station1_admin', 2 => 'station2_admin', 3 => 'station3_admin'] as $sid => $uname) {
@@ -103,7 +99,6 @@ function run_migrations($pdo) {
                         $pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role, status) VALUES (?, ?, ?, 'Admin', 'Active')")->execute([$sid, $uname, $testPass]);
                     }
                 }
-                // Seed verified test customers
                 $custPass = password_hash('CustTest@123', PASSWORD_DEFAULT);
                 foreach ([
                     ['09111111111', 'Test Customer 1', '123 Station 1 St'],
@@ -118,7 +113,6 @@ function run_migrations($pdo) {
                     }
                 }
             }
-            // Clear stations cache to reflect fresh seed data
             CustomerController::clearStationsCache();
         } catch (Exception $e) {
             error_log("Migration v3 error: " . $e->getMessage());
@@ -164,7 +158,6 @@ function run_migrations($pdo) {
                     }
                 }
 
-                // Seed 98 distinct verified customer accounts
                 $custPass = password_hash('CustTest@123', PASSWORD_DEFAULT);
                 $values = [];
                 $params = [];
@@ -183,7 +176,6 @@ function run_migrations($pdo) {
                 $pdo->prepare($sql)->execute($params);
             }
 
-            // Ensure ample inventory for 98 orders across all 3 stations
             $pdo->exec("UPDATE INVENTORY SET stock_level = GREATEST(stock_level, 2000), round_jugs = GREATEST(round_jugs, 1000), slim_jugs = GREATEST(slim_jugs, 1000) WHERE station_id IN (1, 2, 3)");
         } catch (Exception $e) {
             error_log("Migration v5 error: " . $e->getMessage());

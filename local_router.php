@@ -1,7 +1,6 @@
 <?php
 $uri = urldecode(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH));
 
-// Route /api requests directly to the api folder
 if (str_starts_with($uri, '/api/')) {
     $apiFile = __DIR__ . $uri;
     if (file_exists($apiFile) && !is_dir($apiFile)) {
@@ -14,7 +13,6 @@ if (str_starts_with($uri, '/api/')) {
     }
 }
 
-// Serve static assets from public/ directory
 $publicFile = __DIR__ . '/public' . $uri;
 if ($uri !== '/' && file_exists($publicFile) && !is_dir($publicFile)) {
     $mimeTypes = [
@@ -42,7 +40,6 @@ if ($uri !== '/' && file_exists($publicFile) && !is_dir($publicFile)) {
     return true;
 }
 
-// Default fallback to index.html
 if (file_exists(__DIR__ . '/public/index.html')) {
     require __DIR__ . '/public/index.html';
     return true;

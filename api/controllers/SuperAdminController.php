@@ -1,10 +1,6 @@
 <?php
 require_once __DIR__ . '/../SecurityContext.php';
 
-/**
- * SuperAdminController
- * Dedicated controller for Super Admin operations: platform-wide stations, admins, and customer management.
- */
 class SuperAdminController {
     private $pdo;
 

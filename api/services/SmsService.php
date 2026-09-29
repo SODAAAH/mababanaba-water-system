@@ -1,17 +1,5 @@
 <?php
-/**
- * SmsService
- * Modular SMS messaging service via Semaphore API with masking and audit logging.
- */
 class SmsService {
-    /**
-     * Send an SMS message and log it to the database with masked secrets.
-     *
-     * @param PDO $pdo Active database connection
-     * @param string $number Recipient contact number
-     * @param string $message Plaintext SMS message
-     * @return string|false API response or false on failure
-     */
     public static function send(PDO $pdo, string $number, string $message) {
         $cleanNumber = self::normalizeNumber($number);
         if (empty($cleanNumber)) {
@@ -48,7 +36,6 @@ class SmsService {
             error_log("SmsService cURL error: " . $curlErr);
         }
 
-        // Mask 6-digit OTP codes for privacy and security in logs
         try {
             $maskedMessage = preg_replace('/\b\d{6}\b/', '******', $message);
             $stmt = $pdo->prepare("INSERT INTO SMS_LOGS (contact_number, message, api_response) VALUES (?, ?, ?)");
@@ -60,9 +47,6 @@ class SmsService {
         return $output;
     }
 
-    /**
-     * Normalize a Philippine phone number to standard 11-digit format (09XXXXXXXXX).
-     */
     public static function normalizeNumber(string $number): string {
         $clean = preg_replace('/[^0-9]/', '', $number);
         if (strlen($clean) === 12 && str_starts_with($clean, '639')) {

@@ -4,13 +4,6 @@ require_once __DIR__ . '/SuperAdminController.php';
 require_once __DIR__ . '/StationAdminController.php';
 require_once __DIR__ . '/DeliveryStaffController.php';
 
-/**
- * AdminController
- * Unified Admin facade composing specialized role controllers:
- * - SuperAdminController: platform-wide stations, admins, customers
- * - StationAdminController: station inventory, catalog, hours, settings, staff, reports
- * - DeliveryStaffController: delivery fulfillment, order transitions, jug returns
- */
 class AdminController {
     private $pdo;
     private $superAdmin = null;

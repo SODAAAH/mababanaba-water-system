@@ -141,7 +141,7 @@ class CustomerController {
     public function getStations() {
         $cid = $_SESSION['customer_id'] ?? null;
         $cacheFile = sys_get_temp_dir() . '/mbbnb_stations_public_cache.json';
-        $cacheTtl = 5; // 5-second transient cache for high-concurrency bursts
+        $cacheTtl = 5;
 
         if ($cid === null && file_exists($cacheFile) && (time() - filemtime($cacheFile)) < $cacheTtl) {
             header('X-Cache: HIT');
@@ -630,7 +630,6 @@ class CustomerController {
             }
             $this->pdo->commit(); 
 
-            // Flush JSON response to client immediately for instant checkout completion (0ms)
             WebPush::flushFastResponse(['success' => true, 'station_order_number' => $stationOrderNumber]);
 
             WebPush::sendToStationAdmins($this->pdo, $sid, "🔔 New Order #{$stationOrderNumber}", "A new order ({$totalQty} jugs) was placed. Tap to review.", '/#admin_dashboard');

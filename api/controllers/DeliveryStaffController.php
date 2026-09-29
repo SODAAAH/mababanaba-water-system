@@ -2,10 +2,6 @@
 require_once __DIR__ . '/../SecurityContext.php';
 require_once __DIR__ . '/../WebPush.php';
 
-/**
- * DeliveryStaffController
- * Dedicated controller for Delivery Staff operations: order fulfillment, status transitions, jug returns.
- */
 class DeliveryStaffController {
     private $pdo;
 
@@ -179,10 +175,8 @@ class DeliveryStaffController {
                 $pushBody = "Your order has been cancelled by the station.";
             }
 
-            // Flush JSON response immediately to caller for instant UI completion (0ms)
             WebPush::flushFastResponse(['success' => true]);
 
-            // Dispatch WebPush in parallel
             WebPush::sendToCustomer($this->pdo, $oInfo['customer_id'], $pushTitle, $pushBody, '/#customer_orders');
             if ($status === 'To Deliver') {
                 WebPush::sendToStationAdmins($this->pdo, $sid, "🛵 Order #{$son} Out for Delivery", "Order #{$son} has been dispatched for delivery.", '/#delivery_dashboard');

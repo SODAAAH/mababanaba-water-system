@@ -1,10 +1,6 @@
 <?php
 require_once __DIR__ . '/../SecurityContext.php';
 
-/**
- * StationAdminController
- * Dedicated controller for Station Administrator operations: inventory, staff, catalog, reports, and station settings.
- */
 class StationAdminController {
     private $pdo;
 
