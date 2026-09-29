@@ -107,7 +107,13 @@ const App = {
         }
     },
     
-    sendNativeNotification(title, body, tag = null) {
+    sendNativeNotification(title, body, tag = null, inAppFeedback = true) {
+        if (inAppFeedback) {
+            this.playNotificationChime();
+            if (typeof CustomToast !== 'undefined') {
+                CustomToast.show(body ? `${title}: ${body}` : title, 'info', 5000);
+            }
+        }
         if (!("Notification" in window)) return;
         if (Notification.permission === "granted") {
             try {
@@ -119,9 +125,13 @@ const App = {
                         tag: tag || ('mbbnb-order-' + Date.now()),
                         vibrate: [200, 100, 200, 100, 200]
                     });
+                }).catch(() => {
+                    new Notification(title, { body: body, icon: './logo.png', tag: tag || undefined });
                 });
             } catch (e) {
-                new Notification(title, { body: body, icon: './logo.png', tag: tag || undefined });
+                try {
+                    new Notification(title, { body: body, icon: './logo.png', tag: tag || undefined });
+                } catch(err) {}
             }
         }
     },
@@ -151,6 +161,145 @@ const App = {
             osc.start(now);
             osc.stop(now + 0.45);
         } catch(e) {}
+    },
+
+    broadcastChannel: null,
+
+    initBroadcastSync() {
+        if (typeof window === 'undefined' || !('BroadcastChannel' in window)) return;
+        try {
+            if (!this.broadcastChannel) {
+                this.broadcastChannel = new BroadcastChannel('mbbnb_orders_sync');
+                this.broadcastChannel.onmessage = (event) => {
+                    this.handleBroadcastMessage(event.data);
+                };
+            }
+        } catch (e) {
+            console.warn('BroadcastChannel not initialized:', e);
+        }
+    },
+
+    broadcastOrderUpdate(payload) {
+        if (!payload) return;
+        if (this.broadcastChannel) {
+            try {
+                this.broadcastChannel.postMessage(payload);
+            } catch (e) {
+                console.warn('BroadcastChannel postMessage error:', e);
+            }
+        }
+    },
+
+    async handleBroadcastMessage(data) {
+        if (!data || !data.type) return;
+
+        if (data.type === 'ORDER_STATUS_CHANGED' || data.type === 'NEW_ORDER_PLACED') {
+            const orderLabel = data.station_order_number ? `#${data.station_order_number}` : (data.orderId || data.order_id ? `#${data.orderId || data.order_id}` : 'Order');
+            
+            // 1. In-app audible chime
+            this.playNotificationChime();
+
+            // 2. Visible in-app toast
+            if (typeof CustomToast !== 'undefined') {
+                if (data.type === 'ORDER_STATUS_CHANGED') {
+                    CustomToast.show(`⚡ Order ${orderLabel} status is now ${data.status || 'Updated'}`, 'info', 5000);
+                } else if (data.type === 'NEW_ORDER_PLACED') {
+                    CustomToast.show(`🔔 New Order ${orderLabel} has been placed!`, 'info', 5000);
+                }
+            }
+
+            // 3. Native notification if document is hidden
+            if (document.hidden && this.sendNativeNotification) {
+                const title = data.type === 'ORDER_STATUS_CHANGED' ? 'Order Update' : 'New Order';
+                const body = data.type === 'ORDER_STATUS_CHANGED' 
+                    ? `Order ${orderLabel} status is now ${data.status || 'Updated'}` 
+                    : `New Order ${orderLabel} placed!`;
+                this.sendNativeNotification(title, body, 'sync-' + Date.now(), false);
+            }
+
+            // 4. Invalidate caches
+            if (window.UI && window.UI._prefetchCache) {
+                delete window.UI._prefetchCache['admin_dashboard_data'];
+                delete window.UI._prefetchCache['delivery_dashboard_data'];
+                delete window.UI._prefetchCache['delivery_dashboard'];
+                delete window.UI._prefetchCache['customer_orders'];
+                delete window.UI._prefetchCache['customer_dashboard'];
+            }
+
+            // 5. Instantly update in-memory state for matching order in 0ms
+            if (data.type === 'ORDER_STATUS_CHANGED') {
+                const oid = data.orderId || data.order_id;
+                const son = data.station_order_number;
+                const newStatus = data.status;
+
+                if (State.adminData?.orders) {
+                    State.adminData.orders.forEach(o => {
+                        if ((son && o.station_order_number === son) || (oid && o.order_id == oid)) {
+                            o.order_status = newStatus;
+                        }
+                    });
+                }
+                const delivOrders = State.deliveryData?.orders || State.deliveryData?.deliveries;
+                if (delivOrders) {
+                    delivOrders.forEach(o => {
+                        if ((son && o.station_order_number === son) || (oid && o.order_id == oid)) {
+                            o.order_status = newStatus;
+                        }
+                    });
+                }
+                if (State.myOrders && Array.isArray(State.myOrders)) {
+                    State.myOrders.forEach(o => {
+                        if ((son && o.station_order_number === son) || (oid && o.order_id == oid)) {
+                            o.order_status = newStatus;
+                        }
+                    });
+                }
+
+                // Immediately re-render active screen
+                if (window.UI) {
+                    if (window.UI._currentView === 'admin_dashboard') {
+                        window.UI._updateAdminOrdersList();
+                    } else if (window.UI._currentView === 'delivery_dashboard') {
+                        window.UI._updateDeliveryList();
+                    } else if (window.UI._currentView === 'customer_orders') {
+                        window.UI._updateOrdersList();
+                    } else if (window.UI._currentView === 'customer_dashboard' && typeof window.UI._updateCustomerDashboardActiveOrders === 'function') {
+                        window.UI._updateCustomerDashboardActiveOrders();
+                    }
+                }
+            }
+
+            // 6. Fast background server reconciliation
+            try {
+                if (window.UI && window.UI._currentView === 'admin_dashboard') {
+                    const freshAdmin = await API.request('get_admin_dashboard_data', 'GET', null, true);
+                    if (freshAdmin && freshAdmin.orders) {
+                        State.adminData = freshAdmin;
+                        window.UI._updateAdminOrdersList();
+                    }
+                } else if (window.UI && window.UI._currentView === 'delivery_dashboard') {
+                    const freshDeliv = await API.request('get_admin_dashboard_data', 'GET', null, true);
+                    if (freshDeliv && freshDeliv.orders) {
+                        State.deliveryData = freshDeliv;
+                        window.UI._updateDeliveryList();
+                    }
+                } else if (window.UI && window.UI._currentView === 'customer_orders') {
+                    const freshOrders = await API.request('get_customer_orders', 'GET', null, true);
+                    if (freshOrders && Array.isArray(freshOrders)) {
+                        State.myOrders = freshOrders;
+                        window.UI._updateOrdersList();
+                    }
+                } else if (window.UI && window.UI._currentView === 'customer_dashboard') {
+                    const freshOrders = await API.request('get_customer_orders', 'GET', null, true);
+                    if (freshOrders && Array.isArray(freshOrders)) {
+                        State.myOrders = freshOrders;
+                        if (typeof window.UI._updateCustomerDashboardActiveOrders === 'function') {
+                            window.UI._updateCustomerDashboardActiveOrders();
+                        }
+                    }
+                }
+            } catch (err) {}
+        }
     },
 
     async promptPwaInstall() {
@@ -1021,9 +1170,16 @@ const App = {
                     State.myOrders = null;
                     if (window.UI && window.UI._prefetchCache) {
                         delete window.UI._prefetchCache['customer_orders'];
+                        delete window.UI._prefetchCache['customer_dashboard'];
                     }
                     State.customerOrderTab = 'active';
+                    this.playNotificationChime();
                     CustomToast.show('Quick Reorder placed successfully!', 'success');
+                    this.broadcastOrderUpdate({
+                        type: 'NEW_ORDER_PLACED',
+                        station_order_number: res.station_order_number,
+                        order_id: res.order_id
+                    });
                     UI.navigate('customer_orders');
                 } else if (res.error) {
                     CustomToast.show(res.error, 'error');
@@ -1279,9 +1435,16 @@ const App = {
                 State.myOrders = null;
                 if (window.UI && window.UI._prefetchCache) {
                     delete window.UI._prefetchCache['customer_orders'];
+                    delete window.UI._prefetchCache['customer_dashboard'];
                 }
                 State.customerOrderTab = 'active';
+                this.playNotificationChime();
                 CustomToast.show('Your order has been placed successfully.', 'success');
+                this.broadcastOrderUpdate({
+                    type: 'NEW_ORDER_PLACED',
+                    station_order_number: res.station_order_number,
+                    order_id: res.order_id
+                });
                 UI.navigate('customer_orders');
             }
         } catch (e) {
@@ -1369,6 +1532,7 @@ const App = {
         let prevStatus = null;
         let targetSon = null;
 
+        // 1. Optimistic update in Admin State
         if (State.adminData?.orders) {
             const match = State.adminData.orders.find(o => o.order_id == orderId);
             if (match) {
@@ -1384,12 +1548,14 @@ const App = {
             }
         }
 
-        if (State.deliveryData?.deliveries) {
-            const match = State.deliveryData.deliveries.find(o => o.order_id == orderId);
+        // 2. Optimistic update in Delivery Staff State (.orders and .deliveries)
+        const delivList = State.deliveryData?.orders || State.deliveryData?.deliveries;
+        if (delivList) {
+            const match = delivList.find(o => o.order_id == orderId);
             if (match) {
                 if (!prevStatus) prevStatus = match.order_status;
-                targetSon = match.station_order_number;
-                State.deliveryData.deliveries.forEach(o => {
+                if (!targetSon) targetSon = match.station_order_number;
+                delivList.forEach(o => {
                     if (targetSon && o.station_order_number === targetSon) {
                         o.order_status = status;
                     } else if (!targetSon && o.order_id == orderId) {
@@ -1399,19 +1565,63 @@ const App = {
             }
         }
 
-        if (UI._prefetchCache) {
-            delete UI._prefetchCache['admin_dashboard_data'];
-            delete UI._prefetchCache['delivery_dashboard'];
+        // 3. Optimistic update in Customer Orders State
+        if (State.myOrders && Array.isArray(State.myOrders)) {
+            const match = State.myOrders.find(o => o.order_id == orderId);
+            if (match) {
+                if (!prevStatus) prevStatus = match.order_status;
+                if (!targetSon) targetSon = match.station_order_number;
+                State.myOrders.forEach(o => {
+                    if (targetSon && o.station_order_number === targetSon) {
+                        o.order_status = status;
+                    } else if (!targetSon && o.order_id == orderId) {
+                        o.order_status = status;
+                    }
+                });
+            }
         }
 
+        // 4. Update known status maps so local polling won't re-trigger self-notification
+        const orderKey = String(orderId);
+        if (State.knownAdminOrderStatuses) State.knownAdminOrderStatuses.set(orderKey, status);
+        if (State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses.set(orderKey, status);
+
+        // 5. Invalidate prefetch caches
+        if (UI._prefetchCache) {
+            delete UI._prefetchCache['admin_dashboard_data'];
+            delete UI._prefetchCache['delivery_dashboard_data'];
+            delete UI._prefetchCache['delivery_dashboard'];
+            delete UI._prefetchCache['customer_orders'];
+            delete UI._prefetchCache['customer_dashboard'];
+        }
+
+        // 6. Instant UI re-render (0ms)
         if (!skipRender) {
             if (UI._currentView === 'admin_dashboard') {
                 UI._updateAdminOrdersList();
             } else if (UI._currentView === 'delivery_dashboard') {
                 UI._updateDeliveryList();
+            } else if (UI._currentView === 'customer_orders') {
+                UI._updateOrdersList();
+            } else if (UI._currentView === 'customer_dashboard' && typeof UI._updateCustomerDashboardActiveOrders === 'function') {
+                UI._updateCustomerDashboardActiveOrders();
             }
         }
 
+        // 7. Instant user feedback (toast + chime)
+        this.playNotificationChime();
+        const displayNum = targetSon ? `#${targetSon}` : `#${orderId}`;
+        CustomToast.show(`Order ${displayNum} status updated to ${status}`, 'success', 3000);
+
+        // 8. Instant cross-tab broadcast
+        this.broadcastOrderUpdate({
+            type: 'ORDER_STATUS_CHANGED',
+            orderId: orderId,
+            status: status,
+            station_order_number: targetSon
+        });
+
+        // 9. Send API request in background
         const data = new FormData();
         data.append('order_id', orderId);
         data.append('status', status);
@@ -1431,14 +1641,31 @@ const App = {
                         else if (!targetSon && o.order_id == orderId) o.order_status = prevStatus;
                     });
                 }
-                if (State.deliveryData?.deliveries) {
-                    State.deliveryData.deliveries.forEach(o => {
+                const dOrders = State.deliveryData?.orders || State.deliveryData?.deliveries;
+                if (dOrders) {
+                    dOrders.forEach(o => {
+                        if (targetSon && o.station_order_number === targetSon) o.order_status = prevStatus;
+                        else if (!targetSon && o.order_id == orderId) o.order_status = prevStatus;
+                    });
+                }
+                if (State.myOrders && Array.isArray(State.myOrders)) {
+                    State.myOrders.forEach(o => {
                         if (targetSon && o.station_order_number === targetSon) o.order_status = prevStatus;
                         else if (!targetSon && o.order_id == orderId) o.order_status = prevStatus;
                     });
                 }
                 if (UI._currentView === 'admin_dashboard') UI._updateAdminOrdersList();
                 if (UI._currentView === 'delivery_dashboard') UI._updateDeliveryList();
+                if (UI._currentView === 'customer_orders') UI._updateOrdersList();
+                if (UI._currentView === 'customer_dashboard' && typeof UI._updateCustomerDashboardActiveOrders === 'function') {
+                    UI._updateCustomerDashboardActiveOrders();
+                }
+                this.broadcastOrderUpdate({
+                    type: 'ORDER_STATUS_CHANGED',
+                    orderId: orderId,
+                    status: prevStatus,
+                    station_order_number: targetSon
+                });
             }
         }
     },
@@ -2207,6 +2434,9 @@ function dismissLoader() {
 
 async function boot() {
     setTimeout(dismissLoader, 3000);
+    if (window.App && window.App.initBroadcastSync) {
+        window.App.initBroadcastSync();
+    }
 
     const topLogo = document.querySelector('nav .cursor-pointer');
     if (topLogo) {
@@ -2381,7 +2611,9 @@ if ('serviceWorker' in navigator) {
 
             if (window.UI && window.UI._prefetchCache) {
                 delete window.UI._prefetchCache['customer_orders'];
+                delete window.UI._prefetchCache['customer_dashboard'];
                 delete window.UI._prefetchCache['admin_dashboard_data'];
+                delete window.UI._prefetchCache['delivery_dashboard_data'];
                 delete window.UI._prefetchCache['delivery_dashboard'];
             }
             if (window.UI && window.UI._currentView === 'customer_orders') {
@@ -2390,6 +2622,16 @@ if ('serviceWorker' in navigator) {
                     if (freshOrders && Array.isArray(freshOrders)) {
                         State.myOrders = freshOrders;
                         window.UI._updateOrdersList();
+                    }
+                } catch(e) {}
+            } else if (window.UI && window.UI._currentView === 'customer_dashboard') {
+                try {
+                    const freshOrders = await API.request('get_customer_orders', 'GET', null, true);
+                    if (freshOrders && Array.isArray(freshOrders)) {
+                        State.myOrders = freshOrders;
+                        if (typeof window.UI._updateCustomerDashboardActiveOrders === 'function') {
+                            window.UI._updateCustomerDashboardActiveOrders();
+                        }
                     }
                 } catch(e) {}
             } else if (window.UI && window.UI._currentView === 'admin_dashboard') {

@@ -973,6 +973,12 @@ const UI = {
         `;
     },
 
+    _updateCustomerDashboardActiveOrders() {
+        if (this._currentView === 'customer_dashboard' && State.stations) {
+            this._renderCustomerDashboardView(State.stations, State.myOrders || []);
+        }
+    },
+
     _renderCustomerDashboardView(stations, orders) {
         let pts = 0;
         let lifetimePts = 0;
@@ -1227,17 +1233,45 @@ const UI = {
             if (State.pollingInterval) clearInterval(State.pollingInterval);
             State.pollingInterval = setInterval(async () => {
                 try {
-                    const polledStations = await API.request('get_stations', 'GET', null, true);
-                    const polledHash = JSON.stringify((polledStations || []).map(s => s.station_id + s.user_points + s.is_manually_closed));
-                    if (polledHash !== State.lastDataHash) {
-                        State.stations = polledStations;
-                        State.lastDataHash = polledHash;
-                        if (UI._currentView === 'customer_dashboard') {
-                            UI._renderCustomerDashboardView(polledStations, State.myOrders || []);
+                    const polledOrders = await API.request('get_customer_orders', 'GET', null, true);
+                    if (polledOrders && Array.isArray(polledOrders)) {
+                        if (!State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses = new Map();
+                        const changed = [];
+                        polledOrders.forEach(o => {
+                            const k = String(o.order_id);
+                            const prev = State.knownCustomerOrderStatuses.get(k);
+                            if (prev && prev !== o.order_status) {
+                                changed.push(o);
+                            }
+                            State.knownCustomerOrderStatuses.set(k, o.order_status);
+                        });
+                        if (changed.length > 0) {
+                            const seenKeys = new Set();
+                            changed.forEach(o => {
+                                const gKey = o.station_order_number ? `${o.station_id}-${o.station_order_number}` : `solo-${o.order_id}`;
+                                if (!seenKeys.has(gKey)) {
+                                    seenKeys.add(gKey);
+                                    const orderNum = o.station_order_number || o.order_id;
+                                    const msg = `Your Order #${orderNum} is now ${o.order_status}!`;
+                                    if (window.App && window.App.playNotificationChime) window.App.playNotificationChime();
+                                    if (typeof CustomToast !== 'undefined') CustomToast.show(`💧 ${msg}`, 'info', 6000);
+                                    if (document.hidden && window.App && window.App.sendNativeNotification) {
+                                        App.sendNativeNotification('Order Update', msg, 'order-' + orderNum);
+                                    }
+                                }
+                            });
+                        }
+                        const ordersHash = JSON.stringify(polledOrders.map(o => o.order_id + o.order_status));
+                        if (ordersHash !== State.lastCustomerOrdersHash) {
+                            State.myOrders = polledOrders;
+                            State.lastCustomerOrdersHash = ordersHash;
+                            if (UI._currentView === 'customer_dashboard' && State.stations) {
+                                UI._renderCustomerDashboardView(State.stations, polledOrders);
+                            }
                         }
                     }
                 } catch(e) {}
-            }, 25000);
+            }, 3000);
 
         } catch (e) {
             console.error(e);
@@ -2158,9 +2192,20 @@ const UI = {
                     changedOrders.forEach(newOrder => {
                         const gKey = newOrder.station_order_number ? `${newOrder.station_id}-${newOrder.station_order_number}` : `solo-${newOrder.order_id}`;
                         if (!seenGroupKeys.has(gKey)) {
+                            seenGroupKeys.add(gKey);
                             const orderNum = newOrder.station_order_number || newOrder.order_id;
                             const notifyMsg = `Your Order #${orderNum} is now ${newOrder.order_status}!`;
-                            if (!State.pushSubscriptionSynced) {
+                            
+                            // 1. Play in-app audio chime
+                            if (window.App && window.App.playNotificationChime) {
+                                window.App.playNotificationChime();
+                            }
+                            // 2. Show prominent in-app toast notification
+                            if (typeof CustomToast !== 'undefined') {
+                                CustomToast.show(`💧 ${notifyMsg}`, 'info', 6000);
+                            }
+                            // 3. Trigger OS notification if tab is hidden
+                            if (document.hidden && window.App && window.App.sendNativeNotification) {
                                 App.sendNativeNotification('Order Update', notifyMsg, 'order-' + orderNum);
                             }
                         }
@@ -2178,7 +2223,7 @@ const UI = {
         };
 
         const hasActive = State.myOrders?.some(o => !['Delivered', 'Cancelled'].includes(o.order_status));
-        const intervalMs = hasActive ? 8000 : 25000;
+        const intervalMs = hasActive ? 2500 : 8000;
         State.pollingInterval = setInterval(pollFn, intervalMs);
     },
 
@@ -2837,15 +2882,54 @@ const UI = {
                     }
                 });
 
+                if (!State.knownAdminOrderStatuses) State.knownAdminOrderStatuses = new Map();
+                const statusChangedOrders = [];
+                newOrders.forEach(o => {
+                    const k = String(o.order_id);
+                    const prevSt = State.knownAdminOrderStatuses.get(k);
+                    if (prevSt && prevSt !== o.order_status) {
+                        statusChangedOrders.push({ order: o, oldStatus: prevSt });
+                    }
+                    State.knownAdminOrderStatuses.set(k, o.order_status);
+                });
+
                 if (newlyPlacedOrders.length > 0) {
                     const seenGroupKeys = new Set();
                     newlyPlacedOrders.forEach(firstNew => {
                         const gKey = firstNew.station_order_number ? `${firstNew.customer_id}-${firstNew.station_order_number}` : `solo-${firstNew.order_id}`;
                         if (!seenGroupKeys.has(gKey)) {
+                            seenGroupKeys.add(gKey);
                             const orderNum = firstNew.station_order_number || firstNew.order_id;
-                            const notifyMsg = `New Order #${orderNum} received from ${firstNew.full_name}!`;
-                            if (!State.pushSubscriptionSynced) {
+                            const notifyMsg = `🔔 New Order #${orderNum} received from ${firstNew.full_name || 'Customer'}!`;
+                            
+                            if (window.App && window.App.playNotificationChime) {
+                                window.App.playNotificationChime();
+                            }
+                            if (typeof CustomToast !== 'undefined') {
+                                CustomToast.show(notifyMsg, 'info', 6000);
+                            }
+                            if (document.hidden && window.App && window.App.sendNativeNotification) {
                                 App.sendNativeNotification('New Order', notifyMsg, 'order-' + orderNum);
+                            }
+                        }
+                    });
+                } else if (statusChangedOrders.length > 0) {
+                    const seenStatusKeys = new Set();
+                    statusChangedOrders.forEach(({ order: chgOrder }) => {
+                        const gKey = chgOrder.station_order_number ? `${chgOrder.customer_id}-${chgOrder.station_order_number}` : `solo-${chgOrder.order_id}`;
+                        if (!seenStatusKeys.has(gKey)) {
+                            seenStatusKeys.add(gKey);
+                            const orderNum = chgOrder.station_order_number || chgOrder.order_id;
+                            const statusMsg = `Order #${orderNum} status is now ${chgOrder.order_status}`;
+                            
+                            if (window.App && window.App.playNotificationChime) {
+                                window.App.playNotificationChime();
+                            }
+                            if (typeof CustomToast !== 'undefined') {
+                                CustomToast.show(`📋 ${statusMsg}`, 'info', 5000);
+                            }
+                            if (document.hidden && window.App && window.App.sendNativeNotification) {
+                                App.sendNativeNotification('Order Status Update', statusMsg, 'order-' + orderNum);
                             }
                         }
                     });
@@ -2864,7 +2948,7 @@ const UI = {
                     if (stockEl) stockEl.innerText = totalStock;
                 }
             } catch(e) {}
-        }, 8000);
+        }, 2500);
     },
 
     async renderAdminInventory() {
@@ -4110,9 +4194,17 @@ const UI = {
                     newlyAssigned.forEach(first => {
                         const gKey = first.station_order_number ? `${first.customer_id}-${first.station_order_number}` : `solo-${first.order_id}`;
                         if (!seenGroupKeys.has(gKey)) {
+                            seenGroupKeys.add(gKey);
                             const orderNum = first.station_order_number || first.order_id;
-                            const notifyMsg = `New delivery assigned! Order #${orderNum} for ${first.full_name}.`;
-                            if (!State.pushSubscriptionSynced) {
+                            const notifyMsg = `🛵 New delivery assigned! Order #${orderNum} for ${first.full_name || 'Customer'}.`;
+                            
+                            if (window.App && window.App.playNotificationChime) {
+                                window.App.playNotificationChime();
+                            }
+                            if (typeof CustomToast !== 'undefined') {
+                                CustomToast.show(notifyMsg, 'info', 6000);
+                            }
+                            if (document.hidden && window.App && window.App.sendNativeNotification) {
                                 App.sendNativeNotification('Delivery Assignment', notifyMsg, 'order-' + orderNum);
                             }
                         }
@@ -4127,7 +4219,7 @@ const UI = {
                     this._updateDeliveryList();
                 }
             } catch(e) {}
-        }, 8000);
+        }, 2500);
     },
     
     async renderSuperAdminDashboard() {
