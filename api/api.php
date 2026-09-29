@@ -113,10 +113,7 @@ try {
     exit; 
 }
 
-if (!isset($_SESSION['last_auto_cancel_check']) || (time() - $_SESSION['last_auto_cancel_check']) > 30) {
-    $_SESSION['last_auto_cancel_check'] = time();
-    OrderHelper::autoCancelExpiredOrders($pdo);
-}
+OrderHelper::autoCancelExpiredOrders($pdo);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($_POST)) {
     $rawInput = file_get_contents('php://input');
@@ -202,13 +199,11 @@ switch ($action) {
         echo json_encode(['logged_in' => false, 'csrf_token' => $_SESSION['csrf_token']]);
         exit;
     case 'get_payment_proof':
-        $rawInput = file_get_contents('php://input');
-        $jsonData = json_decode($rawInput, true) ?? [];
-        $oid = $_POST['order_id'] ?? $jsonData['order_id'] ?? $_GET['order_id'] ?? null;
         $cid = $_SESSION['customer_id'] ?? null;
         $aid = $_SESSION['admin_id'] ?? null;
         $sid = $_SESSION['station_id'] ?? null;
         $role = $_SESSION['role'] ?? '';
+        $oid = $_POST['order_id'] ?? $_GET['order_id'] ?? null;
 
         if (!$oid || (!$cid && !$aid)) {
             http_response_code(401);
@@ -217,16 +212,13 @@ switch ($action) {
         }
 
         try {
-            if ($cid) {
-                $stmt = $pdo->prepare("SELECT order_id, station_order_number, payment_proof FROM ORDERS WHERE order_id = ? AND customer_id = ?");
-                $stmt->execute([$oid, $cid]);
-            } elseif ($role === 'Super Admin') {
-                $stmt = $pdo->prepare("SELECT order_id, station_order_number, payment_proof FROM ORDERS WHERE order_id = ?");
-                $stmt->execute([$oid]);
-            } else {
-                $stmt = $pdo->prepare("SELECT order_id, station_order_number, payment_proof FROM ORDERS WHERE order_id = ? AND station_id = ?");
-                $stmt->execute([$oid, $sid]);
-            }
+            $sql = "SELECT o.payment_proof, o.station_order_number FROM ORDERS o WHERE o.order_id = ? " . ($cid ? "AND o.customer_id = ?" : ($role === 'Super Admin' ? "" : "AND o.station_id = ?"));
+            $params = [$oid];
+            if ($cid) $params[] = $cid;
+            elseif ($role !== 'Super Admin') $params[] = $sid;
+
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
             $targetOrder = $stmt->fetch();
 
             if (!$targetOrder) {
@@ -240,16 +232,12 @@ switch ($action) {
             }
 
             if (!empty($targetOrder['station_order_number'])) {
-                if ($cid) {
-                    $stmtSib = $pdo->prepare("SELECT payment_proof FROM ORDERS WHERE station_order_number = ? AND customer_id = ? AND payment_proof IS NOT NULL AND payment_proof != '' LIMIT 1");
-                    $stmtSib->execute([$targetOrder['station_order_number'], $cid]);
-                } elseif ($role === 'Super Admin') {
-                    $stmtSib = $pdo->prepare("SELECT payment_proof FROM ORDERS WHERE station_order_number = ? AND payment_proof IS NOT NULL AND payment_proof != '' LIMIT 1");
-                    $stmtSib->execute([$targetOrder['station_order_number']]);
-                } else {
-                    $stmtSib = $pdo->prepare("SELECT payment_proof FROM ORDERS WHERE station_order_number = ? AND station_id = ? AND payment_proof IS NOT NULL AND payment_proof != '' LIMIT 1");
-                    $stmtSib->execute([$targetOrder['station_order_number'], $sid]);
-                }
+                $sibSql = "SELECT payment_proof FROM ORDERS WHERE station_order_number = ? AND payment_proof IS NOT NULL AND payment_proof != '' " . ($cid ? "AND customer_id = ?" : ($role === 'Super Admin' ? "" : "AND station_id = ?")) . " LIMIT 1";
+                $sibParams = [$targetOrder['station_order_number']];
+                if ($cid) $sibParams[] = $cid;
+                elseif ($role !== 'Super Admin') $sibParams[] = $sid;
+                $stmtSib = $pdo->prepare($sibSql);
+                $stmtSib->execute($sibParams);
                 $sibProof = $stmtSib->fetchColumn();
                 if (!empty($sibProof)) {
                     echo json_encode(['payment_proof' => $sibProof]);
@@ -280,10 +268,9 @@ switch ($action) {
         if ($uid) {
             $pdo->prepare("DELETE FROM PUSH_SUBSCRIPTIONS WHERE user_id = ?")->execute([$uid]);
         }
-        $rawInput = file_get_contents('php://input');
-        $sub = json_decode($rawInput, true);
-        if (!empty($sub['endpoint'])) {
-            $pdo->prepare("DELETE FROM PUSH_SUBSCRIPTIONS WHERE endpoint = ?")->execute([$sub['endpoint']]);
+        $endpoint = $_POST['endpoint'] ?? null;
+        if (!empty($endpoint)) {
+            $pdo->prepare("DELETE FROM PUSH_SUBSCRIPTIONS WHERE endpoint = ?")->execute([$endpoint]);
         }
         session_destroy(); 
         echo json_encode(['success' => true]); 
@@ -338,22 +325,13 @@ switch ($action) {
         exit;
 
     case 'save_push_subscription':
-        $rawInput = file_get_contents('php://input');
-        $sub = json_decode($rawInput, true);
-        if (is_string($sub)) {
-            $sub = json_decode($sub, true);
-        }
-        if (!$sub && !empty($_POST['endpoint'])) {
-            $sub = [
-                'endpoint' => $_POST['endpoint'],
-                'keys' => [
-                    'p256dh' => $_POST['p256dh'] ?? '',
-                    'auth' => $_POST['auth'] ?? ''
-                ]
-            ];
-        }
-        if (!$sub || empty($sub['endpoint']) || empty($sub['keys']['p256dh']) || empty($sub['keys']['auth'])) {
-            echo json_encode(['error' => 'Invalid subscription payload', 'received' => substr($rawInput, 0, 100)]);
+        $sub = is_array($_POST) ? $_POST : [];
+        $endpoint = $sub['endpoint'] ?? '';
+        $p256dh = $sub['keys']['p256dh'] ?? $sub['p256dh'] ?? '';
+        $auth = $sub['keys']['auth'] ?? $sub['auth'] ?? '';
+
+        if (empty($endpoint) || empty($p256dh) || empty($auth)) {
+            echo json_encode(['error' => 'Invalid subscription payload']);
             exit;
         }
         $cid = $_SESSION['customer_id'] ?? null;
@@ -363,13 +341,10 @@ switch ($action) {
             exit;
         }
         
-        $endpoint = $sub['endpoint'];
         if (!WebPush::isValidPushEndpoint($endpoint)) {
             echo json_encode(['error' => 'Invalid or untrusted push endpoint']);
             exit;
         }
-        $p256dh = $sub['keys']['p256dh'];
-        $auth = $sub['keys']['auth'];
 
         $stmtDel = $pdo->prepare("DELETE FROM PUSH_SUBSCRIPTIONS WHERE endpoint = ?");
         $stmtDel->execute([$endpoint]);

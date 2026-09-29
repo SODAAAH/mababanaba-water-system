@@ -78,4 +78,37 @@ class SecurityContext {
         }
         return $admin;
     }
+
+    public static function normalizePhone(string $contact): string {
+        $cleaned = preg_replace('/[^0-9]/', '', $contact);
+        if (strlen($cleaned) === 10 && str_starts_with($cleaned, '9')) {
+            $cleaned = '0' . $cleaned;
+        }
+        return $cleaned;
+    }
+
+    public static function clearRateLimits(PDO $pdo, array $actions): void {
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+        if ($ip && !empty($actions)) {
+            $placeholders = implode(',', array_fill(0, count($actions), '?'));
+            $pdo->prepare("DELETE FROM rate_limits WHERE ip_address = ? AND action IN ($placeholders)")->execute(array_merge([$ip], $actions));
+        }
+    }
+
+    public static function verifyOtp(PDO $pdo, string $table, string $idCol, int $idVal, ?string $expectedOtp, ?string $expiry, int $failedAttempts, string $code): array {
+        if ($failedAttempts >= 5) {
+            $pdo->prepare("UPDATE {$table} SET otp_code = NULL, otp_expiry = NULL, failed_otp_attempts = 0 WHERE {$idCol} = ?")->execute([$idVal]);
+            return ['valid' => false, 'error' => 'Too many failed attempts. This OTP has been invalidated. Please request a new code.'];
+        }
+        if (empty($expectedOtp) || !hash_equals((string)$expectedOtp, (string)$code)) {
+            $pdo->prepare("UPDATE {$table} SET failed_otp_attempts = failed_otp_attempts + 1 WHERE {$idCol} = ?")->execute([$idVal]);
+            $attemptsLeft = 5 - ($failedAttempts + 1);
+            $msg = $attemptsLeft > 0 ? "Invalid OTP code. {$attemptsLeft} attempt(s) remaining." : "Invalid OTP code. Code invalidated due to multiple failed attempts.";
+            return ['valid' => false, 'error' => $msg];
+        }
+        if (strtotime($expiry ?? '') < time()) {
+            return ['valid' => false, 'error' => 'OTP has expired. Please request a new code.'];
+        }
+        return ['valid' => true];
+    }
 }

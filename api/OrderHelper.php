@@ -6,8 +6,14 @@ class OrderHelper {
      * Automatically cancel pending orders older than 5 minutes, restock inventory, refund loyalty points, and send web push alerts.
      */
     public static function autoCancelExpiredOrders(PDO $pdo): int {
+        $lockFile = sys_get_temp_dir() . '/mbbnb_auto_cancel.lock';
+        if (file_exists($lockFile) && (time() - filemtime($lockFile)) < 30) {
+            return 0;
+        }
+        @touch($lockFile);
+
         try {
-            $threshold = date('Y-m-d H:i:s', time() - 300); // 5 minutes ago in PHP Asia/Manila time
+            $threshold = date('Y-m-d H:i:s', time() - 300);
             $stmt = $pdo->prepare("SELECT o.order_id, o.station_id, o.customer_id, o.station_order_number, o.quantity, o.jug_type, o.points_used, o.order_date, o.scheduled_date 
                                    FROM ORDERS o 
                                    WHERE o.order_status = 'Pending' 

@@ -13,15 +13,33 @@ require_once __DIR__ . '/DeliveryStaffController.php';
  */
 class AdminController {
     private $pdo;
-    private $superAdmin;
-    private $stationAdmin;
-    private $deliveryStaff;
+    private $superAdmin = null;
+    private $stationAdmin = null;
+    private $deliveryStaff = null;
 
     public function __construct(PDO $pdo) {
         $this->pdo = $pdo;
-        $this->superAdmin = new SuperAdminController($pdo);
-        $this->stationAdmin = new StationAdminController($pdo);
-        $this->deliveryStaff = new DeliveryStaffController($pdo);
+    }
+
+    private function getSuperAdmin(): SuperAdminController {
+        if ($this->superAdmin === null) {
+            $this->superAdmin = new SuperAdminController($this->pdo);
+        }
+        return $this->superAdmin;
+    }
+
+    private function getStationAdmin(): StationAdminController {
+        if ($this->stationAdmin === null) {
+            $this->stationAdmin = new StationAdminController($this->pdo);
+        }
+        return $this->stationAdmin;
+    }
+
+    private function getDeliveryStaff(): DeliveryStaffController {
+        if ($this->deliveryStaff === null) {
+            $this->deliveryStaff = new DeliveryStaffController($this->pdo);
+        }
+        return $this->deliveryStaff;
     }
 
     public function getAuthAdmin() {
@@ -62,10 +80,7 @@ class AdminController {
             $_SESSION['station_id'] = $a['station_id']; 
             $_SESSION['role'] = $a['role'];
             $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-            $ip = $_SERVER['REMOTE_ADDR'] ?? '';
-            if ($ip) {
-                $this->pdo->prepare("DELETE FROM rate_limits WHERE ip_address = ? AND action IN ('admin_login', 'customer_login')")->execute([$ip]);
-            }
+            SecurityContext::clearRateLimits($this->pdo, ['admin_login', 'customer_login']);
             unset($a['password'], $a['otp_code'], $a['otp_expiry'], $a['new_temp_contact'], $a['failed_otp_attempts']);
             echo json_encode(['success' => true, 'admin' => $a, 'csrf_token' => $_SESSION['csrf_token']]);
         } else { 
@@ -74,37 +89,34 @@ class AdminController {
         exit;
     }
 
-    // --- Super Admin Delegation ---
-    public function saGetStations() { $this->superAdmin->getStations(); }
-    public function saAddStation() { $this->superAdmin->addStation(); }
-    public function saToggleStation() { $this->superAdmin->toggleStation(); }
-    public function saDeleteStation() { $this->superAdmin->deleteStation(); }
-    public function saGetUsers() { $this->superAdmin->getUsers(); }
-    public function saSaveAdmin() { $this->superAdmin->saveAdmin(); }
-    public function saToggleAdminStatus() { $this->superAdmin->toggleAdminStatus(); }
-    public function saDeleteAdmin() { $this->superAdmin->deleteAdmin(); }
-    public function saSaveCustomer() { $this->superAdmin->saveCustomer(); }
-    public function saToggleCustomerVerification() { $this->superAdmin->toggleCustomerVerification(); }
-    public function saDeleteCustomer() { $this->superAdmin->deleteCustomer(); }
+    public function saGetStations() { $this->getSuperAdmin()->getStations(); }
+    public function saAddStation() { $this->getSuperAdmin()->addStation(); }
+    public function saToggleStation() { $this->getSuperAdmin()->toggleStation(); }
+    public function saDeleteStation() { $this->getSuperAdmin()->deleteStation(); }
+    public function saGetUsers() { $this->getSuperAdmin()->getUsers(); }
+    public function saSaveAdmin() { $this->getSuperAdmin()->saveAdmin(); }
+    public function saToggleAdminStatus() { $this->getSuperAdmin()->toggleAdminStatus(); }
+    public function saDeleteAdmin() { $this->getSuperAdmin()->deleteAdmin(); }
+    public function saSaveCustomer() { $this->getSuperAdmin()->saveCustomer(); }
+    public function saToggleCustomerVerification() { $this->getSuperAdmin()->toggleCustomerVerification(); }
+    public function saDeleteCustomer() { $this->getSuperAdmin()->deleteCustomer(); }
 
-    // --- Station Admin Delegation ---
-    public function getAdminDashboardData() { $this->stationAdmin->getAdminDashboardData(); }
-    public function getSalesReport() { $this->stationAdmin->getSalesReport(); }
-    public function getAdminLoyalty() { $this->stationAdmin->getAdminLoyalty(); }
-    public function adminUpdateLogistics() { $this->stationAdmin->updateLogistics(); }
-    public function adminUpdateAdvancedInventory() { $this->stationAdmin->updateAdvancedInventory(); }
-    public function adminUpdateHours() { $this->stationAdmin->updateHours(); }
-    public function adminUpdateClosure() { $this->stationAdmin->updateClosure(); }
-    public function adminUpdateMaintenance() { $this->stationAdmin->updateMaintenance(); }
-    public function adminUpdatePaymentProfile() { $this->stationAdmin->updatePaymentProfile(); }
-    public function adminUpdateSecurity() { $this->stationAdmin->updateSecurity(); }
-    public function adminAddProduct() { $this->stationAdmin->addProduct(); }
-    public function adminEditProduct() { $this->stationAdmin->editProduct(); }
-    public function adminDeleteProduct() { $this->stationAdmin->deleteProduct(); }
-    public function adminAddStaff() { $this->stationAdmin->addStaff(); }
-    public function adminToggleStaff() { $this->stationAdmin->toggleStaff(); }
+    public function getAdminDashboardData() { $this->getStationAdmin()->getAdminDashboardData(); }
+    public function getSalesReport() { $this->getStationAdmin()->getSalesReport(); }
+    public function getAdminLoyalty() { $this->getStationAdmin()->getAdminLoyalty(); }
+    public function adminUpdateLogistics() { $this->getStationAdmin()->updateLogistics(); }
+    public function adminUpdateAdvancedInventory() { $this->getStationAdmin()->updateAdvancedInventory(); }
+    public function adminUpdateHours() { $this->getStationAdmin()->updateHours(); }
+    public function adminUpdateClosure() { $this->getStationAdmin()->updateClosure(); }
+    public function adminUpdateMaintenance() { $this->getStationAdmin()->updateMaintenance(); }
+    public function adminUpdatePaymentProfile() { $this->getStationAdmin()->updatePaymentProfile(); }
+    public function adminUpdateSecurity() { $this->getStationAdmin()->updateSecurity(); }
+    public function adminAddProduct() { $this->getStationAdmin()->addProduct(); }
+    public function adminEditProduct() { $this->getStationAdmin()->editProduct(); }
+    public function adminDeleteProduct() { $this->getStationAdmin()->deleteProduct(); }
+    public function adminAddStaff() { $this->getStationAdmin()->addStaff(); }
+    public function adminToggleStaff() { $this->getStationAdmin()->toggleStaff(); }
 
-    // --- Delivery Staff Delegation ---
-    public function adminMarkReturned() { $this->deliveryStaff->markReturned(); }
-    public function updateOrderStatus() { $this->deliveryStaff->updateOrderStatus(); }
+    public function adminMarkReturned() { $this->getDeliveryStaff()->markReturned(); }
+    public function updateOrderStatus() { $this->getDeliveryStaff()->updateOrderStatus(); }
 }

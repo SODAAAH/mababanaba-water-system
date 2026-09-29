@@ -152,7 +152,7 @@ class DeliveryStaffController {
                 }
 
                 if (!empty($son)) {
-                    $this->pdo->prepare("UPDATE DELIVERIES SET delivery_status = 'Completed', delivery_date = CURRENT_TIMESTAMP WHERE order_id IN (SELECT order_id FROM ORDERS WHERE station_order_number = ? AND customer_id = ? AND station_id = ?)")->execute([$son, $oInfo['customer_id'], $sid]);
+                    $this->pdo->prepare("UPDATE DELIVERIES d JOIN ORDERS o ON d.order_id = o.order_id SET d.delivery_status = 'Completed', d.delivery_date = CURRENT_TIMESTAMP WHERE o.station_order_number = ? AND o.customer_id = ? AND o.station_id = ?")->execute([$son, $oInfo['customer_id'], $sid]);
                 } else {
                     $this->pdo->prepare("UPDATE DELIVERIES SET delivery_status = 'Completed', delivery_date = CURRENT_TIMESTAMP WHERE order_id = ?")->execute([$oid]);
                 }
