@@ -72,6 +72,18 @@ class DeliveryStaffController {
                     'error' => "Order #{$oid} is already {$oInfo['order_status']} and cannot be changed to {$status}."
                 ]);
             }
+
+            if ($oInfo['order_status'] === 'Pending' && $status !== 'Preparing') {
+                SecurityContext::jsonResponse(400, [
+                    'error' => "Order #{$oid} must be accepted before its status can be changed."
+                ]);
+            }
+
+            if ($status === 'Pending') {
+                SecurityContext::jsonResponse(400, [
+                    'error' => "Order status cannot be reverted to Pending."
+                ]);
+            }
             $son = $oInfo['station_order_number'];
 
             if (!empty($son)) {

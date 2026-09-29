@@ -2634,7 +2634,7 @@ const UI = {
                 <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-4 flex flex-col gap-3 relative hover:shadow-lg">
                     <div class="flex justify-between items-start gap-3">
                         <div class="min-w-0 flex-1 flex items-start gap-2">
-                            ${!isHistory && (o.order_status === 'Pending' || o.order_status === 'Preparing' || o.order_status === 'To Deliver') ? `<input type="checkbox" class="bulk-order-checkbox w-4 h-4 mt-1 text-blue-600 rounded border-slate-300 focus:ring-blue-500 shrink-0" value="${o.order_id}" onchange="App.toggleOrderSelection(this)">` : ''}
+                            ${!isHistory && (o.order_status === 'Preparing' || o.order_status === 'To Deliver') ? `<input type="checkbox" class="bulk-order-checkbox w-4 h-4 mt-1 text-blue-600 rounded border-slate-300 focus:ring-blue-500 shrink-0" value="${o.order_id}" onchange="App.toggleOrderSelection(this)">` : ''}
                             <div class="min-w-0 flex-1">
                                 <div class="flex items-center gap-1.5 flex-wrap mb-1">
                                     <span class="text-[10px] font-bold text-blue-600 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-lg uppercase tracking-wider inline-block">Order #${o.station_order_number || o.order_id} • ${o.payment_method}</span>
@@ -2650,6 +2650,7 @@ const UI = {
                         </div>
                         <div class="flex gap-2 shrink-0 items-center">
                             ${hasProof ? `<button onclick="App.viewProof('${targetOrderId}')" class="w-8 h-8 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-full flex items-center justify-center shrink-0 active:scale-95 transition" title="View Receipt"><i class="fa-solid fa-receipt"></i></button>` : ''}
+                            ${!isHistory && o.order_status === 'Pending' ? `<span class="px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200 shrink-0 flex items-center gap-1"><i class="fa-solid fa-clock"></i> Pending</span>` : ''}
                             ${isHistory ? `<span class="px-2 py-1 rounded-md text-[10px] font-bold uppercase shrink-0 ${o.order_status === 'Delivered' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${o.order_status}</span>` : ''}
                         </div>
                     </div>
@@ -2744,26 +2745,26 @@ const UI = {
                     ${!isHistory ? `
                         <div class="mt-2">
                             ${o.order_status === 'Pending' ? `
-                                <div class="mb-2">
-                                    <button type="button" onclick="App.updateOrderStatus(${targetOrderId}, 'Preparing')" class="w-full py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs rounded-xl shadow-md shadow-blue-500/20 active:scale-[0.98] transition flex items-center justify-center gap-2">
+                                <div>
+                                    <button type="button" onclick="App.updateOrderStatus(${targetOrderId}, 'Preparing')" class="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-xs rounded-xl shadow-md shadow-blue-500/20 active:scale-[0.98] transition flex items-center justify-center gap-2">
                                         <i class="fa-solid fa-circle-check text-sm"></i>
                                         <span>Accept Order</span>
                                     </button>
                                 </div>
-                            ` : ''}
-                            <label class="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Update Status</label>
-                            <div class="relative">
-                                <select onchange="App.updateOrderStatus(${targetOrderId}, this.value)" class="w-full appearance-none bg-white border border-slate-200 text-slate-800 text-sm font-bold rounded-xl pl-4 pr-10 py-3 outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition active:bg-slate-50">
-                                    <option value="Pending" ${o.order_status === 'Pending' ? 'selected' : ''}>Pending</option>
-                                    <option value="Preparing" ${o.order_status === 'Preparing' ? 'selected' : ''}>Preparing</option>
-                                    <option value="To Deliver" ${o.order_status === 'To Deliver' ? 'selected' : ''}>Out for Delivery</option>
-                                    <option value="Delivered" ${o.order_status === 'Delivered' ? 'selected' : ''}>Delivered</option>
-                                    <option value="Cancelled" ${o.order_status === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
-                                </select>
-                                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
-                                    <i class="fa-solid fa-chevron-down text-xs"></i>
+                            ` : `
+                                <label class="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Update Status</label>
+                                <div class="relative">
+                                    <select onchange="App.updateOrderStatus(${targetOrderId}, this.value)" class="w-full appearance-none bg-white border border-slate-200 text-slate-800 text-sm font-bold rounded-xl pl-4 pr-10 py-3 outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition active:bg-slate-50">
+                                        <option value="Preparing" ${o.order_status === 'Preparing' ? 'selected' : ''}>Preparing</option>
+                                        <option value="To Deliver" ${o.order_status === 'To Deliver' ? 'selected' : ''}>Out for Delivery</option>
+                                        <option value="Delivered" ${o.order_status === 'Delivered' ? 'selected' : ''}>Delivered</option>
+                                        <option value="Cancelled" ${o.order_status === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
+                                    </select>
+                                    <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
+                                        <i class="fa-solid fa-chevron-down text-xs"></i>
+                                    </div>
                                 </div>
-                            </div>
+                            `}
                         </div>
                     ` : ''}
                 </div>

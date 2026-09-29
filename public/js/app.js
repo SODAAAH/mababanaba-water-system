@@ -1432,7 +1432,7 @@ const App = {
                             Yes, jugs returned
                         </button>
                         <button onclick="App._submitDeliveryConfirmation(${orderId}, false, '${modalId}')" class="w-full bg-red-50 hover:bg-red-100 text-red-600 font-bold py-4 rounded-xl transition-all active:scale-95 text-sm">
-                            No, jugs kept (Charge Later)
+                            No, jugs kept
                         </button>
                     </div>
                     <button onclick="document.getElementById('${modalId}').remove()" class="mt-4 w-full text-slate-400 hover:text-slate-600 text-xs font-bold py-2">
