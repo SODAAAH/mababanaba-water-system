@@ -1,5 +1,5 @@
-const STATIC_CACHE_NAME = 'mababanaba-static-v1790658687993';
-const API_CACHE_NAME = 'mababanaba-api-v1790658687993';
+const STATIC_CACHE_NAME = 'mababanaba-static-v1790659016882';
+const API_CACHE_NAME = 'mababanaba-api-v1790659016882';
 
 const ASSETS_TO_CACHE = [
     './',
