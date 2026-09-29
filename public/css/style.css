@@ -98,6 +98,29 @@ textarea::-webkit-scrollbar {
 .fade-in { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
 @keyframes slideUp { from { opacity: 0; transform: translateY(20px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
+#bulk-action-bar {
+    position: fixed;
+    bottom: 1.5rem;
+    left: 0;
+    right: 0;
+    margin-left: auto;
+    margin-right: auto;
+    width: calc(100% - 2rem);
+    max-width: 42rem;
+    transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: transform, opacity;
+}
+#bulk-action-bar.bulk-hidden {
+    opacity: 0;
+    transform: translateY(2rem);
+    pointer-events: none;
+}
+#bulk-action-bar.bulk-visible {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
 .pulse-soft { animation: pulseSoft 2s infinite ease-in-out; }
 @keyframes pulseSoft { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(0.95); opacity: 0.8; } }
 

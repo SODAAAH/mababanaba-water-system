@@ -2774,10 +2774,11 @@ const UI = {
         html += '</div>';
 
         if (State.adminOrderTab !== 'history') {
+            const hasSelected = State.selectedOrders && State.selectedOrders.size > 0;
             html += `
-            <div id="bulk-action-bar" class="hidden fixed bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-2xl bg-white p-3 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.3)] border border-slate-200 z-50 flex justify-between items-center transition-all animate-[slideUp_0.3s_ease-out]">
+            <div id="bulk-action-bar" class="${hasSelected ? 'bulk-visible' : 'bulk-hidden'} bg-white p-3 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.3)] border border-slate-200 z-50 flex justify-between items-center">
                 <div class="flex items-center gap-3 pl-2">
-                    <div class="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-black text-sm shrink-0 shadow-inner"><span id="bulk-count">0</span></div>
+                    <div class="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-black text-sm shrink-0 shadow-inner"><span id="bulk-count">${State.selectedOrders ? State.selectedOrders.size : 0}</span></div>
                     <span class="text-xs font-black text-slate-400 uppercase tracking-widest hidden sm:block">Selected</span>
                 </div>
                 <div class="flex gap-2">

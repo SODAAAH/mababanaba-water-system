@@ -1306,10 +1306,13 @@ const App = {
         const bar = document.getElementById('bulk-action-bar');
         if(bar) {
             if(State.selectedOrders.size > 0) {
-                bar.classList.remove('hidden');
-                document.getElementById('bulk-count').textContent = State.selectedOrders.size;
+                bar.classList.remove('bulk-hidden', 'hidden');
+                bar.classList.add('bulk-visible');
+                const countEl = document.getElementById('bulk-count');
+                if (countEl) countEl.textContent = State.selectedOrders.size;
             } else {
-                bar.classList.add('hidden');
+                bar.classList.remove('bulk-visible');
+                bar.classList.add('bulk-hidden');
             }
         }
     },
@@ -1324,6 +1327,11 @@ const App = {
         await Promise.all(promises);
         
         State.selectedOrders.clear();
+        const bar = document.getElementById('bulk-action-bar');
+        if(bar) {
+            bar.classList.remove('bulk-visible');
+            bar.classList.add('bulk-hidden');
+        }
         if(State.user.data.role === 'Admin') UI.renderAdminDashboard();
         if(State.user.data.role === 'Delivery Staff') UI.renderDeliveryDashboard();
         CustomToast.show(`Updated ${promises.length} orders successfully.`, 'success');
