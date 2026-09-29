@@ -722,10 +722,12 @@ class CustomerController {
             }
             $this->pdo->commit(); 
 
+            // Flush JSON response to client immediately for instant checkout completion (0ms)
+            WebPush::flushFastResponse(['success' => true, 'station_order_number' => $stationOrderNumber]);
+
             WebPush::sendToStationAdmins($this->pdo, $sid, "🔔 New Order #{$stationOrderNumber}", "A new order ({$totalQty} jugs) was placed. Tap to review.", '/#admin_dashboard');
             WebPush::sendToCustomer($this->pdo, $cid, "✅ Order #{$stationOrderNumber} Placed", "Your refilling order of {$totalQty} jugs was placed successfully. Waiting for station acceptance.", '/#customer_orders');
-
-            echo json_encode(['success' => true]);
+            exit;
         } catch (Exception $e) {
             $this->pdo->rollBack();
             error_log("placeOrder error: " . $e->getMessage());

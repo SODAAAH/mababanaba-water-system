@@ -164,23 +164,41 @@ const App = {
     },
 
     broadcastChannel: null,
+    _syncInitialized: false,
 
     initBroadcastSync() {
-        if (typeof window === 'undefined' || !('BroadcastChannel' in window)) return;
-        try {
-            if (!this.broadcastChannel) {
-                this.broadcastChannel = new BroadcastChannel('mbbnb_orders_sync');
-                this.broadcastChannel.onmessage = (event) => {
-                    this.handleBroadcastMessage(event.data);
-                };
+        if (typeof window === 'undefined') return;
+        if (this._syncInitialized) return;
+        this._syncInitialized = true;
+
+        // 1. BroadcastChannel API for modern cross-tab messaging
+        if ('BroadcastChannel' in window) {
+            try {
+                if (!this.broadcastChannel) {
+                    this.broadcastChannel = new BroadcastChannel('mbbnb_orders_sync');
+                    this.broadcastChannel.onmessage = (event) => {
+                        this.handleBroadcastMessage(event.data);
+                    };
+                }
+            } catch (e) {
+                console.warn('BroadcastChannel not initialized:', e);
             }
-        } catch (e) {
-            console.warn('BroadcastChannel not initialized:', e);
         }
+
+        // 2. Storage event fallback (0ms sync across tabs, windows, and iframes on all browsers)
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'mbbnb_orders_sync_event' && e.newValue) {
+                try {
+                    const parsed = JSON.parse(e.newValue);
+                    this.handleBroadcastMessage(parsed);
+                } catch(err) {}
+            }
+        });
     },
 
     broadcastOrderUpdate(payload) {
         if (!payload) return;
+        // 1. BroadcastChannel
         if (this.broadcastChannel) {
             try {
                 this.broadcastChannel.postMessage(payload);
@@ -188,6 +206,11 @@ const App = {
                 console.warn('BroadcastChannel postMessage error:', e);
             }
         }
+        // 2. LocalStorage event (fires immediately in 0ms on all other tabs on this device)
+        try {
+            const eventPayload = JSON.stringify({ ...payload, _ts: Date.now() });
+            localStorage.setItem('mbbnb_orders_sync_event', eventPayload);
+        } catch(e) {}
     },
 
     async handleBroadcastMessage(data) {
@@ -2616,6 +2639,48 @@ if ('serviceWorker' in navigator) {
                 delete window.UI._prefetchCache['delivery_dashboard_data'];
                 delete window.UI._prefetchCache['delivery_dashboard'];
             }
+
+            // 0ms instant optimistic update directly from push notification payload
+            let extractedStatus = null;
+            const textToInspect = `${payload.title || ''} ${payload.body || ''}`;
+            if (/being prepared|preparing/i.test(textToInspect)) extractedStatus = 'Preparing';
+            else if (/out for delivery|to deliver|delivery is on its way/i.test(textToInspect)) extractedStatus = 'To Deliver';
+            else if (/delivered/i.test(textToInspect)) extractedStatus = 'Delivered';
+            else if (/cancelled/i.test(textToInspect)) extractedStatus = 'Cancelled';
+
+            const orderNumMatch = (payload.title || '').match(/#(\d+)/) || (payload.body || '').match(/#(\d+)/);
+            const extractedSon = orderNumMatch ? orderNumMatch[1] : null;
+
+            if (extractedStatus && extractedSon) {
+                if (State.myOrders && Array.isArray(State.myOrders)) {
+                    State.myOrders.forEach(o => {
+                        if (o.station_order_number == extractedSon || o.order_id == extractedSon) {
+                            o.order_status = extractedStatus;
+                        }
+                    });
+                    if (window.UI && window.UI._currentView === 'customer_orders') window.UI._updateOrdersList();
+                    if (window.UI && window.UI._currentView === 'customer_dashboard' && typeof window.UI._updateCustomerDashboardActiveOrders === 'function') {
+                        window.UI._updateCustomerDashboardActiveOrders();
+                    }
+                }
+                if (State.adminData?.orders) {
+                    State.adminData.orders.forEach(o => {
+                        if (o.station_order_number == extractedSon || o.order_id == extractedSon) {
+                            o.order_status = extractedStatus;
+                        }
+                    });
+                    if (window.UI && window.UI._currentView === 'admin_dashboard') window.UI._updateAdminOrdersList();
+                }
+                const dOrders = State.deliveryData?.orders || State.deliveryData?.deliveries;
+                if (dOrders) {
+                    dOrders.forEach(o => {
+                        if (o.station_order_number == extractedSon || o.order_id == extractedSon) {
+                            o.order_status = extractedStatus;
+                        }
+                    });
+                    if (window.UI && window.UI._currentView === 'delivery_dashboard') window.UI._updateDeliveryList();
+                }
+            }
             if (window.UI && window.UI._currentView === 'customer_orders') {
                 try {
                     const freshOrders = await API.request('get_customer_orders', 'GET', null, true);
@@ -2712,14 +2777,16 @@ window.addEventListener('offline', () => {
     }
 });
 
-// Automatically pause/resume polling when tab visibility changes
+// Automatically adjust polling rate when tab visibility changes (Fast 1s in foreground, steady 3s in background)
 document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
-        if (State.pollingInterval) {
-            clearInterval(State.pollingInterval);
-            State.pollingInterval = null;
+        if (window.UI && window.UI._adjustPollingInterval) {
+            window.UI._adjustPollingInterval(3000);
         }
     } else {
+        if (window.UI && window.UI._adjustPollingInterval) {
+            window.UI._adjustPollingInterval(1000);
+        }
         if (window.App && window.App.refreshCurrentView) {
             window.App.refreshCurrentView();
         }

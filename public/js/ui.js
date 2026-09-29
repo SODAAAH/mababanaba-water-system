@@ -979,6 +979,21 @@ const UI = {
         }
     },
 
+    _currentPollFn: null,
+    _setupInterval(pollFn, intervalMs = 1000) {
+        if (State.pollingInterval) clearInterval(State.pollingInterval);
+        this._currentPollFn = pollFn;
+        try { pollFn(); } catch (e) {}
+        State.pollingInterval = setInterval(pollFn, intervalMs);
+    },
+
+    _adjustPollingInterval(intervalMs) {
+        if (this._currentPollFn) {
+            if (State.pollingInterval) clearInterval(State.pollingInterval);
+            State.pollingInterval = setInterval(this._currentPollFn, intervalMs);
+        }
+    },
+
     _renderCustomerDashboardView(stations, orders) {
         let pts = 0;
         let lifetimePts = 0;
@@ -1230,8 +1245,7 @@ const UI = {
                 }
             });
 
-            if (State.pollingInterval) clearInterval(State.pollingInterval);
-            State.pollingInterval = setInterval(async () => {
+            const pollDashboard = async () => {
                 try {
                     const polledOrders = await API.request('get_customer_orders', 'GET', null, true);
                     if (polledOrders && Array.isArray(polledOrders)) {
@@ -1271,7 +1285,8 @@ const UI = {
                         }
                     }
                 } catch(e) {}
-            }, 3000);
+            };
+            this._setupInterval(pollDashboard, 1000);
 
         } catch (e) {
             console.error(e);
@@ -2222,9 +2237,7 @@ const UI = {
             } catch(e) {}
         };
 
-        const hasActive = State.myOrders?.some(o => !['Delivered', 'Cancelled'].includes(o.order_status));
-        const intervalMs = hasActive ? 2500 : 8000;
-        State.pollingInterval = setInterval(pollFn, intervalMs);
+        this._setupInterval(pollFn, 1000);
     },
 
     async renderAdminDashboard() {
@@ -2852,7 +2865,7 @@ const UI = {
         }
         State.lastDataHash = JSON.stringify((State.adminData?.orders || []).map(o => o.order_id + o.order_status));
         
-        State.pollingInterval = setInterval(async () => {
+        const pollAdmin = async () => {
             try {
                 const newData = await API.request('get_admin_dashboard_data', 'GET', null, true);
                 if (!newData || !newData.orders || !Array.isArray(newData.orders)) return;
@@ -2948,7 +2961,8 @@ const UI = {
                     if (stockEl) stockEl.innerText = totalStock;
                 }
             } catch(e) {}
-        }, 2500);
+        };
+        this._setupInterval(pollAdmin, 1000);
     },
 
     async renderAdminInventory() {
@@ -4161,7 +4175,7 @@ const UI = {
         }
         State.lastDataHash = JSON.stringify((State.deliveryData?.orders || []).filter(o => o.order_status === 'To Deliver' || o.order_status === 'Delivered').map(o => o.order_id + o.order_status));
         
-        State.pollingInterval = setInterval(async () => {
+        const pollDelivery = async () => {
             try {
                 const newData = await API.request('get_admin_dashboard_data', 'GET', null, true);
                 if (!newData || !newData.orders || !Array.isArray(newData.orders)) return;
@@ -4219,7 +4233,8 @@ const UI = {
                     this._updateDeliveryList();
                 }
             } catch(e) {}
-        }, 2500);
+        };
+        this._setupInterval(pollDelivery, 1000);
     },
     
     async renderSuperAdminDashboard() {

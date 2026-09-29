@@ -198,6 +198,22 @@ class WebPush {
         return $encryptedBody;
     }
 
+    public static function flushFastResponse($responseData = ['success' => true]) {
+        if (headers_sent()) return;
+        $json = json_encode($responseData);
+        header('Content-Type: application/json; charset=utf-8');
+        header('Content-Length: ' . strlen($json));
+        header('Connection: close');
+        echo $json;
+        if (ob_get_level() > 0) {
+            ob_end_flush();
+        }
+        flush();
+        if (function_exists('fastcgi_finish_request')) {
+            fastcgi_finish_request();
+        }
+    }
+
     public static function sendPush($endpoint, $p256dh, $auth, $payloadData) {
         if (!self::isValidPushEndpoint($endpoint)) {
             error_log('WebPush: Attempted push to invalid/untrusted endpoint: ' . substr($endpoint, 0, 80));
@@ -218,18 +234,25 @@ class WebPush {
         $headers = [
             'Content-Type: application/octet-stream',
             'Content-Encoding: aes128gcm',
-            'TTL: 86400',
+            'TTL: 3600',
             'Urgency: high',
             'Authorization: vapid t=' . $jwt . ', k=' . $pubKey,
             'Crypto-Key: p256ecdsa=' . $pubKey
         ];
+
+        if (stripos($endpoint, 'push.apple.com') !== false || stripos($endpoint, 'web.push.apple.com') !== false) {
+            $headers[] = 'apns-priority: 10';
+            $headers[] = 'apns-push-type: alert';
+            $headers[] = 'apns-expiration: 0';
+        }
 
         $ch = curl_init($endpoint);
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 5);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
         
         $response = curl_exec($ch);
@@ -250,11 +273,106 @@ class WebPush {
         ];
     }
 
+    public static function sendBatch($pdo, array $items) {
+        if (empty($items)) return [];
+
+        $mh = curl_multi_init();
+        $handles = [];
+        $pubKey = self::getVapidPublicKey();
+
+        foreach ($items as $item) {
+            $endpoint = $item['endpoint'] ?? '';
+            $p256dh = $item['p256dh'] ?? '';
+            $auth = $item['auth'] ?? '';
+            $payloadData = $item['payload'] ?? [];
+            $subId = $item['id'] ?? null;
+
+            if (!self::isValidPushEndpoint($endpoint)) continue;
+
+            $jwt = self::createVapidJwt($endpoint);
+            if (!$jwt) continue;
+
+            $userPublicKeyRaw = self::base64UrlDecode($p256dh);
+            $userAuthTokenRaw = self::base64UrlDecode($auth);
+            $payloadJson = is_string($payloadData) ? $payloadData : json_encode($payloadData);
+
+            $body = self::encryptPayload($payloadJson, $userPublicKeyRaw, $userAuthTokenRaw);
+            if (!$body) continue;
+
+            $headers = [
+                'Content-Type: application/octet-stream',
+                'Content-Encoding: aes128gcm',
+                'TTL: 3600',
+                'Urgency: high',
+                'Authorization: vapid t=' . $jwt . ', k=' . $pubKey,
+                'Crypto-Key: p256ecdsa=' . $pubKey
+            ];
+
+            if (stripos($endpoint, 'push.apple.com') !== false || stripos($endpoint, 'web.push.apple.com') !== false) {
+                $headers[] = 'apns-priority: 10';
+                $headers[] = 'apns-push-type: alert';
+                $headers[] = 'apns-expiration: 0';
+            }
+
+            $ch = curl_init($endpoint);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+
+            curl_multi_add_handle($mh, $ch);
+            $handles[] = ['ch' => $ch, 'sub_id' => $subId];
+        }
+
+        if (empty($handles)) {
+            curl_multi_close($mh);
+            return [];
+        }
+
+        $active = null;
+        do {
+            $mrc = curl_multi_exec($mh, $active);
+        } while ($mrc === CURLM_CALL_MULTI_PERFORM);
+
+        while ($active && $mrc === CURLM_OK) {
+            if (curl_multi_select($mh, 0.5) !== -1) {
+                do {
+                    $mrc = curl_multi_exec($mh, $active);
+                } while ($mrc === CURLM_CALL_MULTI_PERFORM);
+            }
+        }
+
+        $expiredIds = [];
+        foreach ($handles as $h) {
+            $ch = $h['ch'];
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            if ($httpCode === 410 || $httpCode === 404) {
+                if ($h['sub_id']) $expiredIds[] = (int)$h['sub_id'];
+            }
+            curl_multi_remove_handle($mh, $ch);
+            curl_close($ch);
+        }
+        curl_multi_close($mh);
+
+        if (!empty($expiredIds) && $pdo) {
+            try {
+                $in = implode(',', array_fill(0, count($expiredIds), '?'));
+                $pdo->prepare("DELETE FROM PUSH_SUBSCRIPTIONS WHERE id IN ($in)")->execute($expiredIds);
+            } catch (Exception $e) {}
+        }
+
+        return true;
+    }
+
     public static function sendToCustomer($pdo, $customerId, $title, $body, $url = '/#customer_orders') {
         try {
             $stmt = $pdo->prepare("SELECT id, endpoint, p256dh, auth FROM PUSH_SUBSCRIPTIONS WHERE customer_id = ?");
             $stmt->execute([$customerId]);
             $subs = $stmt->fetchAll();
+            if (empty($subs)) return;
 
             preg_match('/#(\d+)/', $title, $m);
             $tag = !empty($m[1]) ? ('mbbnb-order-' . $m[1]) : ('mbbnb-' . time());
@@ -267,12 +385,17 @@ class WebPush {
                 'tag' => $tag
             ];
 
+            $items = [];
             foreach ($subs as $sub) {
-                $res = self::sendPush($sub['endpoint'], $sub['p256dh'], $sub['auth'], $payload);
-                if (isset($res['http_code']) && ($res['http_code'] === 410 || $res['http_code'] === 404)) {
-                    $pdo->prepare("DELETE FROM PUSH_SUBSCRIPTIONS WHERE id = ?")->execute([$sub['id']]);
-                }
+                $items[] = [
+                    'id' => $sub['id'],
+                    'endpoint' => $sub['endpoint'],
+                    'p256dh' => $sub['p256dh'],
+                    'auth' => $sub['auth'],
+                    'payload' => $payload
+                ];
             }
+            self::sendBatch($pdo, $items);
         } catch (Exception $e) {
             error_log("WebPush sendToCustomer error: " . $e->getMessage());
         }
@@ -283,24 +406,29 @@ class WebPush {
             $stmt = $pdo->prepare("SELECT ps.id, ps.endpoint, ps.p256dh, ps.auth, a.role FROM PUSH_SUBSCRIPTIONS ps JOIN ADMIN a ON ps.user_id = a.admin_id WHERE (a.station_id = ? OR a.role = 'Super Admin')");
             $stmt->execute([$stationId]);
             $subs = $stmt->fetchAll();
+            if (empty($subs)) return;
 
             preg_match('/#(\d+)/', $title, $m);
             $tag = !empty($m[1]) ? ('mbbnb-order-' . $m[1]) : ('mbbnb-' . time());
 
+            $items = [];
             foreach ($subs as $sub) {
                 $targetUrl = ($sub['role'] === 'Delivery Staff') ? '/#delivery_dashboard' : $url;
-                $payload = [
-                    'title' => $title,
-                    'body' => $body,
-                    'icon' => './logo.png',
-                    'url' => $targetUrl,
-                    'tag' => $tag
+                $items[] = [
+                    'id' => $sub['id'],
+                    'endpoint' => $sub['endpoint'],
+                    'p256dh' => $sub['p256dh'],
+                    'auth' => $sub['auth'],
+                    'payload' => [
+                        'title' => $title,
+                        'body' => $body,
+                        'icon' => './logo.png',
+                        'url' => $targetUrl,
+                        'tag' => $tag
+                    ]
                 ];
-                $res = self::sendPush($sub['endpoint'], $sub['p256dh'], $sub['auth'], $payload);
-                if (isset($res['http_code']) && ($res['http_code'] === 410 || $res['http_code'] === 404)) {
-                    $pdo->prepare("DELETE FROM PUSH_SUBSCRIPTIONS WHERE id = ?")->execute([$sub['id']]);
-                }
             }
+            self::sendBatch($pdo, $items);
         } catch (Exception $e) {
             error_log("WebPush sendToStationAdmins error: " . $e->getMessage());
         }

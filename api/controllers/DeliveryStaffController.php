@@ -178,12 +178,18 @@ class DeliveryStaffController {
                 $pushTitle = "⚠️ Order #{$son} Cancelled";
                 $pushBody = "Your order has been cancelled by the station.";
             }
+
+            // Flush JSON response immediately to caller for instant UI completion (0ms)
+            WebPush::flushFastResponse(['success' => true]);
+
+            // Dispatch WebPush in parallel
             WebPush::sendToCustomer($this->pdo, $oInfo['customer_id'], $pushTitle, $pushBody, '/#customer_orders');
-            if (($admin['role'] ?? '') === 'Delivery Staff' && in_array($status, ['Delivered', 'Cancelled'], true)) {
+            if ($status === 'To Deliver') {
+                WebPush::sendToStationAdmins($this->pdo, $sid, "🛵 Order #{$son} Out for Delivery", "Order #{$son} has been dispatched for delivery.", '/#delivery_dashboard');
+            } elseif (($admin['role'] ?? '') === 'Delivery Staff' && in_array($status, ['Delivered', 'Cancelled'], true)) {
                 WebPush::sendToStationAdmins($this->pdo, $sid, "📋 Order #{$son} {$status}", "Order was marked {$status} by {$admin['username']}.", '/#admin_dashboard');
             }
-            
-            echo json_encode(['success' => true]);
+            exit;
         } catch (PDOException $e) { 
             error_log($e->getMessage()); 
             echo json_encode(['error' => 'Failed to update order status']); 
