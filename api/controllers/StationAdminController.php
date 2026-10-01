@@ -136,7 +136,32 @@ class StationAdminController {
         $discount = max(0, (float)($_POST['jug_discount'] ?? 0));
         $newPrice = max(0, (float)($_POST['new_jug_price'] ?? 0));
         $this->pdo->prepare("UPDATE STATION SET shipping_fee = ?, jug_discount = ?, new_jug_price = ? WHERE station_id = ?")->execute([$shipping, $discount, $newPrice, $admin['station_id']]);
+        if (class_exists('CustomerController')) {
+            CustomerController::clearStationsCache();
+        }
         echo json_encode(['success' => true]); 
+        exit;
+    }
+
+    public function updateLocation() {
+        $admin = $this->requireStationAdmin();
+        $lat = isset($_POST['latitude']) && $_POST['latitude'] !== '' ? (float)$_POST['latitude'] : null;
+        $lng = isset($_POST['longitude']) && $_POST['longitude'] !== '' ? (float)$_POST['longitude'] : null;
+        
+        if ($lat !== null && ($lat < -90 || $lat > 90)) {
+            echo json_encode(['error' => 'Invalid latitude (-90 to 90 expected).']);
+            exit;
+        }
+        if ($lng !== null && ($lng < -180 || $lng > 180)) {
+            echo json_encode(['error' => 'Invalid longitude (-180 to 180 expected).']);
+            exit;
+        }
+
+        $this->pdo->prepare("UPDATE STATION SET latitude = ?, longitude = ? WHERE station_id = ?")->execute([$lat, $lng, $admin['station_id']]);
+        if (class_exists('CustomerController')) {
+            CustomerController::clearStationsCache();
+        }
+        echo json_encode(['success' => true, 'latitude' => $lat, 'longitude' => $lng]);
         exit;
     }
         

@@ -26,6 +26,8 @@ class SuperAdminController {
         $contact = trim($_POST['contact'] ?? '');
         $adminUser = trim($_POST['admin_username'] ?? '');
         $adminPass = $_POST['admin_password'] ?? '';
+        $lat = isset($_POST['latitude']) && $_POST['latitude'] !== '' ? (float)$_POST['latitude'] : null;
+        $lng = isset($_POST['longitude']) && $_POST['longitude'] !== '' ? (float)$_POST['longitude'] : null;
 
         if (empty($stName) || empty($addr) || empty($contact) || empty($adminUser) || empty($adminPass)) {
             echo json_encode(['error' => 'All fields are required.']);
@@ -38,12 +40,15 @@ class SuperAdminController {
 
         $this->pdo->beginTransaction();
         try {
-            $this->pdo->prepare("INSERT INTO STATION (station_name, address, contact_number) VALUES (?, ?, ?)")->execute([$stName, $addr, $contact]);
+            $this->pdo->prepare("INSERT INTO STATION (station_name, address, contact_number, latitude, longitude) VALUES (?, ?, ?, ?, ?)")->execute([$stName, $addr, $contact, $lat, $lng]);
             $sid = $this->pdo->lastInsertId();
             $this->pdo->prepare("INSERT INTO INVENTORY (station_id, stock_level, round_jugs, slim_jugs) VALUES (?, 0, 0, 0)")->execute([$sid]);
             $hp = password_hash($adminPass, PASSWORD_DEFAULT);
             $this->pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role) VALUES (?, ?, ?, 'Admin')")->execute([$sid, $adminUser, $hp]);
             $this->pdo->commit(); 
+            if (class_exists('CustomerController')) {
+                CustomerController::clearStationsCache();
+            }
             echo json_encode(['success' => true]);
         } catch (Exception $e) {
             $this->pdo->rollBack();
@@ -75,18 +80,45 @@ class SuperAdminController {
         exit;
     }
 
+    public function updateStationLocation() {
+        $this->requireSuperAdmin();
+        $sid = (int)($_POST['station_id'] ?? 0);
+        $lat = isset($_POST['latitude']) && $_POST['latitude'] !== '' ? (float)$_POST['latitude'] : null;
+        $lng = isset($_POST['longitude']) && $_POST['longitude'] !== '' ? (float)$_POST['longitude'] : null;
+
+        if (!$sid) {
+            echo json_encode(['error' => 'Station ID is required.']);
+            exit;
+        }
+        if ($lat !== null && ($lat < -90 || $lat > 90)) {
+            echo json_encode(['error' => 'Invalid latitude (-90 to 90 expected).']);
+            exit;
+        }
+        if ($lng !== null && ($lng < -180 || $lng > 180)) {
+            echo json_encode(['error' => 'Invalid longitude (-180 to 180 expected).']);
+            exit;
+        }
+
+        $this->pdo->prepare("UPDATE STATION SET latitude = ?, longitude = ? WHERE station_id = ?")->execute([$lat, $lng, $sid]);
+        if (class_exists('CustomerController')) {
+            CustomerController::clearStationsCache();
+        }
+        echo json_encode(['success' => true, 'latitude' => $lat, 'longitude' => $lng]);
+        exit;
+    }
+
     public function getUsers() {
         $this->requireSuperAdmin();
         
         $admins = $this->pdo->query("
-            SELECT a.admin_id, a.station_id, a.username, a.role, a.status, s.station_name 
+            SELECT a.admin_id, a.station_id, a.username, a.role, a.status, a.last_active, a.created_at, s.station_name 
             FROM ADMIN a 
             LEFT JOIN STATION s ON a.station_id = s.station_id 
             ORDER BY FIELD(a.role, 'Super Admin', 'Admin', 'Delivery Staff'), a.admin_id ASC
         ")->fetchAll();
 
         $customers = $this->pdo->query("
-            SELECT c.customer_id, c.full_name, c.contact_number, c.address, c.is_verified, c.last_active,
+            SELECT c.customer_id, c.full_name, c.contact_number, c.address, c.is_verified, c.last_active, c.created_at,
                    COUNT(DISTINCT o.order_id) as total_orders,
                    IFNULL(SUM(IF(o.order_status = 'Delivered', o.quantity, 0)), 0) as total_containers,
                    IFNULL(SUM(IF(o.order_status = 'Delivered', o.total_price + o.shipping_fee + o.jug_fee - o.discount_amount, 0)), 0) as total_spent
@@ -96,12 +128,46 @@ class SuperAdminController {
             ORDER BY c.customer_id DESC
         ")->fetchAll();
 
-        $stations = $this->pdo->query("SELECT station_id, station_name, status FROM STATION ORDER BY station_name ASC")->fetchAll();
+        $stations = $this->pdo->query("SELECT station_id, station_name, address, status, latitude, longitude FROM STATION ORDER BY station_name ASC")->fetchAll();
 
         echo json_encode([
             'admins' => $admins,
             'customers' => $customers,
-            'stations' => $stations
+            'stations' => $stations,
+            'server_time' => date('Y-m-d H:i:s')
+        ]);
+        exit;
+    }
+
+    public function pollUsers() {
+        $this->requireSuperAdmin();
+        $since = $_GET['since'] ?? null;
+        
+        $params = [];
+        $whereSql = "WHERE c.created_at >= (NOW() - INTERVAL 1 DAY) OR c.last_active >= (NOW() - INTERVAL 15 MINUTE)";
+        if (!empty($since) && strtotime($since)) {
+            $whereSql = "WHERE c.created_at > ? OR c.last_active > ?";
+            $params = [$since, $since];
+        }
+        
+        $stmt = $this->pdo->prepare("
+            SELECT c.customer_id, c.full_name, c.contact_number, c.address, c.is_verified, c.last_active, c.created_at,
+                   COUNT(DISTINCT o.order_id) as total_orders,
+                   IFNULL(SUM(IF(o.order_status = 'Delivered', o.quantity, 0)), 0) as total_containers,
+                   IFNULL(SUM(IF(o.order_status = 'Delivered', o.total_price + o.shipping_fee + o.jug_fee - o.discount_amount, 0)), 0) as total_spent
+            FROM CUSTOMER c
+            LEFT JOIN ORDERS o ON c.customer_id = o.customer_id
+            $whereSql
+            GROUP BY c.customer_id
+            ORDER BY c.created_at DESC, c.last_active DESC
+            LIMIT 50
+        ");
+        $stmt->execute($params);
+        $recentCustomers = $stmt->fetchAll();
+        
+        echo json_encode([
+            'recent_customers' => $recentCustomers,
+            'server_time' => date('Y-m-d H:i:s')
         ]);
         exit;
     }

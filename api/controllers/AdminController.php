@@ -90,6 +90,8 @@ class AdminController {
     public function saSaveAdmin() { $this->getSuperAdmin()->saveAdmin(); }
     public function saToggleAdminStatus() { $this->getSuperAdmin()->toggleAdminStatus(); }
     public function saDeleteAdmin() { $this->getSuperAdmin()->deleteAdmin(); }
+    public function saPollUsers() { $this->getSuperAdmin()->pollUsers(); }
+    public function saUpdateStationLocation() { $this->getSuperAdmin()->updateStationLocation(); }
     public function saSaveCustomer() { $this->getSuperAdmin()->saveCustomer(); }
     public function saToggleCustomerVerification() { $this->getSuperAdmin()->toggleCustomerVerification(); }
     public function saDeleteCustomer() { $this->getSuperAdmin()->deleteCustomer(); }
@@ -98,6 +100,7 @@ class AdminController {
     public function getSalesReport() { $this->getStationAdmin()->getSalesReport(); }
     public function getAdminLoyalty() { $this->getStationAdmin()->getAdminLoyalty(); }
     public function adminUpdateLogistics() { $this->getStationAdmin()->updateLogistics(); }
+    public function adminUpdateLocation() { $this->getStationAdmin()->updateLocation(); }
     public function adminUpdateAdvancedInventory() { $this->getStationAdmin()->updateAdvancedInventory(); }
     public function adminUpdateHours() { $this->getStationAdmin()->updateHours(); }
     public function adminUpdateClosure() { $this->getStationAdmin()->updateClosure(); }

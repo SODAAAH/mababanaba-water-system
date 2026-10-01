@@ -30,6 +30,13 @@ const State = {
     deliveryPollingInitialized: false,
     adminSessionStartTime: null,
     customerSessionStartTime: null,
-    deliverySessionStartTime: null
+    deliverySessionStartTime: null,
+    mapboxToken: null,
+    customerCoords: (typeof localStorage !== 'undefined' && localStorage.getItem('mbbnb_customer_coords') ? JSON.parse(localStorage.getItem('mbbnb_customer_coords')) : null),
+    viewedReceipts: new Set((typeof sessionStorage !== 'undefined' && sessionStorage.getItem('mbbnb_viewed_receipts') ? JSON.parse(sessionStorage.getItem('mbbnb_viewed_receipts')) : [])),
+    saLastUserCheck: null,
+    saNewUserIds: new Set(),
+    saStationFilter: 'all',
+    customerMapView: false
 };
 if (typeof window !== 'undefined') window.State = State;
