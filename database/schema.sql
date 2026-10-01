@@ -18,9 +18,7 @@ CREATE TABLE IF NOT EXISTS STATION (
     gcash_number VARCHAR(20) NULL,
     maya_qr LONGTEXT NULL,
     maya_name VARCHAR(100) NULL,
-    maya_number VARCHAR(20) NULL,
-    latitude DECIMAL(10, 8) NULL,
-    longitude DECIMAL(11, 8) NULL
+    maya_number VARCHAR(20) NULL
 );
 
 CREATE TABLE IF NOT EXISTS ADMIN (
@@ -35,8 +33,6 @@ CREATE TABLE IF NOT EXISTS ADMIN (
     otp_expiry DATETIME DEFAULT NULL,
     new_temp_contact VARCHAR(20) DEFAULT NULL,
     failed_otp_attempts INT DEFAULT 0,
-    last_active TIMESTAMP NULL DEFAULT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (station_id) REFERENCES STATION(station_id) ON DELETE CASCADE
 );
 
@@ -53,8 +49,7 @@ CREATE TABLE IF NOT EXISTS CUSTOMER (
     new_temp_contact VARCHAR(20) DEFAULT NULL,
     failed_otp_attempts INT DEFAULT 0,
     
-    last_active TIMESTAMP NULL DEFAULT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    last_active TIMESTAMP NULL DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS CUSTOMER_LOYALTY (

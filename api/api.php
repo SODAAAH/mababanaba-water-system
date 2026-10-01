@@ -54,12 +54,10 @@ $readOnlyActions = [
     'get_customer_orders',
     'sa_get_stations',
     'sa_get_users',
-    'sa_poll_users',
     'get_admin_dashboard_data',
     'get_sales_report',
     'get_admin_loyalty',
-    'get_vapid_public_key',
-    'get_mapbox_token'
+    'get_vapid_public_key'
 ];
 
 if (!in_array($action, $readOnlyActions, true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -80,8 +78,7 @@ $csrfExempt = [
     'forgot_password_request',
     'reset_password_submit',
     'logout',
-    'get_vapid_public_key',
-    'get_mapbox_token'
+    'get_vapid_public_key'
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !in_array($action, $csrfExempt, true)) {
@@ -101,7 +98,7 @@ try {
     $pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
     $pdo->exec("SET time_zone = '+08:00'");
 
-    if (!file_exists(__DIR__ . '/.migrated_v6')) {
+    if (!file_exists(__DIR__ . '/.migrated_v5')) {
         require_once __DIR__ . '/migrations.php';
         run_migrations($pdo);
     }
@@ -257,9 +254,6 @@ switch ($action) {
         if (isset($_SESSION['customer_id'])) {
             $pdo->prepare("UPDATE CUSTOMER SET last_active = CURRENT_TIMESTAMP WHERE customer_id = ?")->execute([$_SESSION['customer_id']]);
         }
-        if (isset($_SESSION['admin_id'])) {
-            $pdo->prepare("UPDATE ADMIN SET last_active = CURRENT_TIMESTAMP WHERE admin_id = ?")->execute([$_SESSION['admin_id']]);
-        }
         echo json_encode(['success' => true]);
         exit;
     case 'logout': 
@@ -298,9 +292,7 @@ switch ($action) {
     case 'sa_add_station': getAdminController($pdo)->saAddStation(); break;
     case 'sa_toggle_station': getAdminController($pdo)->saToggleStation(); break;
     case 'sa_delete_station': getAdminController($pdo)->saDeleteStation(); break;
-    case 'sa_update_station_location': getAdminController($pdo)->saUpdateStationLocation(); break;
     case 'sa_get_users': getAdminController($pdo)->saGetUsers(); break;
-    case 'sa_poll_users': getAdminController($pdo)->saPollUsers(); break;
     case 'sa_save_admin': getAdminController($pdo)->saSaveAdmin(); break;
     case 'sa_toggle_admin_status': getAdminController($pdo)->saToggleAdminStatus(); break;
     case 'sa_delete_admin': getAdminController($pdo)->saDeleteAdmin(); break;
@@ -310,7 +302,6 @@ switch ($action) {
     case 'get_admin_dashboard_data': getAdminController($pdo)->getAdminDashboardData(); break;
     case 'get_sales_report': getAdminController($pdo)->getSalesReport(); break;
     case 'admin_update_logistics': getAdminController($pdo)->adminUpdateLogistics(); break;
-    case 'admin_update_location': getAdminController($pdo)->adminUpdateLocation(); break;
     case 'admin_update_advanced_inventory': getAdminController($pdo)->adminUpdateAdvancedInventory(); break;
     case 'admin_mark_returned': getAdminController($pdo)->adminMarkReturned(); break;
     case 'admin_update_hours': getAdminController($pdo)->adminUpdateHours(); break;
@@ -328,10 +319,6 @@ switch ($action) {
 
     case 'get_vapid_public_key':
         echo json_encode(['vapid_public_key' => WebPush::getVapidPublicKey()]);
-        exit;
-
-    case 'get_mapbox_token':
-        echo json_encode(['token' => MAPBOX_TOKEN]);
         exit;
 
     case 'save_push_subscription':

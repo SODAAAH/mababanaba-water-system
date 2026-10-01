@@ -182,32 +182,4 @@ function run_migrations($pdo) {
         }
         @file_put_contents($migrationLockFileV5, date('c'));
     }
-
-    $migrationLockFileV6 = __DIR__ . '/.migrated_v6';
-    if (!file_exists($migrationLockFileV6)) {
-        try {
-            try { $pdo->query("SELECT latitude FROM STATION LIMIT 1"); } catch (Exception $e) { 
-                $pdo->exec("ALTER TABLE STATION ADD COLUMN latitude DECIMAL(10, 8) NULL, ADD COLUMN longitude DECIMAL(11, 8) NULL"); 
-            }
-            try { $pdo->query("SELECT created_at FROM CUSTOMER LIMIT 1"); } catch (Exception $e) { 
-                $pdo->exec("ALTER TABLE CUSTOMER ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"); 
-            }
-            try { $pdo->query("SELECT last_active FROM ADMIN LIMIT 1"); } catch (Exception $e) { 
-                $pdo->exec("ALTER TABLE ADMIN ADD COLUMN last_active TIMESTAMP NULL DEFAULT NULL, ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"); 
-            }
-            
-            // Set initial realistic coordinates for initial demo stations if not set
-            $pdo->exec("UPDATE STATION SET latitude = 14.599512, longitude = 120.984222 WHERE station_id = 1 AND (latitude IS NULL OR latitude = 0)");
-            $pdo->exec("UPDATE STATION SET latitude = 14.612050, longitude = 120.998120 WHERE station_id = 2 AND (latitude IS NULL OR latitude = 0)");
-            $pdo->exec("UPDATE STATION SET latitude = 14.582100, longitude = 121.011200 WHERE station_id = 3 AND (latitude IS NULL OR latitude = 0)");
-            
-            if (class_exists('CustomerController')) {
-                CustomerController::clearStationsCache();
-            }
-        } catch (Exception $e) {
-            error_log("Migration v6 error: " . $e->getMessage());
-        }
-        @file_put_contents($migrationLockFileV6, date('c'));
-    }
 }
-

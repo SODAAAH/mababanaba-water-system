@@ -1,6 +1,6 @@
-window.addEventListener('error', function (e) {
+window.addEventListener('error', function(e) {
     const loader = document.getElementById('global-loader');
-    if (loader) {
+    if(loader) {
         loader.innerHTML = `
             <div style="background:white; padding:20px; border-radius:12px; text-align:center; box-shadow: 0 10px 25px rgba(0,0,0,0.1); max-width: 90%;">
                 <h3 style="color:#ef4444; font-weight:bold; font-family:sans-serif; margin-bottom:10px;">Notice</h3>
@@ -97,7 +97,7 @@ const App = {
             perks: 'Standard Queue: Earn points on refills to unlock faster dispatch'
         };
     },
-
+    
     async requestNotificationPermission() {
         if ("Notification" in window && Notification.permission === "default") {
             const p = await Notification.requestPermission();
@@ -106,7 +106,7 @@ const App = {
             }
         }
     },
-
+    
     sendNativeNotification(title, body, tag = null, inAppFeedback = true) {
         if (inAppFeedback) {
             this.playNotificationChime();
@@ -117,7 +117,7 @@ const App = {
         if (!("Notification" in window)) return;
         if (Notification.permission === "granted") {
             try {
-                navigator.serviceWorker.ready.then(function (registration) {
+                navigator.serviceWorker.ready.then(function(registration) {
                     registration.showNotification(title, {
                         body: body,
                         icon: './logo.png',
@@ -131,7 +131,7 @@ const App = {
             } catch (e) {
                 try {
                     new Notification(title, { body: body, icon: './logo.png', tag: tag || undefined });
-                } catch (err) { }
+                } catch(err) {}
             }
         }
     },
@@ -142,25 +142,25 @@ const App = {
             if (!AudioCtx) return;
             const ctx = new AudioCtx();
             if (ctx.state === 'suspended') {
-                ctx.resume().catch(() => { });
+                ctx.resume().catch(() => {});
             }
             const now = ctx.currentTime;
-
+            
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
             osc.connect(gain);
             gain.connect(ctx.destination);
-
+            
             osc.type = 'sine';
             osc.frequency.setValueAtTime(587.33, now);
             osc.frequency.exponentialRampToValueAtTime(880, now + 0.12);
-
+            
             gain.gain.setValueAtTime(0.25, now);
             gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
-
+            
             osc.start(now);
             osc.stop(now + 0.45);
-        } catch (e) { }
+        } catch(e) {}
     },
 
     broadcastChannel: null,
@@ -191,7 +191,7 @@ const App = {
                 try {
                     const parsed = JSON.parse(e.newValue);
                     this.handleBroadcastMessage(parsed);
-                } catch (err) { }
+                } catch(err) {}
             }
         });
     },
@@ -210,7 +210,7 @@ const App = {
         try {
             const eventPayload = JSON.stringify({ ...payload, _ts: Date.now() });
             localStorage.setItem('mbbnb_orders_sync_event', eventPayload);
-        } catch (e) { }
+        } catch(e) {}
     },
 
     async handleBroadcastMessage(data) {
@@ -218,7 +218,7 @@ const App = {
 
         if (data.type === 'ORDER_STATUS_CHANGED' || data.type === 'NEW_ORDER_PLACED') {
             const orderLabel = data.station_order_number ? `#${data.station_order_number}` : (data.orderId || data.order_id ? `#${data.orderId || data.order_id}` : 'Order');
-
+            
             // 1. In-app audible chime
             this.playNotificationChime();
 
@@ -234,8 +234,8 @@ const App = {
             // 3. Native notification if document is hidden
             if (document.hidden && this.sendNativeNotification) {
                 const title = data.type === 'ORDER_STATUS_CHANGED' ? 'Order Update' : 'New Order';
-                const body = data.type === 'ORDER_STATUS_CHANGED'
-                    ? `Order ${orderLabel} status is now ${data.status || 'Updated'}`
+                const body = data.type === 'ORDER_STATUS_CHANGED' 
+                    ? `Order ${orderLabel} status is now ${data.status || 'Updated'}` 
                     : `New Order ${orderLabel} placed!`;
                 this.sendNativeNotification(title, body, 'sync-' + Date.now(), false);
             }
@@ -321,14 +321,14 @@ const App = {
                         }
                     }
                 }
-            } catch (err) { }
+            } catch (err) {}
         }
     },
 
     async promptPwaInstall() {
         const banner = document.getElementById('pwa-install-banner');
         if (banner) banner.classList.add('hidden');
-
+        
         const isIos = /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
         if (isIos) {
             CustomDialog.alert("To install this app on your iPhone/iPad:<br><br>1. Tap the <strong>Share</strong> button <i class='fa-solid fa-arrow-up-from-bracket mx-1'></i> at the bottom of Safari.<br>2. Scroll down and tap <strong>Add to Home Screen</strong> <i class='fa-regular fa-square-plus mx-1'></i>.", "Install on iOS");
@@ -344,12 +344,12 @@ const App = {
 
 
     startHeartbeat() {
-        if (State.heartbeatInterval) clearInterval(State.heartbeatInterval);
-
+        if(State.heartbeatInterval) clearInterval(State.heartbeatInterval);
+        
         if (State.user && State.user.type === 'customer') {
             State.heartbeatInterval = setInterval(() => {
                 if (true) {
-                    API.request('ping', 'POST', null, true).catch(() => { });
+                    API.request('ping', 'POST', null, true).catch(() => {});
                 }
             }, 10000);
         }
@@ -392,11 +392,11 @@ const App = {
             delete btn.dataset.originalText;
         }
     },
-
+    
     async viewProof(orderId) {
         if (!orderId) { CustomToast.show("No payment proof provided", "error"); return; }
         CustomToast.show("Loading receipt...", "loading", 10000, "proof-loading");
-
+        
         try {
             const res = await API.request('get_payment_proof', 'POST', { order_id: orderId });
             CustomToast.dismiss("proof-loading");
@@ -422,59 +422,25 @@ const App = {
                     }
                 }
 
-                // Mark this receipt as viewed so admin can accept the order
-                State.viewedReceipts.add(Number(orderId));
-                State.viewedReceipts.add(String(orderId));
-                try {
-                    sessionStorage.setItem('mbbnb_viewed_receipts', JSON.stringify(Array.from(State.viewedReceipts)));
-                } catch (e) { }
-
-                // Look up order in admin state to check if Pending
-                const adminOrder = State.adminData?.orders?.find(o => o.order_id == orderId || (o.station_order_number && o.station_order_number == orderId));
-                const isPending = adminOrder ? (adminOrder.order_status === 'Pending') : true;
-                const canAccept = isPending && (State.user?.role === 'Admin' || State.user?.role === 'Super Admin');
-                const orderNum = adminOrder?.station_order_number || orderId;
-
                 const modal = document.createElement('div');
                 modal.className = 'fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm opacity-0 transition-opacity duration-300';
                 modal.innerHTML = `
                     <div class="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl scale-95 transition-transform duration-300 relative flex flex-col max-h-[90vh]">
-                        <button class="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700 transition" onclick="App.closeReceiptModal(this, '${orderId}')"><i class="fa-solid fa-times"></i></button>
-                        <div class="flex items-center gap-2.5 mb-4">
-                            <div class="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center text-lg">
-                                <i class="fa-solid fa-receipt"></i>
-                            </div>
-                            <div>
-                                <h3 class="text-lg font-black text-slate-800 leading-tight">Payment Proof Receipt</h3>
-                                <p class="text-xs text-slate-500 font-medium">Order #${orderNum} • Verified by Admin</p>
-                            </div>
+                        <button class="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700 transition" onclick="this.closest('.fixed').remove()"><i class="fa-solid fa-times"></i></button>
+                        <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><i class="fa-solid fa-receipt text-blue-500"></i> Payment Proof</h3>
+                        <div class="flex-1 overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-2 flex items-center justify-center min-h-[300px]">
+                            <img id="proof-image-display" class="max-w-full h-auto rounded-lg shadow-sm" alt="Payment Proof">
                         </div>
-                        <div class="flex-1 overflow-auto rounded-2xl border border-slate-200 bg-slate-50 p-2 flex items-center justify-center min-h-[280px]">
-                            <img id="proof-image-display" class="max-w-full h-auto rounded-xl shadow-sm" alt="Payment Proof">
-                        </div>
-                        <div class="mt-4 pt-3 border-t border-slate-100 flex flex-wrap justify-between items-center gap-3">
-                            <div class="flex items-center gap-2">
-                                <a id="proof-download-link" download="Receipt-Order-${orderId}.jpg" class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs flex items-center gap-1.5 transition active:scale-95">
-                                    <i class="fa-solid fa-download"></i> Save Receipt
-                                </a>
-                                <span class="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-xl flex items-center gap-1">
-                                    <i class="fa-solid fa-check-double text-emerald-600"></i> Receipt Reviewed
-                                </span>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                ${canAccept ? `
-                                    <button onclick="App.acceptOrderFromReceipt('${orderId}', this)" class="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black text-xs sm:text-sm rounded-xl shadow-lg shadow-emerald-600/25 flex items-center gap-2 transition active:scale-95">
-                                        <i class="fa-solid fa-circle-check"></i>
-                                        <span>Accept Order</span>
-                                    </button>
-                                ` : ''}
-                                <button class="btn btn-secondary text-xs sm:text-sm" onclick="App.closeReceiptModal(this, '${orderId}')">Close</button>
-                            </div>
+                        <div class="mt-4 flex justify-between items-center gap-3">
+                            <a id="proof-download-link" download="Receipt-Order-${orderId}.jpg" class="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 font-bold rounded-xl text-sm flex items-center gap-2 transition active:scale-95">
+                                <i class="fa-solid fa-download"></i> Save Receipt
+                            </a>
+                            <button class="btn btn-primary" onclick="this.closest('.fixed').remove()">Close</button>
                         </div>
                     </div>
                 `;
                 const proofImg = modal.querySelector('#proof-image-display');
-                proofImg.onerror = function () {
+                proofImg.onerror = function() {
                     this.onerror = null;
                     this.parentElement.innerHTML = '<div class="text-center text-slate-500 p-8"><i class="fa-solid fa-image-slash text-4xl mb-3 opacity-50"></i><p>Image cannot be loaded or is corrupted.</p></div>';
                 };
@@ -496,36 +462,9 @@ const App = {
             CustomToast.show("Error loading payment proof", "error");
         }
     },
-
-    async acceptOrderFromReceipt(orderId, btn) {
-        if (!orderId) return;
-        const modal = btn ? btn.closest('.fixed') : document.querySelector('.fixed.z-\\[110\\]');
-        if (modal) modal.remove();
-        CustomToast.show("Accepting order...", "loading", 4000, "accept-from-proof");
-        try {
-            await this.updateOrderStatus(orderId, 'Preparing');
-            CustomToast.dismiss("accept-from-proof");
-            CustomToast.show(`Receipt verified! Order accepted and moved to Preparing.`, 'success');
-        } catch (e) {
-            CustomToast.dismiss("accept-from-proof");
-        }
-    },
-
-    closeReceiptModal(btn, orderId) {
-        const modal = btn ? btn.closest('.fixed') : null;
-        if (modal) modal.remove();
-        if (UI._currentView === 'admin_dashboard') {
-            UI.renderAdminDashboard();
-        }
-    },
-
-    requireReceiptBeforeAccept(orderId) {
-        CustomToast.show("Please view and verify the payment receipt before accepting this order.", "warning", 4000);
-        this.viewProof(orderId);
-    },
-
+    
     formatDate(dateString) {
-        if (!dateString) return 'N/A';
+        if(!dateString) return 'N/A';
         const d = new Date(dateString);
         const mm = (d.getMonth() + 1).toString().padStart(2, '0');
         const dd = d.getDate().toString().padStart(2, '0');
@@ -534,7 +473,7 @@ const App = {
     },
 
     formatDateTime(dateString) {
-        if (!dateString) return 'N/A';
+        if(!dateString) return 'N/A';
         const safeStr = dateString.includes('T') ? dateString : dateString.replace(' ', 'T');
         const d = new Date(safeStr);
         if (isNaN(d.getTime())) {
@@ -558,8 +497,8 @@ const App = {
         let hours = d.getHours();
         const ampm = hours >= 12 ? 'PM' : 'AM';
         hours = hours % 12;
-        hours = hours ? hours : 12;
-        const mins = d.getMinutes().toString().padStart(2, '0');
+        hours = hours ? hours : 12; 
+        const mins = d.getMinutes().toString().padStart(2,'0');
         return `${datePart} ${hours}:${mins} ${ampm}`;
     },
 
@@ -581,20 +520,20 @@ const App = {
         e.preventDefault();
         const btn = e.target.querySelector('button[type="submit"]');
         this.setLoading(btn, true, 'Sign In');
-
+        
         const type = document.getElementById('login-type').value;
         const user = document.getElementById('login-user').value;
         const pass = document.getElementById('login-pass').value;
-
+        
         const action = type === 'customer' ? 'customer_login' : 'admin_login';
-
+        
         const data = new FormData();
         data.append(type === 'customer' ? 'contact_number' : 'username', user);
         data.append('password', pass);
-
+        
         try {
             const res = await API.request(action, 'POST', data);
-
+            
             if (res.requires_otp) {
                 State.tempContact = res.contact_number;
                 UI.navigate('otp_verify');
@@ -615,8 +554,8 @@ const App = {
             }
         } catch (e) {
             console.error("Login error:", e);
-            const msg = (e.message && e.message !== 'Unauthorized')
-                ? e.message
+            const msg = (e.message && e.message !== 'Unauthorized') 
+                ? e.message 
                 : (type === 'customer' ? 'Invalid mobile number or password.' : 'Invalid username or password.');
             CustomToast.show(msg, 'error');
             this.setLoading(btn, false, 'Sign In');
@@ -627,17 +566,17 @@ const App = {
         e.preventDefault();
         const pass = document.getElementById('reg-pass').value;
         const conf = document.getElementById('reg-confirm').value;
-        if (pass !== conf) return CustomToast.show('Passwords do not match.', 'error');
-
+        if(pass !== conf) return CustomToast.show('Passwords do not match.', 'error');
+        
         const btn = e.target.querySelector('button[type="submit"]');
         this.setLoading(btn, true, 'Register');
-
+        
         const data = new FormData();
         data.append('full_name', document.getElementById('reg-name').value);
         data.append('contact_number', document.getElementById('reg-phone').value);
         data.append('address', document.getElementById('reg-address').value);
         data.append('password', document.getElementById('reg-pass').value);
-
+        
         try {
             const res = await API.request('customer_register', 'POST', data);
             if (res.requires_otp) {
@@ -1013,7 +952,7 @@ const App = {
         try {
             CustomToast.show('Requesting OTP verification code...', 'info');
             const res = await API.request('request_password_change_otp', 'POST');
-
+            
             if (!res.success) {
                 CustomToast.show(res.error || 'Failed to send OTP code.', 'error');
                 return;
@@ -1103,7 +1042,7 @@ const App = {
 
         const btn = e.target.querySelector('button[type="submit"]');
         this.setLoading(btn, true, 'Verify & Login');
-
+        
         const data = new FormData();
         data.append('contact_number', State.tempContact);
         data.append('otp_code', code);
@@ -1134,7 +1073,7 @@ const App = {
         e.preventDefault();
         const btn = e.target.querySelector('button[type="submit"]');
         this.setLoading(btn, true, 'Send OTP');
-
+        
         const phone = document.getElementById('reset-phone').value;
         const data = new FormData();
         data.append('contact_number', phone);
@@ -1174,7 +1113,7 @@ const App = {
 
         const btn = e.target.querySelector('button[type="submit"]');
         this.setLoading(btn, true, 'Update Password');
-
+        
         const data = new FormData();
         data.append('contact_number', State.tempContact);
         data.append('otp_code', code);
@@ -1204,7 +1143,7 @@ const App = {
 
         const last = State.lastOrderGroup;
         const station = (State.stations || []).find(s => s.station_id == last.station_id);
-
+        
         if (station && station.status !== 'Active') {
             return CustomToast.show(`${station.station_name} is currently closed or unavailable.`, 'error');
         }
@@ -1276,8 +1215,8 @@ const App = {
 
     selectStation(id) {
         State.selectedStation = id;
-        try { sessionStorage.setItem('selectedStation', String(id)); } catch (e) { }
-        State.cart = [];
+        try { sessionStorage.setItem('selectedStation', String(id)); } catch(e) {}
+        State.cart = []; 
         UI.navigate('customer_station');
     },
 
@@ -1285,7 +1224,7 @@ const App = {
         const station = State.stations.find(s => s.station_id == State.selectedStation);
         const product = station.products.find(p => p.product_id == id);
         const cartId = id + '_' + type;
-
+        
         if (change > 0) {
             const maxStock = type === 'Round' ? (station.round_jugs || 0) : (station.slim_jugs || 0);
             const totalTypeQty = State.cart.filter(i => i.jug_type === type).reduce((sum, i) => sum + i.quantity, 0);
@@ -1296,7 +1235,7 @@ const App = {
         }
 
         let item = State.cart.find(i => i.cartId === cartId);
-
+        
         if (!item && change > 0) {
             State.cart.push({ cartId: cartId, product_id: id, name: product.name, price: product.price, quantity: 1, jug_type: type });
             item = State.cart[State.cart.length - 1];
@@ -1307,16 +1246,16 @@ const App = {
                 item = null;
             }
         }
-
+        
         if (change > 0 && item) {
             const totalTypeQty = State.cart.filter(i => i.jug_type === type).reduce((sum, i) => sum + i.quantity, 0);
             CustomToast.show(`${type} Jug added (${totalTypeQty} in cart)`, 'success', 2000, `cart-${type}`);
         }
-
+        
         const qtyEl = document.getElementById(`qty-${id}-${type}`);
-        if (qtyEl) qtyEl.innerText = item ? item.quantity : 0;
-
-        this.updateCartUI();
+        if(qtyEl) qtyEl.innerText = item ? item.quantity : 0;
+        
+        this.updateCartUI(); 
     },
 
     updateCartContainer(index, value) {
@@ -1332,11 +1271,11 @@ const App = {
     updateCartUI() {
         const total = State.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         const totalEl = document.getElementById('cart-total');
-        if (totalEl) totalEl.innerText = `₱${total.toFixed(2)}`;
-
+        if(totalEl) totalEl.innerText = `₱${total.toFixed(2)}`;
+        
         const cartFloating = document.getElementById('floating-cart');
-        if (cartFloating) {
-            if (State.cart.length > 0) {
+        if(cartFloating) {
+            if(State.cart.length > 0) {
                 cartFloating.classList.remove('hidden');
                 void cartFloating.offsetWidth;
                 cartFloating.classList.remove('translate-y-full');
@@ -1359,12 +1298,12 @@ const App = {
         const mayaUI = document.getElementById('co-cashless-ui-maya');
         const gcashInput = document.getElementById('co-receipt-gcash');
         const mayaInput = document.getElementById('co-receipt-maya');
-
+        
         if (gcashUI) gcashUI.classList.add('hidden');
         if (mayaUI) mayaUI.classList.add('hidden');
         if (gcashInput) gcashInput.required = false;
         if (mayaInput) mayaInput.required = false;
-
+        
         if (method === 'GCash' && gcashUI) {
             gcashUI.classList.remove('hidden');
             if (gcashInput) gcashInput.required = true;
@@ -1373,48 +1312,48 @@ const App = {
             if (mayaInput) mayaInput.required = true;
         }
     },
-
+    
     recalculateTotal() {
         const station = State.stations.find(s => s.station_id == State.selectedStation);
         const subtotal = State.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         const totalQty = State.cart.reduce((sum, item) => sum + item.quantity, 0);
         const shippingFee = parseFloat(station.shipping_fee || 0);
-
+        
         let jugBuyTotal = 0;
         State.cart.forEach(item => {
             if (item.container_option === 'buy') {
                 jugBuyTotal += item.quantity * parseFloat(station.new_jug_price || 0);
             }
         });
-
+        
         const usePoints = document.getElementById('co-use-points')?.checked;
-
+        
         let finalTotal = subtotal + shippingFee + jugBuyTotal;
-
+        
         const loyaltyRow = document.getElementById('co-loyalty-row');
         const loyaltyAmt = document.getElementById('co-loyalty-amt');
-
+        
         if (usePoints && State.cart.length > 0) {
             const cartHash = State.cart.reduce((sum, item) => sum + parseInt(item.product_id), 0);
             const discountIndex = cartHash % State.cart.length;
             const discountValue = parseFloat(State.cart[discountIndex].price);
             finalTotal -= discountValue;
-
-            if (loyaltyRow && loyaltyAmt) {
+            
+            if(loyaltyRow && loyaltyAmt) {
                 loyaltyRow.classList.remove('hidden');
                 loyaltyRow.classList.add('flex');
                 loyaltyAmt.innerText = '-₱' + discountValue.toFixed(2);
             }
         } else {
-            if (loyaltyRow) {
+            if(loyaltyRow) {
                 loyaltyRow.classList.add('hidden');
                 loyaltyRow.classList.remove('flex');
             }
         }
-
+        
         const buyRow = document.getElementById('co-buy-row');
-        if (buyRow) {
-            if (jugBuyTotal > 0) {
+        if(buyRow) {
+            if(jugBuyTotal > 0) {
                 buyRow.classList.remove('hidden');
                 buyRow.classList.add('flex');
                 document.getElementById('co-buy-display').innerText = `+₱${jugBuyTotal.toFixed(2)}`;
@@ -1423,7 +1362,7 @@ const App = {
                 buyRow.classList.remove('flex');
             }
         }
-
+        
         finalTotal = Math.max(0, finalTotal);
         document.getElementById('co-total-display').innerText = `₱${finalTotal.toFixed(2)}`;
         const stickyTotal = document.getElementById('co-sticky-total');
@@ -1432,8 +1371,8 @@ const App = {
 
     async processCheckout(e) {
         e.preventDefault();
-        if (State.cart.length === 0) return;
-
+        if(State.cart.length === 0) return;
+        
         const paymentRadio = document.querySelector('input[name="co-payment"]:checked');
         if (!paymentRadio) {
             CustomToast.show('Please select a payment method before confirming your order.', 'error');
@@ -1444,13 +1383,13 @@ const App = {
 
         const btn = e.target.querySelector('button[type="submit"]');
         this.setLoading(btn, true);
-
+        
         const method = paymentRadio.value;
         const usePoints = document.getElementById('co-use-points')?.checked ? 1 : 0;
         const returnBorrowed = document.getElementById('co-return-borrowed')?.checked ? 1 : 0;
         const scheduleType = document.getElementById('co-schedule-type').value;
         const scheduleDate = document.getElementById('co-schedule-date').value;
-
+        
         if (scheduleType === 'Scheduled') {
             if (!scheduleDate) {
                 this.setLoading(btn, false);
@@ -1467,7 +1406,7 @@ const App = {
                 this.setLoading(btn, false);
                 return CustomToast.show('Pre-orders can only be scheduled up to 1 week (7 days) ahead.', 'error');
             }
-
+            
             const station = State.stations.find(s => s.station_id == State.selectedStation);
             if (station && station.opening_time && station.closing_time) {
                 const schedDateObj = new Date(scheduleDate);
@@ -1475,22 +1414,22 @@ const App = {
                 const mm = String(schedDateObj.getMinutes()).padStart(2, '0');
                 const ss = String(schedDateObj.getSeconds()).padStart(2, '0');
                 const schedTimeString = `${hh}:${mm}:${ss}`;
-
+                
                 if (schedTimeString < station.opening_time || schedTimeString > station.closing_time) {
                     this.setLoading(btn, false);
-
+                    
                     const formatTime = (timeString) => {
                         const [h, m] = timeString.split(':');
                         const date = new Date();
                         date.setHours(h, m, 0);
                         return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
                     };
-
+                    
                     return CustomToast.show(`Pre-orders must be scheduled within operating hours (${formatTime(station.opening_time)} - ${formatTime(station.closing_time)}).`, 'error');
                 }
             }
         }
-
+        
         let proofBase64 = null;
         if (method === 'GCash') {
             const fileInput = document.getElementById('co-receipt-gcash');
@@ -1501,17 +1440,17 @@ const App = {
             if (fileInput.files.length === 0) { this.setLoading(btn, false); return CustomToast.show('Please upload your Maya receipt.', 'error'); }
             proofBase64 = await this.getBase64(fileInput.files[0]);
         }
-
+        
         const data = new FormData();
         data.append('station_id', State.selectedStation);
         data.append('cart', JSON.stringify(State.cart));
         data.append('delivery_address', document.getElementById('co-address').value);
-        data.append('payment_method', method);
+        data.append('payment_method', method); 
         if (proofBase64) data.append('payment_proof', proofBase64);
         if (scheduleType === 'Scheduled' && scheduleDate) data.append('scheduled_date', scheduleDate);
         data.append('use_points', usePoints);
         data.append('returning_borrowed', returnBorrowed);
-
+        
         try {
             const res = await API.request('place_order', 'POST', data);
             if (res.success) {
@@ -1558,7 +1497,7 @@ const App = {
         data.append('rating', rating);
         try {
             const res = await API.request('submit_review', 'POST', data);
-            if (res.success) {
+            if(res.success) {
                 CustomToast.show('Thank you for your feedback!', 'success');
                 delete UI._prefetchCache['customer_orders'];
                 const freshData = await API.request('get_customer_orders', 'GET', null, true);
@@ -1574,12 +1513,12 @@ const App = {
 
     toggleOrderSelection(checkbox) {
         const id = checkbox.value;
-        if (checkbox.checked) State.selectedOrders.add(id);
+        if(checkbox.checked) State.selectedOrders.add(id);
         else State.selectedOrders.delete(id);
-
+        
         const bar = document.getElementById('bulk-action-bar');
-        if (bar) {
-            if (State.selectedOrders.size > 0) {
+        if(bar) {
+            if(State.selectedOrders.size > 0) {
                 bar.classList.remove('bulk-hidden', 'hidden');
                 bar.classList.add('bulk-visible');
                 const countEl = document.getElementById('bulk-count');
@@ -1590,41 +1529,29 @@ const App = {
             }
         }
     },
-
+    
     async applyBulkStatus() {
-        if (State.selectedOrders.size === 0) return;
+        if(State.selectedOrders.size === 0) return;
         const status = document.getElementById('bulk-status').value;
         const btn = document.querySelector('#bulk-action-bar button');
         this.setLoading(btn, true);
-
+        
         const promises = Array.from(State.selectedOrders).map(id => this.updateOrderStatus(id, status, true));
         await Promise.all(promises);
-
+        
         State.selectedOrders.clear();
         const bar = document.getElementById('bulk-action-bar');
-        if (bar) {
+        if(bar) {
             bar.classList.remove('bulk-visible');
             bar.classList.add('bulk-hidden');
         }
-        if (State.user.data.role === 'Admin') UI.renderAdminDashboard();
-        if (State.user.data.role === 'Delivery Staff') UI.renderDeliveryDashboard();
+        if(State.user.data.role === 'Admin') UI.renderAdminDashboard();
+        if(State.user.data.role === 'Delivery Staff') UI.renderDeliveryDashboard();
         CustomToast.show(`Updated ${promises.length} orders successfully.`, 'success');
         this.setLoading(btn, false);
     },
 
     async updateOrderStatus(orderId, status, skipRender = false, jugsReturned = null) {
-        // Enforce: Admin can't accept orders until they viewed the receipt
-        if (status === 'Preparing') {
-            const adminOrder = State.adminData?.orders?.find(o => o.order_id == orderId || (o.station_order_number && o.station_order_number == orderId));
-            const hasProof = adminOrder && (adminOrder.has_payment_proof && adminOrder.has_payment_proof != '0');
-            const isOnline = adminOrder && (adminOrder.payment_method === 'GCash' || adminOrder.payment_method === 'Maya');
-            const hasViewed = State.viewedReceipts.has(Number(orderId)) || State.viewedReceipts.has(String(orderId)) || (adminOrder && (State.viewedReceipts.has(Number(adminOrder.order_id)) || State.viewedReceipts.has(String(adminOrder.order_id))));
-            if ((hasProof || isOnline) && !hasViewed) {
-                this.requireReceiptBeforeAccept(orderId);
-                return;
-            }
-        }
-
         let prevStatus = null;
         let targetSon = null;
 
@@ -1806,7 +1733,7 @@ const App = {
         document.getElementById(modalId).remove();
         this.updateOrderStatus(orderId, 'Delivered', false, jugsReturned);
     },
-
+    
     async updateLogistics(e) {
         e.preventDefault();
         const btn = e.target.querySelector('button[type="submit"]');
@@ -1818,33 +1745,33 @@ const App = {
         try {
             await API.request('admin_update_logistics', 'POST', data);
             CustomToast.show('Logistics configuration updated.', 'success');
-        } catch (e) { }
+        } catch(e) {}
         this.setLoading(btn, false);
     },
-
+    
     async updateSecurity(e) {
         e.preventDefault();
         const user = document.getElementById('sec-user').value;
         const pass = document.getElementById('sec-pass').value;
         const conf = document.getElementById('sec-conf').value;
-        if (pass && pass !== conf) return CustomToast.show("New passwords do not match.", 'error');
-
+        if(pass && pass !== conf) return CustomToast.show("New passwords do not match.", 'error');
+        
         const btn = e.target.querySelector('button[type="submit"]');
         this.setLoading(btn, true);
         const data = new FormData();
         data.append('username', user);
-        if (pass) data.append('password', pass);
-
+        if(pass) data.append('password', pass);
+        
         try {
             const res = await API.request('admin_update_security', 'POST', data);
-            if (res.success) {
+            if(res.success) {
                 State.user.data.username = user;
                 UI.updateNav();
                 CustomToast.show('Security settings updated successfully.', 'success');
                 document.getElementById('sec-pass').value = '';
                 document.getElementById('sec-conf').value = '';
             }
-        } catch (e) { }
+        } catch (e) {}
         this.setLoading(btn, false);
     },
 
@@ -1858,7 +1785,7 @@ const App = {
         try {
             await API.request('admin_update_maintenance', 'POST', data);
             CustomToast.show('Maintenance logs updated successfully.', 'success');
-        } catch (e) { }
+        } catch(e) {}
         this.setLoading(btn, false);
     },
 
@@ -1871,24 +1798,24 @@ const App = {
         data.append('gcash_number', document.getElementById('set_gcash_num').value);
         data.append('maya_name', document.getElementById('set_maya_name').value);
         data.append('maya_number', document.getElementById('set_maya_num').value);
-
+        
         const gcashFile = document.getElementById('set_gcash_qr').files[0];
         const mayaFile = document.getElementById('set_maya_qr').files[0];
-        if (gcashFile) data.append('gcash_qr', await this.getBase64(gcashFile));
-        if (mayaFile) data.append('maya_qr', await this.getBase64(mayaFile));
-
+        if(gcashFile) data.append('gcash_qr', await this.getBase64(gcashFile));
+        if(mayaFile) data.append('maya_qr', await this.getBase64(mayaFile));
+        
         try {
             await API.request('admin_update_payment_profile', 'POST', data);
             CustomToast.show('Payment profiles saved.', 'success');
-            UI.renderAdminSettings();
-        } catch (e) {
+            UI.renderAdminSettings(); 
+        } catch(e) {
             this.setLoading(btn, false);
         }
     },
 
     async promptAddProduct() {
         const res = await CustomDialog.show({ type: 'product', title: 'Add Catalog Item' });
-        if (res && res.name && res.price) {
+        if(res && res.name && res.price) {
             const data = new FormData();
             data.append('name', res.name);
             data.append('price', res.price);
@@ -1900,14 +1827,14 @@ const App = {
     },
 
     async promptEditProduct(id, currentPrice, currentName = '', currentGal = 5.0) {
-        const res = await CustomDialog.show({
-            type: 'product',
+        const res = await CustomDialog.show({ 
+            type: 'product', 
             title: 'Edit Catalog Item',
             name: currentName,
             price: currentPrice,
             capacity_gallons: currentGal
         });
-        if (res && res.name && res.price) {
+        if(res && res.name && res.price) {
             const data = new FormData();
             data.append('product_id', id);
             data.append('name', res.name);
@@ -1920,7 +1847,7 @@ const App = {
     },
 
     async deleteProduct(id) {
-        if (await CustomDialog.confirm('Delete this product? It will be hidden from customers.', 'Delete Product')) {
+        if(await CustomDialog.confirm('Delete this product? It will be hidden from customers.', 'Delete Product')) {
             const data = new FormData();
             data.append('product_id', id);
             await API.request('admin_delete_product', 'POST', data);
@@ -1935,12 +1862,12 @@ const App = {
         const data = new FormData();
         data.append('is_closed', document.getElementById('set_manual_close').checked ? '1' : '0');
         data.append('closure_message', document.getElementById('set_closure_msg').value);
-
+        
         try {
             await API.request('admin_update_closure', 'POST', data);
             CustomToast.show('Station status updated successfully.', 'success');
             UI.renderAdminSettings();
-        } catch (err) {
+        } catch(err) {
             CustomToast.show(err.message, 'error');
         } finally {
             this.setLoading(btn, false);
@@ -1957,7 +1884,7 @@ const App = {
         try {
             await API.request('admin_update_hours', 'POST', data);
             CustomToast.show('Operating hours updated successfully.', 'success');
-        } catch (e) { }
+        } catch(e) {}
         this.setLoading(btn, false);
     },
 
@@ -1998,19 +1925,19 @@ const App = {
         try {
             await API.request('admin_update_advanced_inventory', 'POST', data);
             CustomToast.show('Inventory updated successfully.', 'success');
-            UI.renderAdminInventory();
-        } catch (e) { }
+            UI.renderAdminInventory(); 
+        } catch(e) {}
         this.setLoading(btn, false);
     },
 
     async markJugsReturned(orderId, roundQty, slimQty) {
-        if (await CustomDialog.confirm(`Confirm the customer has returned ${roundQty > 0 ? roundQty + ' Round ' : ''}${slimQty > 0 ? slimQty + ' Slim' : ''}? This will restock your inventory.`, 'Confirm Return')) {
+        if(await CustomDialog.confirm(`Confirm the customer has returned ${roundQty > 0 ? roundQty + ' Round ' : ''}${slimQty > 0 ? slimQty + ' Slim' : ''}? This will restock your inventory.`, 'Confirm Return')) {
             const data = new FormData();
             data.append('order_id', orderId);
             data.append('borrow_round', roundQty);
             data.append('borrow_slim', slimQty);
             await API.request('admin_mark_returned', 'POST', data);
-
+            
             CustomToast.show('Inventory restocked successfully.', 'success');
             UI.renderAdminInventory();
         }
@@ -2025,16 +1952,16 @@ const App = {
     },
 
     async deleteStation(id) {
-        if (await CustomDialog.confirm("Are you sure? This will delete all data for this station. This action cannot be undone.", "Delete Station")) {
+        if(await CustomDialog.confirm("Are you sure? This will delete all data for this station. This action cannot be undone.", "Delete Station")) {
             const data = new FormData();
             data.append('station_id', id);
             try {
                 await API.request('sa_delete_station', 'POST', data);
                 UI.renderSuperAdminDashboard();
-            } catch (e) { }
+            } catch(e) {}
         }
     },
-
+    
     async submitNewStation(e) {
         e.preventDefault();
         const btn = e.target.querySelector('button[type="submit"]');
@@ -2047,11 +1974,11 @@ const App = {
         data.append('admin_password', document.getElementById('sa-st-pass').value);
         try {
             const res = await API.request('sa_add_station', 'POST', data);
-            if (res.success) {
+            if(res.success) {
                 CustomToast.show('Station Created! The admin can now log in.', 'success');
                 UI.navigate('superadmin_dashboard');
             }
-        } catch (e) { }
+        } catch(e) {}
         this.setLoading(btn, false);
     },
 
@@ -2067,7 +1994,7 @@ const App = {
     },
 
     async deleteAdminUser(id, username) {
-        if (await CustomDialog.confirm(`Are you sure you want to delete staff/admin account "${username}"? This action cannot be undone.`, "Delete User Account")) {
+        if(await CustomDialog.confirm(`Are you sure you want to delete staff/admin account "${username}"? This action cannot be undone.`, "Delete User Account")) {
             const data = new FormData();
             data.append('admin_id', id);
             const res = await API.request('sa_delete_admin', 'POST', data);
@@ -2078,16 +2005,16 @@ const App = {
         }
     },
 
-    openAdminUserModal(admin = null, preselectedStationId = null) {
+    openAdminUserModal(admin = null) {
         const modal = document.getElementById('sa-admin-modal');
         if (!modal) return;
         document.getElementById('sa-modal-admin-id').value = admin ? admin.admin_id : '';
         document.getElementById('sa-modal-admin-user').value = admin ? admin.username : '';
         document.getElementById('sa-modal-admin-role').value = admin ? admin.role : 'Admin';
-        document.getElementById('sa-modal-admin-station').value = admin ? (admin.station_id || '') : (preselectedStationId || '');
+        document.getElementById('sa-modal-admin-station').value = admin ? (admin.station_id || '') : '';
         document.getElementById('sa-modal-admin-status').value = admin ? admin.status : 'Active';
         document.getElementById('sa-modal-admin-pass').value = '';
-
+        
         const title = document.getElementById('sa-admin-modal-title');
         const passHelp = document.getElementById('sa-admin-pass-help');
         const passInput = document.getElementById('sa-modal-admin-pass');
@@ -2100,7 +2027,7 @@ const App = {
             if (passHelp) passHelp.innerText = 'Enter password for this new account';
             if (passInput) passInput.required = true;
         }
-
+        
         this.toggleAdminStationDropdown();
         modal.classList.remove('hidden');
     },
@@ -2134,7 +2061,7 @@ const App = {
         data.append('station_id', document.getElementById('sa-modal-admin-station').value);
         data.append('status', document.getElementById('sa-modal-admin-status').value);
         data.append('password', document.getElementById('sa-modal-admin-pass').value);
-
+        
         try {
             const res = await API.request('sa_save_admin', 'POST', data);
             if (res.success) {
@@ -2142,7 +2069,7 @@ const App = {
                 this.closeAdminUserModal();
                 UI.renderSuperAdminDashboard();
             }
-        } catch (e) { }
+        } catch(e) {}
         this.setLoading(btn, false);
     },
 
@@ -2174,7 +2101,7 @@ const App = {
         data.append('address', document.getElementById('sa-modal-cust-addr').value);
         data.append('is_verified', document.getElementById('sa-modal-cust-ver').value);
         data.append('password', document.getElementById('sa-modal-cust-pass').value);
-
+        
         try {
             const res = await API.request('sa_save_customer', 'POST', data);
             if (res.success) {
@@ -2182,7 +2109,7 @@ const App = {
                 this.closeCustomerModal();
                 UI.renderSuperAdminDashboard();
             }
-        } catch (e) { }
+        } catch(e) {}
         this.setLoading(btn, false);
     },
 
@@ -2199,7 +2126,7 @@ const App = {
     },
 
     async deleteCustomerUser(id, name) {
-        if (await CustomDialog.confirm(`Are you sure you want to delete customer account "${name}"? All related data for this customer will be removed.`, "Delete Customer Account")) {
+        if(await CustomDialog.confirm(`Are you sure you want to delete customer account "${name}"? All related data for this customer will be removed.`, "Delete Customer Account")) {
             const data = new FormData();
             data.append('customer_id', id);
             const res = await API.request('sa_delete_customer', 'POST', data);
@@ -2208,469 +2135,6 @@ const App = {
                 UI.renderSuperAdminDashboard();
             }
         }
-    },
-
-    formatRelativeTime(dateString) {
-        if (!dateString) return { text: 'Never active', status: 'offline', color: 'bg-slate-100 text-slate-400 border-slate-200', dot: 'bg-slate-300' };
-        const safeStr = dateString.includes('T') ? dateString : dateString.replace(' ', 'T');
-        const d = new Date(safeStr);
-        if (isNaN(d.getTime())) return { text: dateString, status: 'offline', color: 'bg-slate-100 text-slate-400 border-slate-200', dot: 'bg-slate-300' };
-
-        const now = new Date();
-        const diffMs = now.getTime() - d.getTime();
-        const diffSec = Math.floor(diffMs / 1000);
-        const diffMins = Math.floor(diffSec / 60);
-        const diffHours = Math.floor(diffMins / 60);
-        const diffDays = Math.floor(diffHours / 24);
-
-        if (diffSec < 120) {
-            return { text: 'Online now', status: 'online', color: 'bg-emerald-100 text-emerald-800 border-emerald-300', dot: 'bg-emerald-500 animate-pulse' };
-        }
-        if (diffMins < 60) {
-            return { text: `Active ${diffMins}m ago`, status: 'recent', color: 'bg-amber-100 text-amber-800 border-amber-300', dot: 'bg-amber-500' };
-        }
-        if (diffHours < 24) {
-            return { text: `Last seen ${diffHours}h ago`, status: 'idle', color: 'bg-slate-100 text-slate-700 border-slate-300', dot: 'bg-slate-400' };
-        }
-        if (diffDays === 1) {
-            return { text: 'Last seen yesterday', status: 'offline', color: 'bg-slate-100 text-slate-500 border-slate-200', dot: 'bg-slate-300' };
-        }
-        return { text: `Last seen ${this.formatDate(dateString)}`, status: 'offline', color: 'bg-slate-100 text-slate-500 border-slate-200', dot: 'bg-slate-300' };
-    },
-
-    isNewUser(dateString) {
-        if (!dateString) return false;
-        const safeStr = dateString.includes('T') ? dateString : dateString.replace(' ', 'T');
-        const d = new Date(safeStr);
-        if (isNaN(d.getTime())) return false;
-        const now = new Date();
-        const diffHours = (now.getTime() - d.getTime()) / (1000 * 60 * 60);
-        return diffHours <= 48;
-    },
-
-    async pollSuperAdminUsers() {
-        if (UI._currentView !== 'superadmin_dashboard') return;
-        try {
-            const url = State.saLastUserCheck ? `sa_poll_users&since=${encodeURIComponent(State.saLastUserCheck)}` : 'sa_poll_users';
-            const res = await API.request(url, 'GET', null, true);
-            if (res && res.server_time) {
-                State.saLastUserCheck = res.server_time;
-            }
-            if (res && Array.isArray(res.recent_customers) && res.recent_customers.length > 0) {
-                const currentCustomers = State.saUsersData?.customers || [];
-                const currentIds = new Set(currentCustomers.map(c => Number(c.customer_id)));
-                let hasNewUser = false;
-
-                res.recent_customers.forEach(rc => {
-                    const cid = Number(rc.customer_id);
-                    if (!currentIds.has(cid)) {
-                        currentCustomers.unshift(rc);
-                        State.saNewUserIds.add(cid);
-                        currentIds.add(cid);
-                        hasNewUser = true;
-                        this.showNewUserAlert(rc);
-                    } else {
-                        const existing = currentCustomers.find(c => Number(c.customer_id) === cid);
-                        if (existing) {
-                            existing.last_active = rc.last_active;
-                            existing.is_verified = rc.is_verified;
-                        }
-                    }
-                });
-
-                if (hasNewUser || State.saUserSubTab === 'customers') {
-                    UI._filterSaUsers();
-                }
-            }
-        } catch (e) {
-            console.warn("SuperAdmin user polling notice:", e);
-        }
-    },
-
-    showNewUserAlert(cust) {
-        if (!cust) return;
-        CustomToast.show(
-            `🎉 New User: ${escapeHtml(cust.full_name)} (${escapeHtml(cust.contact_number)}) has joined! Tap to view info.`,
-            'info',
-            10000,
-            () => {
-                this.showCustomerInfoModal(cust);
-            }
-        );
-    },
-
-    showCustomerInfoModal(cust) {
-        if (!cust) return;
-        const existing = document.getElementById('sa-customer-info-modal');
-        if (existing) existing.remove();
-
-        const relTime = this.formatRelativeTime(cust.last_active);
-        const isNew = this.isNewUser(cust.created_at) || State.saNewUserIds.has(Number(cust.customer_id));
-        const isVer = cust.is_verified == 1;
-
-        const modal = document.createElement('div');
-        modal.id = 'sa-customer-info-modal';
-        modal.className = 'fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 opacity-0 transition-opacity duration-300';
-        modal.innerHTML = `
-            <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-blue-200/80 ring-2 ring-blue-500/30 scale-95 transition-transform duration-300 relative">
-                <button onclick="document.getElementById('sa-customer-info-modal').remove()" class="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center transition"><i class="fa-solid fa-xmark"></i></button>
-
-                <div class="flex items-center gap-3.5 mb-5">
-                    <div class="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center text-2xl shadow-inner relative shrink-0">
-                        <i class="fa-solid fa-user"></i>
-                        <span class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white ${relTime.dot}"></span>
-                    </div>
-                    <div class="min-w-0 flex-1">
-                        <div class="flex items-center gap-2 flex-wrap">
-                            <h3 class="text-xl font-black text-slate-800 leading-tight truncate">${escapeHtml(cust.full_name)}</h3>
-                            ${isNew ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-100 text-purple-800 border border-purple-300 animate-pulse">🆕 New User</span>' : ''}
-                        </div>
-                        <div class="flex items-center gap-2 mt-1.5 flex-wrap">
-                            <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${relTime.color} flex items-center gap-1">
-                                <i class="fa-solid fa-signal text-[9px]"></i> ${relTime.text}
-                            </span>
-                            <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${isVer ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-amber-100 text-amber-800 border-amber-300'} flex items-center gap-1">
-                                <i class="fa-solid ${isVer ? 'fa-check' : 'fa-hourglass-half'}"></i> ${isVer ? 'Verified' : 'Unverified'}
-                            </span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-3 mb-5">
-                    <div class="flex items-center justify-between text-xs">
-                        <span class="text-slate-500 font-medium flex items-center gap-1.5"><i class="fa-solid fa-phone text-blue-500"></i>Contact Number</span>
-                        <a href="tel:${escapeHtml(cust.contact_number)}" class="font-bold text-blue-600 hover:underline flex items-center gap-1">${escapeHtml(cust.contact_number)} <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i></a>
-                    </div>
-                    <div class="flex items-start justify-between text-xs gap-3">
-                        <span class="text-slate-500 font-medium shrink-0 flex items-center gap-1.5"><i class="fa-solid fa-location-dot text-red-500"></i>Address</span>
-                        <span class="font-bold text-slate-800 text-right leading-snug">${escapeHtml(cust.address || 'No address specified')}</span>
-                    </div>
-                    <div class="flex items-center justify-between text-xs">
-                        <span class="text-slate-500 font-medium flex items-center gap-1.5"><i class="fa-solid fa-calendar-plus text-slate-400"></i>Registered Date</span>
-                        <span class="font-bold text-slate-700">${cust.created_at ? App.formatDateTime(cust.created_at) : 'Registered recently'}</span>
-                    </div>
-                    <div class="flex items-center justify-between text-xs">
-                        <span class="text-slate-500 font-medium flex items-center gap-1.5"><i class="fa-solid fa-clock-rotate-left text-slate-400"></i>Last Seen Active</span>
-                        <span class="font-bold text-slate-700">${cust.last_active ? App.formatDateTime(cust.last_active) : 'Never active'}</span>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-3 gap-2.5 mb-5">
-                    <div class="bg-blue-50/60 rounded-2xl p-3 border border-blue-100 text-center">
-                        <div class="text-[10px] font-bold text-blue-600 uppercase">Orders</div>
-                        <div class="text-lg font-black text-slate-800 mt-0.5">${cust.total_orders || 0}</div>
-                    </div>
-                    <div class="bg-emerald-50/60 rounded-2xl p-3 border border-emerald-100 text-center">
-                        <div class="text-[10px] font-bold text-emerald-600 uppercase">Jugs Delivered</div>
-                        <div class="text-lg font-black text-slate-800 mt-0.5">${cust.total_containers || 0}</div>
-                    </div>
-                    <div class="bg-purple-50/60 rounded-2xl p-3 border border-purple-100 text-center">
-                        <div class="text-[10px] font-bold text-purple-600 uppercase">Total Spent</div>
-                        <div class="text-lg font-black text-slate-800 mt-0.5">₱${parseFloat(cust.total_spent || 0).toFixed(0)}</div>
-                    </div>
-                </div>
-
-                <div class="flex items-center gap-2 pt-2 border-t border-slate-100">
-                    <button onclick="document.getElementById('sa-customer-info-modal').remove(); App.openCustomerModal(JSON.parse(decodeURIComponent('${encodeURIComponent(JSON.stringify(cust))}')))" class="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-md flex items-center justify-center gap-1.5 active:scale-95">
-                        <i class="fa-solid fa-pen-to-square"></i> Edit Details
-                    </button>
-                    <button onclick="App.toggleCustomerVerification(${cust.customer_id}, ${cust.is_verified || 0}); document.getElementById('sa-customer-info-modal').remove();" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition active:scale-95">
-                        ${isVer ? 'Unverify' : 'Verify'}
-                    </button>
-                    <button onclick="document.getElementById('sa-customer-info-modal').remove()" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-xl text-xs font-bold transition active:scale-95">
-                        Close
-                    </button>
-                </div>
-            </div>
-        `;
-
-        document.body.appendChild(modal);
-        requestAnimationFrame(() => {
-            modal.classList.remove('opacity-0');
-            modal.querySelector('.scale-95').classList.remove('scale-95');
-        });
-    },
-
-    calcDistanceKm(lat1, lon1, lat2, lon2) {
-        if (lat1 === null || lon1 === null || lat2 === null || lon2 === null) return null;
-        lat1 = parseFloat(lat1);
-        lon1 = parseFloat(lon1);
-        lat2 = parseFloat(lat2);
-        lon2 = parseFloat(lon2);
-        if (isNaN(lat1) || isNaN(lon1) || isNaN(lat2) || isNaN(lon2)) return null;
-
-        const R = 6371;
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLon = (lon2 - lon1) * Math.PI / 180;
-        const a =
-            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-            Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return Math.round((R * c) * 10) / 10;
-    },
-
-    calculateDynamicEta(distKm, rankTier = 1) {
-        distKm = (distKm !== null && distKm !== undefined) ? parseFloat(distKm) : 1.5;
-        if (isNaN(distKm)) distKm = 1.5;
-
-        // Base prep: 10 mins; Transit ~3.5 mins/km
-        const basePrep = 10;
-        const transit = distKm * 3.5;
-        const rawTotal = basePrep + transit;
-
-        // Dynamic rank discounts
-        const rankDiscounts = { 6: 12, 5: 9, 4: 6, 3: 4, 2: 2, 1: 0 };
-        const discount = rankDiscounts[rankTier] || 0;
-
-        const effective = Math.max(10, rawTotal - discount);
-        const minMins = Math.max(10, Math.round(effective - 3));
-        const maxMins = Math.max(minMins + 5, Math.round(effective + 7));
-
-        return {
-            minMins,
-            maxMins,
-            text: `${minMins}-${maxMins} mins`,
-            discount,
-            isPriority: discount > 0
-        };
-    },
-
-    detectCustomerLocation(silent = false) {
-        if (!navigator.geolocation) {
-            if (!silent) CustomToast.show("Geolocation is not supported by your browser.", "error");
-            return;
-        }
-        if (!silent) CustomToast.show("Detecting your location...", "loading", 6000, "loc-detect");
-        navigator.geolocation.getCurrentPosition(
-            (pos) => {
-                CustomToast.dismiss("loc-detect");
-                const coords = {
-                    lat: pos.coords.latitude,
-                    lng: pos.coords.longitude
-                };
-                State.customerCoords = coords;
-                try {
-                    localStorage.setItem('mbbnb_customer_coords', JSON.stringify(coords));
-                } catch (e) { }
-                if (!silent) CustomToast.show("Location detected! Nearest station and ETAs calculated.", "success");
-                if (UI._currentView === 'customer_dashboard' || UI._currentView === 'home') {
-                    UI.renderCustomerDashboard();
-                }
-            },
-            (err) => {
-                CustomToast.dismiss("loc-detect");
-                if (!silent) {
-                    let msg = "Unable to retrieve GPS coordinates.";
-                    if (err.code === 1) msg = "Location permission denied. Please allow location access in your browser.";
-                    CustomToast.show(msg, "warning");
-                }
-            },
-            { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
-        );
-    },
-
-    toggleCustomerMapView() {
-        State.customerMapView = !State.customerMapView;
-        if (UI._currentView === 'customer_dashboard' || UI._currentView === 'home') {
-            UI.renderCustomerDashboard();
-            if (State.customerMapView) {
-                setTimeout(() => this.initCustomerMap(), 100);
-            }
-        }
-    },
-
-    initCustomerMap() {
-        const container = document.getElementById('customer-stations-map');
-        if (!container || !window.mapboxgl) return;
-
-        mapboxgl.accessToken = State.mapboxToken;
-        const userLat = State.customerCoords ? State.customerCoords.lat : 14.5995;
-        const userLng = State.customerCoords ? State.customerCoords.lng : 120.9842;
-
-        try {
-            const map = new mapboxgl.Map({
-                container: 'customer-stations-map',
-                style: 'mapbox://styles/mapbox/streets-v12',
-                center: [userLng, userLat],
-                zoom: 13
-            });
-
-            map.addControl(new mapboxgl.NavigationControl(), 'top-right');
-
-            const userEl = document.createElement('div');
-            userEl.className = 'w-8 h-8 rounded-full bg-blue-600 border-2 border-white shadow-xl flex items-center justify-center text-white text-xs animate-pulse';
-            userEl.innerHTML = '<i class="fa-solid fa-user"></i>';
-
-            new mapboxgl.Marker({ element: userEl })
-                .setLngLat([userLng, userLat])
-                .setPopup(new mapboxgl.Popup({ offset: 25 }).setHTML('<div class="p-1 font-bold text-xs text-slate-800">📍 Your Delivery Location</div>'))
-                .addTo(map);
-
-            const bounds = new mapboxgl.LngLatBounds();
-            bounds.extend([userLng, userLat]);
-
-            (State.stations || []).forEach(s => {
-                if (!s.latitude || !s.longitude) return;
-                const sLat = parseFloat(s.latitude);
-                const sLng = parseFloat(s.longitude);
-                if (isNaN(sLat) || isNaN(sLng)) return;
-
-                bounds.extend([sLng, sLat]);
-
-                const stRank = this.getLoyaltyRank(s.user_lifetime_points || s.user_points || 0);
-                const dist = s.distKm !== null && s.distKm !== undefined ? s.distKm : this.calcDistanceKm(userLat, userLng, sLat, sLng);
-                const eta = this.calculateDynamicEta(dist, stRank.tier);
-
-                const el = document.createElement('div');
-                el.className = `cursor-pointer w-9 h-9 rounded-2xl flex items-center justify-center text-sm shadow-md transition transform hover:scale-110 ${s.isNearest ? 'bg-emerald-600 text-white ring-4 ring-emerald-300' : 'bg-blue-600 text-white ring-2 ring-white'}`;
-                el.innerHTML = s.isNearest ? '<i class="fa-solid fa-crown text-yellow-300"></i>' : '<i class="fa-solid fa-store"></i>';
-
-                const popupHtml = `
-                    <div class="p-2 min-w-[210px] text-slate-800">
-                        <div class="flex items-center gap-1.5 mb-1">
-                            <h4 class="font-black text-sm text-slate-900">${escapeHtml(s.station_name)}</h4>
-                            ${s.isNearest ? '<span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800">Nearest</span>' : ''}
-                        </div>
-                        <p class="text-xs text-slate-500 mb-2">${escapeHtml(s.address)}</p>
-                        <div class="flex items-center justify-between text-xs font-bold text-blue-600 mb-2 bg-slate-50 p-2 rounded-xl">
-                            <span>📍 ${dist ? `${dist.toFixed(1)} km away` : 'Nearby'}</span>
-                            <span>⏱️ ${eta.text}</span>
-                        </div>
-                        <button onclick="App.selectStation(${s.station_id})" class="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-sm active:scale-95">
-                            Order from Station
-                        </button>
-                    </div>
-                `;
-
-                new mapboxgl.Marker({ element: el })
-                    .setLngLat([sLng, sLat])
-                    .setPopup(new mapboxgl.Popup({ offset: 25 }).setHTML(popupHtml))
-                    .addTo(map);
-            });
-
-            map.fitBounds(bounds, { padding: 50, maxZoom: 15 });
-        } catch (e) {
-            console.error("Failed to initialize customer map:", e);
-        }
-    },
-
-    initAdminStationMap(station) {
-        const container = document.getElementById('admin-station-map');
-        if (!container || !window.mapboxgl) return;
-
-        mapboxgl.accessToken = State.mapboxToken;
-        const curLat = (station && station.latitude) ? parseFloat(station.latitude) : 14.5995;
-        const curLng = (station && station.longitude) ? parseFloat(station.longitude) : 120.9842;
-
-        try {
-            const map = new mapboxgl.Map({
-                container: 'admin-station-map',
-                style: 'mapbox://styles/mapbox/streets-v12',
-                center: [curLng, curLat],
-                zoom: 14
-            });
-
-            map.addControl(new mapboxgl.NavigationControl(), 'top-right');
-
-            const marker = new mapboxgl.Marker({ draggable: true, color: '#2563eb' })
-                .setLngLat([curLng, curLat])
-                .addTo(map);
-
-            const updateInputs = (lng, lat) => {
-                const latInput = document.getElementById('set_station_lat');
-                const lngInput = document.getElementById('set_station_lng');
-                const feedback = document.getElementById('station-pin-feedback');
-                if (latInput) latInput.value = lat.toFixed(6);
-                if (lngInput) lngInput.value = lng.toFixed(6);
-                if (feedback) {
-                    feedback.innerHTML = `<span class="text-amber-600 font-bold flex items-center gap-1"><i class="fa-solid fa-map-pin"></i> Pin placed at: ${lat.toFixed(6)}, ${lng.toFixed(6)} • Click "Save Pinned Location" to apply</span>`;
-                }
-            };
-
-            marker.on('dragend', () => {
-                const lngLat = marker.getLngLat();
-                updateInputs(lngLat.lng, lngLat.lat);
-            });
-
-            map.on('click', (e) => {
-                marker.setLngLat(e.lngLat);
-                updateInputs(e.lngLat.lng, e.lngLat.lat);
-            });
-
-            window._adminPinMap = map;
-            window._adminPinMarker = marker;
-        } catch (e) {
-            console.error("Failed to initialize admin pin map:", e);
-        }
-    },
-
-    useCurrentLocationForStation() {
-        if (!navigator.geolocation) {
-            CustomToast.show("Geolocation is not supported by your browser.", "error");
-            return;
-        }
-        CustomToast.show("Detecting station GPS position...", "loading", 4000, "admin-loc");
-        navigator.geolocation.getCurrentPosition(
-            (pos) => {
-                CustomToast.dismiss("admin-loc");
-                const lat = pos.coords.latitude;
-                const lng = pos.coords.longitude;
-                const latInput = document.getElementById('set_station_lat');
-                const lngInput = document.getElementById('set_station_lng');
-                if (latInput) latInput.value = lat.toFixed(6);
-                if (lngInput) lngInput.value = lng.toFixed(6);
-                if (window._adminPinMarker && window._adminPinMap) {
-                    window._adminPinMarker.setLngLat([lng, lat]);
-                    window._adminPinMap.flyTo({ center: [lng, lat], zoom: 16 });
-                }
-                const feedback = document.getElementById('station-pin-feedback');
-                if (feedback) {
-                    feedback.innerHTML = `<span class="text-emerald-600 font-bold flex items-center gap-1"><i class="fa-solid fa-satellite-dish"></i> GPS Position Pinpointed: ${lat.toFixed(6)}, ${lng.toFixed(6)} (Tap "Save Pinned Location" to confirm)</span>`;
-                }
-                CustomToast.show("GPS position pinpointed! Tap 'Save Pinned Location' to confirm.", "success");
-            },
-            (err) => {
-                CustomToast.dismiss("admin-loc");
-                CustomToast.show("Unable to detect GPS position.", "warning");
-            },
-            { enableHighAccuracy: true, timeout: 8000 }
-        );
-    },
-
-    async saveStationLocation(e) {
-        if (e) e.preventDefault();
-        const lat = document.getElementById('set_station_lat')?.value;
-        const lng = document.getElementById('set_station_lng')?.value;
-
-        if (!lat || !lng) {
-            CustomToast.show("Please pin a location on the map or enter coordinates.", "error");
-            return;
-        }
-
-        const btn = document.getElementById('save-station-location-btn');
-        this.setLoading(btn, true);
-
-        try {
-            const data = new FormData();
-            data.append('latitude', lat);
-            data.append('longitude', lng);
-            const res = await API.request('admin_update_location', 'POST', data);
-            if (res.success) {
-                if (State.adminData?.station) {
-                    State.adminData.station.latitude = lat;
-                    State.adminData.station.longitude = lng;
-                }
-                CustomToast.show("Station location pinned successfully! Customers can now calculate distance to your station.", "success");
-                const feedback = document.getElementById('station-pin-feedback');
-                if (feedback) {
-                    feedback.innerHTML = `<span class="text-emerald-600 font-bold flex items-center gap-1"><i class="fa-solid fa-circle-check"></i> Location Pin Live: ${parseFloat(lat).toFixed(6)}, ${parseFloat(lng).toFixed(6)}</span>`;
-                }
-            }
-        } catch (e) {
-            CustomToast.show(e.message || "Failed to update station location", "error");
-        }
-        this.setLoading(btn, false);
     },
 
 
@@ -2684,12 +2148,12 @@ const App = {
     },
 
     formatTime(timeString) {
-        if (!timeString) return '';
+        if(!timeString) return '';
         const [h, m] = timeString.split(':');
         let hours = parseInt(h);
         const ampm = hours >= 12 ? 'PM' : 'AM';
         hours = hours % 12;
-        hours = hours ? hours : 12;
+        hours = hours ? hours : 12; 
         return `${hours}:${m} ${ampm}`;
     },
 
@@ -2729,7 +2193,7 @@ const App = {
                     const keys = await caches.keys();
                     await Promise.all(keys.map(k => caches.delete(k)));
                 }
-            } catch (e) { }
+            } catch (e) {}
 
             try {
                 if (worker) {
@@ -2740,7 +2204,7 @@ const App = {
                     if (reg.waiting) reg.waiting.postMessage({ action: 'skipWaiting' });
                     if (reg.installing) reg.installing.postMessage({ action: 'skipWaiting' });
                 }
-            } catch (e) { }
+            } catch (e) {}
 
             setTimeout(() => {
                 window.location.reload();
@@ -2769,7 +2233,7 @@ const App = {
                     return;
                 }
             }
-        } catch (e) { }
+        } catch(e) {}
 
         if (showToast) {
             const confirmed = await CustomDialog.confirm("Your app is on the latest version. Would you like to force refresh and clear local cache anyway?", "Force Refresh");
@@ -2778,7 +2242,7 @@ const App = {
                     try {
                         const keys = await caches.keys();
                         await Promise.all(keys.map(k => caches.delete(k)));
-                    } catch (e) { }
+                    } catch(e) {}
                 }
                 window.location.reload();
             }
@@ -2797,8 +2261,8 @@ const App = {
     },
 
     async initPushNotifications() {
-        const currentUserId = State.user?.type === 'customer'
-            ? `c_${State.user.data?.customer_id}`
+        const currentUserId = State.user?.type === 'customer' 
+            ? `c_${State.user.data?.customer_id}` 
             : `a_${State.user.data?.admin_id}`;
 
         if (!currentUserId || currentUserId === 'c_undefined' || currentUserId === 'a_undefined') return false;
@@ -2832,7 +2296,7 @@ const App = {
             if (!keyRes || !keyRes.vapid_public_key) return false;
 
             const appServerKey = this.urlBase64ToUint8Array(keyRes.vapid_public_key);
-
+            
             let subscription = await reg.pushManager.getSubscription();
             if (subscription) {
                 try {
@@ -2862,10 +2326,10 @@ const App = {
             }
 
             const saveRes = await API.request('save_push_subscription', 'POST', subJson, true);
-
+            
             if (saveRes && saveRes.success) {
-                const currentUserId = State.user?.type === 'customer'
-                    ? `c_${State.user.data?.customer_id}`
+                const currentUserId = State.user?.type === 'customer' 
+                    ? `c_${State.user.data?.customer_id}` 
                     : `a_${State.user.data?.admin_id}`;
                 State.pushSubscriptionSynced = currentUserId;
                 if (showToastOnSuccess) {
@@ -3010,7 +2474,7 @@ async function boot() {
         if (res && res.logged_in) {
             State.user = { type: res.type, data: res.data };
             App.initPushNotifications();
-
+            
             const initialHash = window.location.hash.replace('#', '');
             if (initialHash && UI.canAccessView(initialHash)) {
                 UI.navigate(initialHash, 'replace');
@@ -3036,7 +2500,7 @@ async function boot() {
                         dismissLoader();
                         return;
                     }
-                } catch (err) { }
+                } catch (err) {}
             }
             State.user = null;
             if (!API.isOffline() && window.API && window.API.clearCache) API.clearCache();
@@ -3060,7 +2524,7 @@ async function boot() {
                     dismissLoader();
                     return;
                 }
-            } catch (err) { }
+            } catch (err) {}
         }
         State.user = null;
         if (!API.isOffline() && window.API && window.API.clearCache) API.clearCache();
@@ -3149,7 +2613,7 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('message', async (event) => {
         if (event.data && event.data.type === 'ORDER_PUSH_RECEIVED') {
             const payload = event.data.payload || {};
-
+            
             // Audible chime feedback
             if (window.App && window.App.playNotificationChime) {
                 window.App.playNotificationChime();
@@ -3224,7 +2688,7 @@ if ('serviceWorker' in navigator) {
                         State.myOrders = freshOrders;
                         window.UI._updateOrdersList();
                     }
-                } catch (e) { }
+                } catch(e) {}
             } else if (window.UI && window.UI._currentView === 'customer_dashboard') {
                 try {
                     const freshOrders = await API.request('get_customer_orders', 'GET', null, true);
@@ -3234,7 +2698,7 @@ if ('serviceWorker' in navigator) {
                             window.UI._updateCustomerDashboardActiveOrders();
                         }
                     }
-                } catch (e) { }
+                } catch(e) {}
             } else if (window.UI && window.UI._currentView === 'admin_dashboard') {
                 try {
                     const freshAdmin = await API.request('get_admin_dashboard_data', 'GET', null, true);
@@ -3242,7 +2706,7 @@ if ('serviceWorker' in navigator) {
                         State.adminData = freshAdmin;
                         window.UI._updateAdminOrdersList();
                     }
-                } catch (e) { }
+                } catch(e) {}
             } else if (window.UI && window.UI._currentView === 'delivery_dashboard') {
                 try {
                     const freshDeliv = await API.request('get_admin_dashboard_data', 'GET', null, true);
@@ -3250,7 +2714,7 @@ if ('serviceWorker' in navigator) {
                         State.deliveryData = freshDeliv;
                         window.UI._updateDeliveryList();
                     }
-                } catch (e) { }
+                } catch(e) {}
             }
         }
     });
@@ -3264,7 +2728,7 @@ if ('serviceWorker' in navigator) {
                     App.showUpdateToast(reg.waiting);
                 }
 
-                reg.update().catch(() => { });
+                reg.update().catch(() => {});
 
                 reg.addEventListener('updatefound', () => {
                     const newWorker = reg.installing;
@@ -3282,16 +2746,16 @@ if ('serviceWorker' in navigator) {
 
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible' && window.swRegistration) {
-            window.swRegistration.update().catch(() => { });
+            window.swRegistration.update().catch(() => {});
         }
     });
 
     window.addEventListener('focus', () => {
-        if (window.swRegistration) window.swRegistration.update().catch(() => { });
+        if (window.swRegistration) window.swRegistration.update().catch(() => {});
     });
 
     setInterval(() => {
-        if (window.swRegistration) window.swRegistration.update().catch(() => { });
+        if (window.swRegistration) window.swRegistration.update().catch(() => {});
     }, 5 * 60 * 1000);
 }
 
@@ -3327,4 +2791,4 @@ document.addEventListener('visibilitychange', () => {
             window.App.refreshCurrentView();
         }
     }
-});
+});
