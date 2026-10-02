@@ -34,9 +34,9 @@ $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
     || (isset($_SERVER['HTTP_CF_VISITOR']) && strpos($_SERVER['HTTP_CF_VISITOR'], 'https') !== false)
     || (isset($_SERVER['HTTP_X_FORWARDED_SSL']) && strtolower($_SERVER['HTTP_X_FORWARDED_SSL']) === 'on');
 
-$host = $_SERVER['HTTP_HOST'] ?? '';
+$httpHost = $_SERVER['HTTP_HOST'] ?? '';
 $cookieDomain = '';
-if (strpos($host, 'mbbnbwater.com') !== false) {
+if (strpos($httpHost, 'mbbnbwater.com') !== false) {
     $cookieDomain = '.mbbnbwater.com';
 }
 
