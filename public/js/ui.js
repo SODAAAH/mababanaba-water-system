@@ -952,19 +952,19 @@ const UI = {
                     <div class="skeleton h-4 w-24 rounded-md"></div>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5 sm:gap-4">
-                    <div class="bg-white rounded-2xl sm:rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-4 sm:p-5 flex items-center gap-3.5">
-                        <div class="skeleton w-12 h-12 sm:w-13 sm:h-13 rounded-2xl shrink-0"></div>
+                    <div class="bg-white rounded-2xl sm:rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all py-2.5 px-3.5 sm:py-3 sm:px-4 flex items-center gap-3 sm:gap-4">
+                        <div class="skeleton w-12 h-12 rounded-2xl shrink-0"></div>
                         <div class="flex-1">
-                            <div class="skeleton h-5 w-32 mb-2 rounded-md"></div>
-                            <div class="skeleton h-3 w-40 mb-3 rounded-md"></div>
+                            <div class="skeleton h-5 w-32 mb-1 rounded-md"></div>
+                            <div class="skeleton h-3 w-40 mb-1.5 rounded-md"></div>
                             <div class="skeleton h-3 w-28 rounded-md"></div>
                         </div>
                     </div>
-                    <div class="bg-white rounded-2xl sm:rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-4 sm:p-5 flex items-center gap-3.5">
-                        <div class="skeleton w-12 h-12 sm:w-13 sm:h-13 rounded-2xl shrink-0"></div>
+                    <div class="bg-white rounded-2xl sm:rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all py-2.5 px-3.5 sm:py-3 sm:px-4 flex items-center gap-3 sm:gap-4">
+                        <div class="skeleton w-12 h-12 rounded-2xl shrink-0"></div>
                         <div class="flex-1">
-                            <div class="skeleton h-5 w-32 mb-2 rounded-md"></div>
-                            <div class="skeleton h-3 w-40 mb-3 rounded-md"></div>
+                            <div class="skeleton h-5 w-32 mb-1 rounded-md"></div>
+                            <div class="skeleton h-3 w-40 mb-1.5 rounded-md"></div>
                             <div class="skeleton h-3 w-28 rounded-md"></div>
                         </div>
                     </div>
@@ -1001,7 +1001,11 @@ const UI = {
             pts += parseInt(s.user_points || 0);
             lifetimePts += parseInt(s.user_lifetime_points || s.user_points || 0);
         });
-        const rank = App.getLoyaltyRank(lifetimePts || pts);
+        const userTotalPts = parseInt(State.user?.data?.total_points || 0);
+        const userLifetimePts = parseInt(State.user?.data?.lifetime_points || 0);
+        const effectivePts = Math.max(pts, userTotalPts);
+        const effectiveLifetimePts = Math.max(lifetimePts, userLifetimePts, effectivePts);
+        const rank = App.getLoyaltyRank(effectiveLifetimePts || effectivePts);
 
         orders = orders || [];
         const orderGroups = [];
@@ -1074,6 +1078,71 @@ const UI = {
             `;
         }
 
+        const hasUserLoc = !!(State.userLocation && State.userLocation.lat && State.userLocation.lng);
+        let nearestStationId = null;
+        let minDistance = Infinity;
+
+        (stations || []).forEach(s => {
+            s._distanceKm = null;
+            if (hasUserLoc && s.latitude && s.longitude) {
+                const d = App.calculateDistanceKm(State.userLocation.lat, State.userLocation.lng, s.latitude, s.longitude);
+                if (d !== null && !isNaN(d)) {
+                    s._distanceKm = d;
+                    if (s.status === 'Active' && d < minDistance) {
+                        minDistance = d;
+                        nearestStationId = s.station_id;
+                    }
+                }
+            }
+        });
+
+        let locationWidgetHtml = '';
+        if (hasUserLoc) {
+            locationWidgetHtml = `
+                <div class="bg-blue-50/80 rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 border border-blue-200 shadow-sm mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div class="flex items-center gap-2.5 min-w-0">
+                        <div class="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center text-xs shrink-0 shadow-sm shadow-blue-500/20">
+                            <i class="fa-solid fa-location-crosshairs"></i>
+                        </div>
+                        <div class="min-w-0">
+                            <div class="text-[10px] font-black uppercase tracking-wider text-blue-600">Your Current Location</div>
+                            <div class="text-xs font-bold text-slate-800 truncate">${escapeHtml(State.userLocation.address || 'Location Pinned on Map')}</div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 self-end sm:self-center shrink-0">
+                        <button type="button" onclick="App.locateCustomer(true)" class="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs border border-slate-200 transition active:scale-95 flex items-center gap-1.5 cursor-pointer">
+                            <i class="fa-solid fa-satellite-dish text-blue-500"></i> Refresh GPS
+                        </button>
+                        <button type="button" onclick="App.openMapLocationModal({ title: 'Set Delivery Location', initialLat: State.userLocation.lat, initialLng: State.userLocation.lng, initialAddress: State.userLocation.address, onSave: (pos) => App.saveCustomerLocation(pos.lat, pos.lng, pos.address) })" class="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition active:scale-95 shadow-sm shadow-blue-500/20 flex items-center gap-1.5 cursor-pointer">
+                            <i class="fa-solid fa-map-pin"></i> Pin on Map
+                        </button>
+                    </div>
+                </div>
+            `;
+        } else {
+            locationWidgetHtml = `
+                <div class="bg-gradient-to-r from-blue-50 to-indigo-50/60 rounded-2xl sm:rounded-3xl p-4 border border-blue-200/80 shadow-sm mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div class="flex items-center gap-3 min-w-0">
+                        <div class="w-9 h-9 rounded-xl bg-blue-500/20 text-blue-600 flex items-center justify-center text-sm shrink-0">
+                            <i class="fa-solid fa-map-location-dot"></i>
+                        </div>
+                        <div>
+                            <h4 class="text-xs font-black text-slate-800">Find the Nearest Water Station</h4>
+                            <p class="text-[11px] text-slate-500">Enable GPS or pin your location to see distances (km) and prioritized order ETAs</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 self-end sm:self-center shrink-0">
+                        <button type="button" onclick="App.locateCustomer(true)" class="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition active:scale-95 shadow-sm shadow-blue-500/20 flex items-center gap-1.5 cursor-pointer">
+                            <i class="fa-solid fa-location-arrow"></i> Detect Nearest Station
+                        </button>
+                        <button type="button" onclick="App.openMapLocationModal({ title: 'Pin Your Location', onSave: (pos) => App.saveCustomerLocation(pos.lat, pos.lng, pos.address) })" class="px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs border border-slate-200 transition active:scale-95 cursor-pointer">
+                            <i class="fa-solid fa-map-pin"></i> Pin Map
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
         let html = `
             <div onclick="UI.navigate('customer_loyalty')" class="bg-gradient-to-r ${rank.color} rounded-3xl p-5 sm:p-6 text-white shadow-md mb-6 sm:mb-8 relative overflow-hidden cursor-pointer hover:shadow-lg hover:scale-[1.01] active:scale-[0.99] transition-all group">
                 <div class="relative z-10">
@@ -1086,7 +1155,7 @@ const UI = {
                         </span>
                     </div>
                     <div class="text-3xl sm:text-4xl font-black flex items-baseline gap-2 mb-3">
-                        ${pts || 0} <span class="text-sm sm:text-base font-medium opacity-80">pts</span>
+                        ${effectivePts || 0} <span class="text-sm sm:text-base font-medium opacity-80">pts</span>
                     </div>
                     <div class="pt-3 border-t border-white/15 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 text-xs text-white/90 font-medium">
                         <span class="flex items-center gap-1.5">
@@ -1106,7 +1175,7 @@ const UI = {
             
             <div class="flex justify-between items-end mb-4">
                 <h2 class="text-xl font-black text-slate-800">Available Stations</h2>
-                <button onclick="UI.navigate('customer_orders')" class="text-sm font-bold text-blue-600 hover:underline relative">
+                <button onclick="UI.navigate('customer_orders')" class="text-sm font-bold text-blue-600 hover:underline relative cursor-pointer">
                     My Orders <i class="fa-solid fa-arrow-right"></i>
                     <span id="dashboard-orders-badge" class="hidden absolute -top-1 -right-2 flex h-3 w-3">
                         <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
@@ -1123,14 +1192,17 @@ const UI = {
             stations.forEach(s => {
                 const isClosed = s.status !== 'Active';
                 const stRank = App.getLoyaltyRank(s.user_lifetime_points || s.user_points || 0);
+                const isNearest = (s.station_id === nearestStationId);
+                const eta = App.calculateDynamicETA(s._distanceKm, s.active_queue_count || 0, s.user_lifetime_points || s.user_points || 0);
+
                 let ratingHtml = `<span class="text-slate-400 text-xs font-medium">No ratings</span>`;
                 if(s.avg_rating > 0) {
                     ratingHtml = `<span class="flex items-center gap-1"><span class="text-yellow-400 text-xs"><i class="fa-solid fa-star"></i></span> <span class="font-bold text-slate-700 text-xs">${parseFloat(s.avg_rating).toFixed(1)}</span></span>`;
                 }
 
                 html += `
-                    <div onclick="${isClosed ? '' : `App.selectStation(${s.station_id})`}" class="bg-white rounded-2xl sm:rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 p-4 sm:p-5 flex items-center gap-3 sm:gap-4 ${isClosed ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer active:scale-[0.98] active:bg-blue-50/40 active:border-blue-300'} transition-all relative overflow-hidden">
-                        <div class="w-12 h-12 sm:w-13 sm:h-13 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600 text-xl sm:text-2xl shrink-0 group-hover:scale-105 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-inner">
+                    <div onclick="${isClosed ? '' : `App.selectStation(${s.station_id})`}" class="bg-white rounded-2xl sm:rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 py-2.5 px-3.5 sm:py-3 sm:px-4 flex items-center gap-3 sm:gap-4 ${isClosed ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer active:scale-[0.98] active:bg-blue-50/40 active:border-blue-300'} transition-all relative overflow-hidden group">
+                        <div class="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600 text-xl shrink-0 group-hover:scale-105 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-inner">
                             <i class="fa-solid fa-store"></i>
                         </div>
                         <div class="flex-1 min-w-0">
@@ -1140,11 +1212,11 @@ const UI = {
                                     <i class="fa-solid ${stRank.icon} mr-1"></i>${stRank.name}
                                 </span>
                             </div>
-                            <p class="text-xs text-slate-500 truncate mb-2.5 flex items-center gap-1">
+                            <p class="text-xs text-slate-500 font-medium truncate mb-1.5 flex items-center gap-1">
                                 <i class="fa-solid fa-location-dot text-slate-400 text-[10px] shrink-0"></i>
                                 <span class="truncate">${escapeHtml(s.address)}</span>
                             </p>
-                            <div class="flex items-center justify-between gap-2 text-xs pt-2 border-t border-slate-100">
+                            <div class="flex items-center justify-between gap-2 text-xs pt-1.5 border-t border-slate-100">
                                 <div class="flex items-center gap-2 text-xs text-slate-600 min-w-0">
                                     ${ratingHtml}
                                     <span class="text-slate-300">•</span>
@@ -1212,16 +1284,19 @@ const UI = {
                 : Promise.resolve(State.myOrders);
 
             const [newStations, orders] = await Promise.all([stationsPromise, ordersPromise]);
-            if (orders) State.myOrders = orders;
+            if (orders && Array.isArray(orders)) State.myOrders = orders;
 
             const oldHash = State.lastDataHash;
             const newHash = JSON.stringify((newStations || []).map(s => s.station_id + s.user_points + s.is_manually_closed));
+            const oldOrdersHash = State.lastCustomerOrdersHash;
+            const newOrdersHash = JSON.stringify((State.myOrders || []).map(o => o.order_id + o.order_status));
 
             State.stations = newStations;
             State.lastDataHash = newHash;
+            State.lastCustomerOrdersHash = newOrdersHash;
 
             if (this._currentView === 'customer_dashboard') {
-                if (!hasStations || oldHash !== newHash) {
+                if (!hasStations || oldHash !== newHash || oldOrdersHash !== newOrdersHash) {
                     this._renderCustomerDashboardView(newStations, State.myOrders || []);
                 } else if (State.myOrders) {
                     const active = State.myOrders.filter(o => o.order_status !== 'Delivered' && o.order_status !== 'Cancelled');
@@ -1234,8 +1309,15 @@ const UI = {
             }
 
             this.prefetch('customer_orders', 'get_customer_orders').then(prefetchedOrders => {
-                if (prefetchedOrders && this._currentView === 'customer_dashboard') {
-                    State.myOrders = prefetchedOrders;
+                if (prefetchedOrders && Array.isArray(prefetchedOrders) && this._currentView === 'customer_dashboard') {
+                    const prefetchedHash = JSON.stringify(prefetchedOrders.map(o => o.order_id + o.order_status));
+                    if (prefetchedHash !== State.lastCustomerOrdersHash) {
+                        State.myOrders = prefetchedOrders;
+                        State.lastCustomerOrdersHash = prefetchedHash;
+                        if (State.stations) {
+                            UI._renderCustomerDashboardView(State.stations, prefetchedOrders);
+                        }
+                    }
                     const active = prefetchedOrders.filter(o => o.order_status !== 'Delivered' && o.order_status !== 'Cancelled');
                     const badge = document.getElementById('dashboard-orders-badge');
                     if (badge) {
@@ -1332,8 +1414,12 @@ const UI = {
         const curStationId = State.selectedLoyaltyStation || State.selectedStation || (stations[0]?.station_id);
         const curStation = stations.find(s => s.station_id == curStationId) || stations[0] || {};
         
-        const pts = parseInt(curStation.user_points || 0);
-        const lifetimePts = parseInt(curStation.user_lifetime_points || curStation.user_points || 0);
+        let pts = parseInt(curStation.user_points || 0);
+        let lifetimePts = parseInt(curStation.user_lifetime_points || curStation.user_points || 0);
+        if (pts === 0 && lifetimePts === 0) {
+            pts = parseInt(State.user?.data?.total_points || 0);
+            lifetimePts = parseInt(State.user?.data?.lifetime_points || pts);
+        }
         const rank = App.getLoyaltyRank(lifetimePts || pts);
 
         let progressPct = 100;
@@ -1706,6 +1792,17 @@ const UI = {
         
         const canUsePoints = (station.user_points || 0) >= 10;
         
+        const coLat = State.userLocation?.lat || '';
+        const coLng = State.userLocation?.lng || '';
+        const coAddress = State.userLocation?.address || (State.user && State.user.data ? State.user.data.address : '') || '';
+        let checkoutDist = null;
+        if (coLat && coLng && station.latitude && station.longitude) {
+            checkoutDist = App.calculateDistanceKm(coLat, coLng, station.latitude, station.longitude);
+        }
+        const userLifetimePts = station.user_lifetime_points || station.user_points || 0;
+        const checkoutEta = App.calculateDynamicETA(checkoutDist, station.active_queue_count || 0, userLifetimePts);
+        const hasPin = !!(coLat && coLng);
+        
         const now = new Date();
         const currentString = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
         const isClosedNow = currentString < station.opening_time || currentString > station.closing_time;
@@ -1826,8 +1923,30 @@ const UI = {
                 <!-- Logistics (Delivery Schedule) -->
                 <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-6 space-y-5">
                     <div>
-                        <label class="block text-sm font-bold text-slate-700 mb-2">Delivery Address</label>
-                        <textarea id="co-address" required rows="2" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition">${escapeHtml(State.user.data.address)}</textarea>
+                        <div class="flex items-center justify-between mb-2">
+                            <label class="block text-sm font-bold text-slate-700">Delivery Address</label>
+                            <button type="button" onclick="App.openMapLocationModal({ title: 'Pin Exact Delivery Location', initialLat: document.getElementById('co-delivery-lat')?.value || State.userLocation?.lat, initialLng: document.getElementById('co-delivery-lng')?.value || State.userLocation?.lng, initialAddress: document.getElementById('co-address')?.value || State.userLocation?.address, onSave: (pos) => UI.updateCheckoutLocationPin(pos) })" class="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer">
+                                <i class="fa-solid fa-map-location-dot"></i> Pin on Mapbox
+                            </button>
+                        </div>
+                        <textarea id="co-address" required rows="2" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition">${escapeHtml(coAddress)}</textarea>
+                        <input type="hidden" id="co-delivery-lat" value="${coLat}">
+                        <input type="hidden" id="co-delivery-lng" value="${coLng}">
+                        
+                        <div id="co-pin-status-box" class="mt-2.5 p-3 rounded-2xl border ${hasPin ? 'bg-blue-50/70 border-blue-200' : 'bg-slate-50 border-slate-200'} flex items-center justify-between gap-3 text-xs">
+                            <div class="flex items-center gap-2 min-w-0">
+                                <div class="w-7 h-7 rounded-lg ${hasPin ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-500'} flex items-center justify-center text-xs shrink-0">
+                                    <i class="fa-solid fa-map-pin"></i>
+                                </div>
+                                <div class="min-w-0">
+                                    <div class="font-bold text-slate-800 truncate">${hasPin ? `Pinned (${parseFloat(coLat).toFixed(4)}, ${parseFloat(coLng).toFixed(4)})${checkoutDist !== null ? ` • ${checkoutDist.toFixed(1)} km away` : ''}` : 'No exact GPS coordinates pinned'}</div>
+                                    <div class="text-[10px] text-blue-600 font-semibold truncate">Est. ETA: ${checkoutEta.text} (${checkoutEta.priorityLabel})</div>
+                                </div>
+                            </div>
+                            <button type="button" onclick="App.openMapLocationModal({ title: 'Pin Exact Delivery Location', initialLat: document.getElementById('co-delivery-lat')?.value || State.userLocation?.lat, initialLng: document.getElementById('co-delivery-lng')?.value || State.userLocation?.lng, initialAddress: document.getElementById('co-address')?.value || State.userLocation?.address, onSave: (pos) => UI.updateCheckoutLocationPin(pos) })" class="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-blue-400 text-blue-600 font-bold rounded-xl text-xs transition active:scale-95 shrink-0 cursor-pointer">
+                                ${hasPin ? 'Change Pin' : 'Pin on Map'}
+                            </button>
+                        </div>
                     </div>
                     <div>
                         <label class="block text-sm font-bold text-slate-700 mb-2">Delivery Schedule</label>
@@ -1912,6 +2031,50 @@ const UI = {
         }, 0);
     },
 
+    updateCheckoutLocationPin(pos) {
+        if (!pos) return;
+        const latInput = document.getElementById('co-delivery-lat');
+        const lngInput = document.getElementById('co-delivery-lng');
+        const addrInput = document.getElementById('co-address');
+        if (latInput) latInput.value = pos.lat;
+        if (lngInput) lngInput.value = pos.lng;
+        if (addrInput && pos.address) addrInput.value = pos.address;
+        
+        State.userLocation = {
+            lat: pos.lat,
+            lng: pos.lng,
+            address: pos.address || State.userLocation?.address || ''
+        };
+
+        const station = (State.stations || []).find(s => s.station_id == State.selectedStation);
+        let dist = null;
+        if (station && station.latitude && station.longitude) {
+            dist = App.calculateDistanceKm(pos.lat, pos.lng, station.latitude, station.longitude);
+        }
+        const pts = (station ? (station.user_lifetime_points || station.user_points) : 0) || 0;
+        const eta = App.calculateDynamicETA(dist, station?.active_queue_count || 0, pts);
+
+        const statusBox = document.getElementById('co-pin-status-box');
+        if (statusBox) {
+            statusBox.className = 'mt-2.5 p-3 rounded-2xl border bg-blue-50/70 border-blue-200 flex items-center justify-between gap-3 text-xs';
+            statusBox.innerHTML = `
+                <div class="flex items-center gap-2 min-w-0">
+                    <div class="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center text-xs shrink-0">
+                        <i class="fa-solid fa-map-pin"></i>
+                    </div>
+                    <div class="min-w-0">
+                        <div class="font-bold text-slate-800 truncate">Pinned (${parseFloat(pos.lat).toFixed(4)}, ${parseFloat(pos.lng).toFixed(4)})${dist !== null ? ` • ${dist.toFixed(1)} km away` : ''}</div>
+                        <div class="text-[10px] text-blue-600 font-semibold truncate">Est. ETA: ${eta.text} (${eta.priorityLabel})</div>
+                    </div>
+                </div>
+                <button type="button" onclick="App.openMapLocationModal({ title: 'Pin Exact Delivery Location', initialLat: '${pos.lat}', initialLng: '${pos.lng}', initialAddress: decodeURIComponent('${encodeURIComponent(pos.address || '')}'), onSave: (p) => UI.updateCheckoutLocationPin(p) })" class="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-blue-400 text-blue-600 font-bold rounded-xl text-xs transition active:scale-95 shrink-0 cursor-pointer">
+                    Change Pin
+                </button>
+            `;
+        }
+        CustomToast.show("Delivery pin updated!", "success");
+    },
+
     async renderCustomerOrders() {
         State.customerOrderTab = State.customerOrderTab || 'active';
         State.myOrders = State.myOrders || this.getPrefetched('customer_orders');
@@ -1924,8 +2087,8 @@ const UI = {
                 } catch(e) {}
             }
         }
-        const isFirstLoad = !State.myOrders;
-        if (State.myOrders) {
+        const isFirstLoad = !State.myOrders || State.myOrders.length === 0;
+        if (State.myOrders && State.myOrders.length > 0) {
             this._renderOrdersPage(false);
         } else {
             this._renderOrdersPage(true);
@@ -1936,21 +2099,28 @@ const UI = {
             this._prefetchCache['customer_orders'] = { loading: false, data, ts: Date.now() };
             if (!data) throw new Error("Failed to load data");
 
-            const oldHash = JSON.stringify((State.myOrders || []).map(o => o.order_id + o.order_status + (o.rating || '')));
-            State.myOrders = data;
-            const newHash = JSON.stringify(State.myOrders.map(o => o.order_id + o.order_status + (o.rating || '')));
-            
-            if (!State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses = new Map();
             if (Array.isArray(data)) {
+                try {
+                    localStorage.setItem('cache_get_customer_orders', JSON.stringify({
+                        data: data,
+                        cachedAt: Date.now()
+                    }));
+                } catch(e) {}
+
+                const oldHash = JSON.stringify((State.myOrders || []).map(o => o.order_id + o.order_status + (o.rating || '')));
+                State.myOrders = data;
+                const newHash = JSON.stringify(State.myOrders.map(o => o.order_id + o.order_status + (o.rating || '')));
+                
+                if (!State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses = new Map();
                 data.forEach(o => State.knownCustomerOrderStatuses.set(String(o.order_id), o.order_status));
                 State.customerPollingInitialized = true;
                 State.customerSessionStartTime = State.customerSessionStartTime || Date.now();
-            }
 
-            if (isFirstLoad && this._currentView === 'customer_orders') {
-                this._renderOrdersPage(false);
-            } else if (oldHash !== newHash && this._currentView === 'customer_orders') {
-                this._updateOrdersList();
+                if (isFirstLoad && this._currentView === 'customer_orders') {
+                    this._renderOrdersPage(false);
+                } else if (oldHash !== newHash && this._currentView === 'customer_orders') {
+                    this._updateOrdersList();
+                }
             }
         } catch (e) {
             console.error(e);
@@ -2025,7 +2195,8 @@ const UI = {
         if (!container) return;
 
         const isHistoryTab = State.customerOrderTab === 'history';
-        const displayOrders = State.myOrders.filter(o => isHistoryTab ? (o.order_status === 'Delivered' || o.order_status === 'Cancelled') : (o.order_status !== 'Delivered' && o.order_status !== 'Cancelled'));
+        const rawOrders = Array.isArray(State.myOrders) ? State.myOrders : [];
+        const displayOrders = rawOrders.filter(o => isHistoryTab ? (o.order_status === 'Delivered' || o.order_status === 'Cancelled') : (o.order_status !== 'Delivered' && o.order_status !== 'Cancelled'));
 
         let html = '<div class="space-y-4">';
 
@@ -2068,6 +2239,9 @@ const UI = {
             const hasProof = !!proofItem;
             const targetOrderId = proofItem ? proofItem.order_id : o.order_id;
 
+            const dist = (o.delivery_latitude && o.station_latitude) ? App.calculateDistanceKm(o.delivery_latitude, o.delivery_longitude, o.station_latitude, o.station_longitude) : null;
+            const eta = App.calculateDynamicETA(dist, 1, State.user?.data?.lifetime_points || 0);
+
             html += `
                 <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 p-5 flex flex-col gap-3 relative">
                     <!-- Card Header -->
@@ -2090,6 +2264,34 @@ const UI = {
                             <span class="px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-wide shrink-0 ${badge}">${o.order_status === 'To Deliver' ? 'Out for Delivery' : o.order_status}</span>
                         </div>
                     </div>
+
+                    ${!isHistoryTab ? `
+                        <!-- Active Order ETA & Live Progress -->
+                        <div class="bg-gradient-to-r from-blue-50/90 via-indigo-50/60 to-blue-50/40 border border-blue-200/80 rounded-2xl p-3 sm:p-3.5 my-0.5 flex items-center justify-between gap-3 shadow-2xs">
+                            <div class="flex items-center gap-2.5 min-w-0">
+                                <div class="w-8 h-8 rounded-xl ${o.order_status === 'To Deliver' ? 'bg-emerald-600 text-white shadow-emerald-500/20' : 'bg-blue-600 text-white shadow-blue-500/20'} flex items-center justify-center text-xs shrink-0 shadow-sm">
+                                    <i class="${o.order_status === 'To Deliver' ? 'fa-solid fa-motorcycle animate-bounce' : (o.order_status === 'Preparing' ? 'fa-solid fa-faucet-drip animate-pulse' : 'fa-solid fa-stopwatch')}"></i>
+                                </div>
+                                <div class="min-w-0">
+                                    <div class="text-[10px] font-black uppercase tracking-wider ${o.order_status === 'To Deliver' ? 'text-emerald-700' : 'text-blue-700'}">
+                                        ${o.order_status === 'To Deliver' ? 'Out for Delivery' : (o.order_status === 'Preparing' ? 'Order In Preparation' : 'Order Placed')}
+                                    </div>
+                                    <div class="text-xs font-black text-slate-800 flex items-center gap-1.5 flex-wrap mt-0.5">
+                                        <span class="text-blue-700 font-extrabold">
+                                            ${o.order_status === 'To Deliver' ? 'Arriving in ~5–10 mins' : `Est. Arrival: ${eta.text}`}
+                                        </span>
+                                        ${dist !== null && !isNaN(dist) ? `<span class="text-[10px] font-semibold text-slate-500 bg-white border border-slate-200 px-1.5 py-0.2 rounded">${dist.toFixed(1)} km</span>` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flex flex-col items-end gap-1 shrink-0">
+                                <span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-white text-blue-700 border border-blue-200/80 shadow-2xs">
+                                    ${o.order_status === 'To Deliver' ? '⚡ En Route' : '⏱️ In Queue'}
+                                </span>
+                                ${eta.priorityLabel ? `<span class="text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded">${eta.priorityLabel}</span>` : ''}
+                            </div>
+                        </div>
+                    ` : ''}
 
                     <!-- Items List -->
                     <div class="space-y-1 py-1">
@@ -2790,6 +2992,11 @@ const UI = {
                         <div class="flex items-start text-xs text-slate-500 leading-snug pt-1 mt-1">
                             <i class="fa-solid fa-location-dot w-5 mt-0.5 text-red-400 text-center"></i> <span>${escapeHtml(o.delivery_address)}</span>
                         </div>
+                        ${(o.delivery_latitude && o.delivery_longitude) ? `
+                            <div class="flex items-center text-[11px] text-blue-600 font-bold leading-snug mt-1 pl-5">
+                                <i class="fa-solid fa-map-pin mr-1.5 text-blue-500"></i> <span>Map Pinned (${parseFloat(o.delivery_latitude).toFixed(4)}, ${parseFloat(o.delivery_longitude).toFixed(4)})</span>
+                            </div>
+                        ` : ''}
                         <div class="flex items-start text-xs text-slate-500 leading-snug mt-1">
                             <i class="fa-solid fa-clock w-5 mt-0.5 text-center"></i> <span>Ordered: ${App.formatDateTime(o.order_date)}</span>
                         </div>
@@ -2803,11 +3010,19 @@ const UI = {
                     ${!isHistory ? `
                         <div class="mt-2">
                             ${o.order_status === 'Pending' ? `
-                                <div>
-                                    <button type="button" onclick="App.updateOrderStatus(${targetOrderId}, 'Preparing')" class="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-xs rounded-xl shadow-md shadow-blue-500/20 active:scale-[0.98] transition flex items-center justify-center gap-2">
-                                        <i class="fa-solid fa-circle-check text-sm"></i>
-                                        <span>Accept Order</span>
-                                    </button>
+                                <div data-accept-container-id="${targetOrderId}">
+                                    ${(hasProof && !(o.receipt_viewed == 1 || (proofItem && proofItem.receipt_viewed == 1) || !!State.viewedReceipts[targetOrderId])) ? `
+                                        <button type="button" onclick="App.viewProof('${targetOrderId}')" class="w-full py-3 px-4 bg-amber-500 hover:bg-amber-600 text-white font-black text-xs rounded-xl shadow-md shadow-amber-500/20 active:scale-[0.98] transition flex items-center justify-center gap-2 cursor-pointer">
+                                            <i class="fa-solid fa-receipt text-sm"></i>
+                                            <span>View Receipt to Accept</span>
+                                        </button>
+                                        <p class="text-[10px] text-amber-600 font-semibold text-center mt-1"><i class="fa-solid fa-lock mr-1"></i>Receipt inspection required before accepting</p>
+                                    ` : `
+                                        <button type="button" onclick="App.updateOrderStatus(${targetOrderId}, 'Preparing')" class="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-xs rounded-xl shadow-md shadow-blue-500/20 active:scale-[0.98] transition flex items-center justify-center gap-2 cursor-pointer">
+                                            <i class="fa-solid fa-circle-check text-sm"></i>
+                                            <span>Accept Order</span>
+                                        </button>
+                                    `}
                                 </div>
                             ` : `
                                 <label class="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Update Status</label>
@@ -3838,6 +4053,26 @@ const UI = {
                     <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-md transition flex justify-center items-center">Save Logistics Config</button>
                 </form>
             </div>
+
+            <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-6 mb-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-bold text-slate-800 flex items-center"><i class="fa-solid fa-map-location-dot text-blue-500 mr-2"></i> Station GPS & Location Pin</h3>
+                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-100 text-blue-800">Mapbox Live</span>
+                </div>
+                <p class="text-xs text-slate-500 mb-4">Pin your station's exact coordinates so customers can find the nearest branch, view exact kilometers away, and get dynamic delivery ETAs.</p>
+                <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                        <div class="text-[10px] font-black uppercase tracking-wider text-slate-400">Current Coordinates</div>
+                        <div class="text-xs font-bold text-slate-800 mt-0.5 font-mono">
+                            ${station.latitude && station.longitude ? `Lat: ${parseFloat(station.latitude).toFixed(5)}, Lng: ${parseFloat(station.longitude).toFixed(5)}` : 'Default center (not pinned yet)'}
+                        </div>
+                        <div class="text-[11px] text-slate-500 mt-1">${escapeHtml(station.address || 'Central Station')}</div>
+                    </div>
+                    <button type="button" onclick="App.openMapLocationModal({ title: 'Set Station Coordinates', initialLat: ${station.latitude || 14.7566}, initialLng: ${station.longitude || 120.9850}, initialAddress: decodeURIComponent('${encodeURIComponent(station.address || '')}'), onSave: (pos) => App.saveStationLocation(pos.lat, pos.lng) })" class="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition active:scale-95 shadow-md shadow-blue-500/20 shrink-0 cursor-pointer">
+                        <i class="fa-solid fa-location-dot"></i> Pin Station on Map
+                    </button>
+                </div>
+            </div>
             `;
         }
 
@@ -4268,6 +4503,13 @@ const UI = {
             let stations = [];
             let usersData = { admins: [], customers: [], stations: [] };
 
+            if (!State.saUsersData) {
+                usersData = await API.request('sa_get_users', 'GET', null, true);
+                State.saUsersData = usersData;
+            } else {
+                usersData = State.saUsersData;
+            }
+
             if (State.saTab === 'stations') {
                 stations = await API.request('sa_get_stations', 'GET', null, true);
             } else {
@@ -4277,7 +4519,49 @@ const UI = {
             }
             State.saLoadedOnce = true;
 
+            const lastSeenTime = State.saLastSeenCustomerTime || usersData.last_seen_customers || null;
+            if (usersData.last_seen_customers && !State.saLastSeenCustomerTime) {
+                State.saLastSeenCustomerTime = usersData.last_seen_customers;
+            }
+
+            const allCustomers = usersData.customers || [];
+            const newCustomers = allCustomers.filter(c => {
+                if (!lastSeenTime) return false;
+                return c.created_at && new Date(c.created_at).getTime() > new Date(lastSeenTime).getTime();
+            });
+            State.saNewCustomers = newCustomers;
+
             const searchQuery = (document.getElementById('sa-user-search')?.value || '').toLowerCase().trim();
+
+            let newCustomerBannerHtml = '';
+            if (newCustomers.length > 0) {
+                newCustomerBannerHtml = `
+                    <div class="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white p-4 sm:p-5 rounded-3xl shadow-lg shadow-indigo-500/20 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-white/10">
+                        <div class="flex items-start gap-3.5 min-w-0">
+                            <div class="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-md text-amber-300 flex items-center justify-center text-lg shrink-0 shadow-inner">
+                                <i class="fa-solid fa-sparkles animate-pulse"></i>
+                            </div>
+                            <div class="min-w-0">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <h4 class="font-black text-sm sm:text-base leading-tight">${newCustomers.length} New Customer${newCustomers.length > 1 ? 's' : ''} Joined!</h4>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-white/25 text-white">Since Last Visit</span>
+                                </div>
+                                <p class="text-xs text-blue-100/90 mt-1 truncate">
+                                    ${newCustomers.map(c => escapeHtml(c.full_name)).slice(0, 3).join(', ')}${newCustomers.length > 3 ? ` and ${newCustomers.length - 3} more...` : ''}
+                                </p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 self-end sm:self-center shrink-0">
+                            <button onclick="State.saTab='users'; State.saUserSubTab='customers'; State.saCustomerFilter='new'; UI.renderSuperAdminDashboard();" class="px-4 py-2 bg-white text-indigo-700 hover:bg-blue-50 font-black rounded-xl text-xs transition active:scale-95 shadow-sm cursor-pointer">
+                                View New (${newCustomers.length})
+                            </button>
+                            <button onclick="App.markCustomersSeen()" class="px-3.5 py-2 bg-white/15 hover:bg-white/25 text-white font-bold rounded-xl text-xs transition active:scale-95 border border-white/20 cursor-pointer" title="Mark as Read">
+                                <i class="fa-solid fa-check"></i> Mark Seen
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
 
             let html = `
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
@@ -4287,24 +4571,27 @@ const UI = {
                     </div>
                     <div class="flex items-center gap-2">
                         ${State.saTab === 'stations' ? `
-                            <button onclick="UI.navigate('sa_add_station')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold shadow-md transition active:scale-95 flex items-center gap-1.5">
+                            <button onclick="UI.navigate('sa_add_station')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold shadow-md transition active:scale-95 flex items-center gap-1.5 cursor-pointer">
                                 <i class="fa-solid fa-plus"></i> New Station
                             </button>
                         ` : (State.saUserSubTab === 'admins' ? `
-                            <button onclick="App.openAdminUserModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold shadow-md transition active:scale-95 flex items-center gap-1.5">
+                            <button onclick="App.openAdminUserModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold shadow-md transition active:scale-95 flex items-center gap-1.5 cursor-pointer">
                                 <i class="fa-solid fa-user-plus"></i> Add Staff / Admin
                             </button>
                         ` : '')}
                     </div>
                 </div>
 
+                ${newCustomerBannerHtml}
+
                 <!-- Main Super Admin Tabs -->
                 <div class="flex border-b border-slate-200 mb-6">
-                    <button onclick="State.saTab='stations'; UI.renderSuperAdminDashboard();" class="py-3 px-6 text-sm font-black transition-all flex items-center gap-2 border-b-2 ${State.saTab === 'stations' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}">
+                    <button onclick="State.saTab='stations'; UI.renderSuperAdminDashboard();" class="py-3 px-6 text-sm font-black transition-all flex items-center gap-2 border-b-2 cursor-pointer ${State.saTab === 'stations' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}">
                         <i class="fa-solid fa-store"></i> Stations
                     </button>
-                    <button onclick="State.saTab='users'; UI.renderSuperAdminDashboard();" class="py-3 px-6 text-sm font-black transition-all flex items-center gap-2 border-b-2 ${State.saTab === 'users' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}">
+                    <button onclick="State.saTab='users'; UI.renderSuperAdminDashboard();" class="py-3 px-6 text-sm font-black transition-all flex items-center gap-2 border-b-2 cursor-pointer ${State.saTab === 'users' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}">
                         <i class="fa-solid fa-users-gear"></i> User Management
+                        ${newCustomers.length > 0 ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-600 text-white animate-pulse">${newCustomers.length} new</span>` : ''}
                     </button>
                 </div>
             `;
@@ -4324,14 +4611,14 @@ const UI = {
                                         <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${s.status}</span>
                                     </div>
                                     <p class="text-xs text-slate-500 font-medium"><i class="fa-solid fa-user-shield mr-1 text-slate-400"></i>Admin: <strong class="text-slate-700">${escapeHtml(s.admin_username || 'None')}</strong></p>
-                                    <p class="text-xs text-slate-500 font-medium mt-0.5"><i class="fa-solid fa-location-dot mr-1 text-slate-400"></i>${escapeHtml(s.address || 'No address')}</p>
+                                    <p class="text-xs text-slate-500 font-medium mt-0.5"><i class="fa-solid fa-location-dot mr-1 text-slate-400"></i>${escapeHtml(s.address || 'No address')} ${s.latitude && s.longitude ? `<span class="text-blue-600 font-bold ml-1">(Lat: ${parseFloat(s.latitude).toFixed(3)}, Lng: ${parseFloat(s.longitude).toFixed(3)})</span>` : ''}</p>
                                 </div>
                                 <div class="flex gap-2">
-                                    <button onclick="App.toggleStationStatus(${s.station_id}, '${isActive ? 'Suspended' : 'Active'}')" class="px-3.5 py-2 rounded-xl text-xs font-bold ${isActive ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'} transition">
+                                    <button onclick="App.toggleStationStatus(${s.station_id}, '${isActive ? 'Suspend' : 'Active'}')" class="px-3.5 py-2 rounded-xl text-xs font-bold ${isActive ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'} transition cursor-pointer">
                                         ${isActive ? 'Suspend' : 'Activate'}
                                     </button>
                                     ${!isActive ? `
-                                        <button onclick="App.deleteStation(${s.station_id})" class="w-9 h-9 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 flex items-center justify-center transition" title="Delete Station">
+                                        <button onclick="App.deleteStation(${s.station_id})" class="w-9 h-9 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 flex items-center justify-center transition cursor-pointer" title="Delete Station">
                                             <i class="fa-solid fa-trash"></i>
                                         </button>
                                     ` : ''}
@@ -4345,21 +4632,43 @@ const UI = {
                 html += `
                     <!-- User Sub Tabs -->
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-                        <div class="flex gap-2">
-                            <button onclick="State.saUserSubTab='admins'; UI.renderSuperAdminDashboard();" class="px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${State.saUserSubTab === 'admins' ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button onclick="State.saUserSubTab='admins'; UI.renderSuperAdminDashboard();" class="px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${State.saUserSubTab === 'admins' ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}">
                                 <i class="fa-solid fa-user-shield"></i> Staff & Admins <span class="px-1.5 py-0.2 rounded-full text-[10px] ${State.saUserSubTab === 'admins' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}">${(usersData.admins || []).length}</span>
                             </button>
-                            <button onclick="State.saUserSubTab='customers'; UI.renderSuperAdminDashboard();" class="px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${State.saUserSubTab === 'customers' ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}">
+                            <button onclick="State.saUserSubTab='customers'; UI.renderSuperAdminDashboard();" class="px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${State.saUserSubTab === 'customers' ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}">
                                 <i class="fa-solid fa-user-group"></i> Customers <span class="px-1.5 py-0.2 rounded-full text-[10px] ${State.saUserSubTab === 'customers' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}">${(usersData.customers || []).length}</span>
+                                ${newCustomers.length > 0 ? `<span class="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-indigo-500 text-white animate-pulse">${newCustomers.length}</span>` : ''}
                             </button>
                         </div>
-                        <div class="relative min-w-[220px]">
-                            <input type="text" id="sa-user-search" value="${searchQuery}" oninput="UI._filterSaUsers()" placeholder="Search users..." class="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none shadow-sm">
-                            <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+                        <div class="flex items-center gap-2 w-full sm:w-auto">
+                            ${State.saUserSubTab === 'admins' ? `
+                                <div class="bg-slate-100 p-1 rounded-xl flex items-center gap-1 text-[11px] font-bold shrink-0">
+                                    <button type="button" onclick="State.saStaffGroupView='grouped'; UI._filterSaUsers();" class="px-2.5 py-1 rounded-lg transition cursor-pointer ${State.saStaffGroupView !== 'flat' ? 'bg-white text-blue-600 shadow-xs' : 'text-slate-500 hover:text-slate-800'}" title="Group Staff by Station">
+                                        <i class="fa-solid fa-layer-group mr-1"></i> By Station
+                                    </button>
+                                    <button type="button" onclick="State.saStaffGroupView='flat'; UI._filterSaUsers();" class="px-2.5 py-1 rounded-lg transition cursor-pointer ${State.saStaffGroupView === 'flat' ? 'bg-white text-blue-600 shadow-xs' : 'text-slate-500 hover:text-slate-800'}" title="Show All Staff in a Flat List">
+                                        <i class="fa-solid fa-list mr-1"></i> Flat List
+                                    </button>
+                                </div>
+                            ` : `
+                                <div class="bg-slate-100 p-1 rounded-xl flex items-center gap-1 text-[11px] font-bold shrink-0">
+                                    <button type="button" onclick="State.saCustomerFilter='all'; UI._filterSaUsers();" class="px-2.5 py-1 rounded-lg transition cursor-pointer ${State.saCustomerFilter !== 'new' ? 'bg-white text-blue-600 shadow-xs' : 'text-slate-500 hover:text-slate-800'}">
+                                        All
+                                    </button>
+                                    <button type="button" onclick="State.saCustomerFilter='new'; UI._filterSaUsers();" class="px-2.5 py-1 rounded-lg transition cursor-pointer ${State.saCustomerFilter === 'new' ? 'bg-white text-blue-600 shadow-xs' : 'text-slate-500 hover:text-slate-800'}">
+                                        ✨ New (${newCustomers.length})
+                                    </button>
+                                </div>
+                            `}
+                            <div class="relative flex-1 sm:w-56">
+                                <input type="text" id="sa-user-search" value="${searchQuery}" oninput="UI._filterSaUsers()" placeholder="Search users..." class="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none shadow-sm">
+                                <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+                            </div>
                         </div>
                     </div>
 
-                    <div id="sa-users-container" class="space-y-3">
+                    <div id="sa-users-container" class="space-y-4">
                         ${this._renderSaUsersListHtml(usersData, State.saUserSubTab || 'admins', searchQuery)}
                     </div>
                 `;
@@ -4463,6 +4772,52 @@ const UI = {
         } catch (e) { console.error(e); }
     },
 
+    _renderSaStaffCard(a) {
+        const isActive = a.status === 'Active';
+        let roleBadge = 'bg-blue-100 text-blue-800 border-blue-200';
+        let roleIcon = 'fa-user-gear';
+        if (a.role === 'Super Admin') {
+            roleBadge = 'bg-purple-100 text-purple-800 border-purple-200';
+            roleIcon = 'fa-shield-halved';
+        } else if (a.role === 'Delivery Staff') {
+            roleBadge = 'bg-emerald-100 text-emerald-800 border-emerald-200';
+            roleIcon = 'fa-motorcycle';
+        }
+
+        return `
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-blue-300 transition">
+                <div class="flex items-center gap-3.5 min-w-0">
+                    <div class="w-10 h-10 rounded-xl ${a.role === 'Super Admin' ? 'bg-purple-50 text-purple-600' : (a.role === 'Delivery Staff' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600')} flex items-center justify-center text-lg shadow-inner shrink-0">
+                        <i class="fa-solid ${roleIcon}"></i>
+                    </div>
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <h4 class="font-black text-slate-800 text-sm leading-snug truncate">${escapeHtml(a.username)}</h4>
+                            <span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${roleBadge}">${a.role}</span>
+                            <span class="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${a.status}</span>
+                        </div>
+                        <p class="text-[11px] text-slate-400 mt-0.5">
+                            <i class="fa-solid fa-store mr-1 text-slate-400"></i>${escapeHtml(a.station_name || (a.role === 'Super Admin' ? 'Global Admin' : 'Unassigned'))}
+                        </p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-1.5 self-end sm:self-center shrink-0">
+                    <button onclick="App.openAdminUserModal(JSON.parse(decodeURIComponent('${encodeURIComponent(JSON.stringify(a))}')))" class="p-2 rounded-xl bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-600 transition cursor-pointer" title="Edit User">
+                        <i class="fa-solid fa-pen-to-square text-xs"></i>
+                    </button>
+                    ${a.role !== 'Super Admin' ? `
+                        <button onclick="App.toggleAdminStatus(${a.admin_id}, '${isActive ? 'Revoked' : 'Active'}')" class="px-2.5 py-1 rounded-xl text-xs font-bold ${isActive ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'} transition cursor-pointer">
+                            ${isActive ? 'Suspend' : 'Activate'}
+                        </button>
+                        <button onclick="App.deleteAdminUser(${a.admin_id}, decodeURIComponent('${encodeURIComponent(a.username || '')}'))" class="p-2 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 transition cursor-pointer" title="Delete User">
+                            <i class="fa-solid fa-trash text-xs"></i>
+                        </button>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    },
+
     _renderSaUsersListHtml(usersData, subTab, searchQuery) {
         searchQuery = (searchQuery || '').toLowerCase().trim();
         const admins = (usersData?.admins || []).filter(a => {
@@ -4472,82 +4827,147 @@ const UI = {
                    (a.station_name || '').toLowerCase().includes(searchQuery);
         });
 
-        const customers = (usersData?.customers || []).filter(c => {
+        const allCustomers = usersData?.customers || [];
+        const lastSeenTime = State.saLastSeenCustomerTime || usersData?.last_seen_customers || null;
+
+        let customers = allCustomers.filter(c => {
             if (!searchQuery) return true;
             return (c.full_name || '').toLowerCase().includes(searchQuery) ||
                    (c.contact_number || '').toLowerCase().includes(searchQuery) ||
                    (c.address || '').toLowerCase().includes(searchQuery);
         });
 
+        if (State.saCustomerFilter === 'new') {
+            customers = customers.filter(c => {
+                if (!lastSeenTime) return false;
+                return c.created_at && new Date(c.created_at).getTime() > new Date(lastSeenTime).getTime();
+            });
+        }
+
         if (subTab === 'admins') {
             if (admins.length === 0) {
                 return this.emptyState('fa-user-slash', 'No Staff Found', 'No admin or delivery staff accounts match your search.');
             }
-            return admins.map(a => {
-                const isActive = a.status === 'Active';
-                let roleBadge = 'bg-blue-100 text-blue-800 border-blue-200';
-                let roleIcon = 'fa-user-gear';
-                if (a.role === 'Super Admin') {
-                    roleBadge = 'bg-purple-100 text-purple-800 border-purple-200';
-                    roleIcon = 'fa-shield-halved';
-                } else if (a.role === 'Delivery Staff') {
-                    roleBadge = 'bg-emerald-100 text-emerald-800 border-emerald-200';
-                    roleIcon = 'fa-motorcycle';
+
+            // Group staff by station if not in flat view
+            if (State.saStaffGroupView !== 'flat') {
+                const stationsList = usersData?.stations || State.stations || [];
+                const globalAdmins = admins.filter(a => a.role === 'Super Admin' || (!a.station_id && !a.station_name));
+                const unassignedStaff = admins.filter(a => a.role !== 'Super Admin' && !a.station_id && !a.station_name);
+
+                let groupsHtml = '';
+
+                if (globalAdmins.length > 0) {
+                    groupsHtml += `
+                        <div class="bg-gradient-to-r from-purple-50/70 via-white to-purple-50/40 rounded-3xl p-5 border border-purple-200/80 shadow-md ring-2 ring-purple-500/20 mb-4">
+                            <div class="flex items-center justify-between gap-3 mb-3.5 pb-2.5 border-b border-purple-100">
+                                <div class="flex items-center gap-2.5">
+                                    <div class="w-9 h-9 rounded-xl bg-purple-600 text-white flex items-center justify-center text-sm shadow-sm shadow-purple-500/20">
+                                        <i class="fa-solid fa-shield-halved"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="font-black text-slate-800 text-sm sm:text-base">Global Administration</h4>
+                                        <p class="text-[10px] text-purple-700 font-semibold">Platform oversight across all refilling branches</p>
+                                    </div>
+                                </div>
+                                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-100 text-purple-800 border border-purple-200">${globalAdmins.length} Super Admin${globalAdmins.length > 1 ? 's' : ''}</span>
+                            </div>
+                            <div class="space-y-2.5">
+                                ${globalAdmins.map(a => this._renderSaStaffCard(a)).join('')}
+                            </div>
+                        </div>
+                    `;
                 }
 
-                return `
-                    <div class="bg-white rounded-3xl p-4 sm:p-5 shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <div class="flex items-center gap-3.5 min-w-0">
-                            <div class="w-12 h-12 rounded-2xl ${a.role === 'Super Admin' ? 'bg-purple-50 text-purple-600' : (a.role === 'Delivery Staff' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600')} flex items-center justify-center text-xl shadow-inner shrink-0">
-                                <i class="fa-solid ${roleIcon}"></i>
-                            </div>
-                            <div class="min-w-0">
-                                <div class="flex items-center gap-2 flex-wrap">
-                                    <h4 class="font-black text-slate-800 text-base leading-snug truncate">${escapeHtml(a.username)}</h4>
-                                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${roleBadge}">${a.role}</span>
-                                    <span class="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${a.status}</span>
+                // Group by stations
+                stationsList.forEach(st => {
+                    const stStaff = admins.filter(a => a.station_id == st.station_id || (a.station_name && a.station_name === st.station_name && a.role !== 'Super Admin'));
+                    const isStationActive = st.status === 'Active';
+
+                    groupsHtml += `
+                        <div class="bg-white rounded-3xl p-5 border border-blue-200/80 shadow-md ring-2 ring-blue-500/20 mb-4 transition hover:shadow-lg">
+                            <div class="flex items-center justify-between gap-3 mb-3.5 pb-2.5 border-b border-slate-100">
+                                <div class="flex items-center gap-3 min-w-0">
+                                    <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-lg shadow-inner shrink-0">
+                                        <i class="fa-solid fa-store"></i>
+                                    </div>
+                                    <div class="min-w-0">
+                                        <div class="flex items-center gap-2 flex-wrap">
+                                            <h4 class="font-black text-slate-800 text-sm sm:text-base truncate">${escapeHtml(st.station_name)}</h4>
+                                            <span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${isStationActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${st.status}</span>
+                                        </div>
+                                        <p class="text-[11px] text-slate-400 truncate mt-0.5"><i class="fa-solid fa-location-dot mr-1"></i>${escapeHtml(st.address || 'Central Station')}</p>
+                                    </div>
                                 </div>
-                                <p class="text-xs text-slate-500 mt-1">
-                                    <i class="fa-solid fa-store mr-1 text-slate-400"></i>Station: <strong class="text-slate-700">${escapeHtml(a.station_name || (a.role === 'Super Admin' ? 'Global / All Stations' : 'Unassigned'))}</strong>
-                                </p>
+                                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 shrink-0">${stStaff.length} Staff Member${stStaff.length !== 1 ? 's' : ''}</span>
+                            </div>
+                            ${stStaff.length === 0 ? `
+                                <div class="p-4 bg-slate-50 rounded-2xl text-center text-xs text-slate-400 font-medium">
+                                    <i class="fa-solid fa-user-slash mr-1.5"></i> No admin or delivery staff assigned to this station.
+                                </div>
+                            ` : `
+                                <div class="space-y-2.5">
+                                    ${stStaff.map(a => this._renderSaStaffCard(a)).join('')}
+                                </div>
+                            `}
+                        </div>
+                    `;
+                });
+
+                if (unassignedStaff.length > 0) {
+                    groupsHtml += `
+                        <div class="bg-amber-50/50 rounded-3xl p-5 border border-amber-200/80 shadow-md mb-4">
+                            <div class="flex items-center justify-between gap-3 mb-3 pb-2 border-b border-amber-200">
+                                <h4 class="font-black text-amber-800 text-sm"><i class="fa-solid fa-triangle-exclamation mr-1.5"></i> Unassigned Staff</h4>
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">${unassignedStaff.length}</span>
+                            </div>
+                            <div class="space-y-2.5">
+                                ${unassignedStaff.map(a => this._renderSaStaffCard(a)).join('')}
                             </div>
                         </div>
-                        <div class="flex items-center gap-2 self-end sm:self-center">
-                            <button onclick="App.openAdminUserModal(JSON.parse(decodeURIComponent('${encodeURIComponent(JSON.stringify(a))}')))" class="p-2 rounded-xl bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-600 transition" title="Edit User">
-                                <i class="fa-solid fa-pen-to-square"></i>
-                            </button>
-                            ${a.role !== 'Super Admin' ? `
-                                <button onclick="App.toggleAdminStatus(${a.admin_id}, '${isActive ? 'Revoked' : 'Active'}')" class="px-3 py-1.5 rounded-xl text-xs font-bold ${isActive ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'} transition">
-                                    ${isActive ? 'Suspend' : 'Activate'}
-                                </button>
-                                <button onclick="App.deleteAdminUser(${a.admin_id}, decodeURIComponent('${encodeURIComponent(a.username || '')}'))" class="p-2 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 transition" title="Delete User">
-                                    <i class="fa-solid fa-trash"></i>
-                                </button>
-                            ` : ''}
-                        </div>
-                    </div>
-                `;
-            }).join('');
+                    `;
+                }
+
+                return groupsHtml;
+            }
+
+            // Flat List View
+            return admins.map(a => this._renderSaStaffCard(a)).join('');
         } else {
             if (customers.length === 0) {
-                return this.emptyState('fa-user-slash', 'No Customers Found', 'No customers match your search query.');
+                return this.emptyState('fa-user-slash', 'No Customers Found', State.saCustomerFilter === 'new' ? 'No new customers have joined since your last visit.' : 'No customers match your search query.');
             }
             return customers.map(c => {
                 const isVer = c.is_verified == 1;
+                const isNew = c.created_at && lastSeenTime && (new Date(c.created_at).getTime() > new Date(lastSeenTime).getTime());
+
                 return `
-                    <div class="bg-white rounded-3xl p-4 sm:p-5 shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div class="bg-white rounded-3xl p-4 sm:p-5 shadow-md border ${isNew ? 'border-indigo-300 ring-2 ring-indigo-500/40 bg-gradient-to-r from-indigo-50/30 to-white' : 'border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5'} flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div class="flex items-start gap-3.5 min-w-0">
-                            <div class="w-12 h-12 rounded-2xl bg-slate-100 text-slate-600 flex items-center justify-center text-xl shadow-inner shrink-0">
-                                <i class="fa-solid fa-user"></i>
+                            <div class="w-12 h-12 rounded-2xl ${isNew ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-600'} flex items-center justify-center text-xl shadow-inner shrink-0">
+                                <i class="fa-solid ${isNew ? 'fa-user-check' : 'fa-user'}"></i>
                             </div>
                             <div class="min-w-0 flex-1">
                                 <div class="flex items-center gap-2 flex-wrap">
                                     <h4 class="font-black text-slate-800 text-base leading-snug truncate">${escapeHtml(c.full_name)}</h4>
+                                    ${isNew ? `
+                                        <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-xs animate-pulse">
+                                            <i class="fa-solid fa-sparkles mr-1"></i>New
+                                        </span>
+                                    ` : ''}
                                     <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${isVer ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-amber-100 text-amber-800 border border-amber-300'}">
                                         <i class="fa-solid ${isVer ? 'fa-check' : 'fa-hourglass-half'} mr-1"></i>${isVer ? 'Verified' : 'Unverified'}
                                     </span>
+                                    ${c.latitude && c.longitude ? `
+                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200/80">
+                                            <i class="fa-solid fa-map-pin mr-1"></i>Map Pinned
+                                        </span>
+                                    ` : ''}
                                 </div>
-                                <p class="text-xs text-slate-500 font-medium mt-0.5"><i class="fa-solid fa-phone mr-1 text-slate-400"></i>${escapeHtml(c.contact_number)}</p>
+                                <div class="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 text-xs text-slate-500 mt-1">
+                                    <span class="font-medium"><i class="fa-solid fa-phone mr-1 text-slate-400"></i>${escapeHtml(c.contact_number)}</span>
+                                    ${c.created_at ? `<span class="text-slate-400"><i class="fa-regular fa-clock mr-1 text-slate-300"></i>Joined: ${App.formatDateTime(c.created_at)}</span>` : ''}
+                                </div>
                                 <p class="text-xs text-slate-400 truncate mt-0.5"><i class="fa-solid fa-location-dot mr-1 text-slate-300"></i>${escapeHtml(c.address || 'No address provided')}</p>
                                 <div class="flex items-center gap-3 mt-2 text-xs text-slate-500">
                                     <span><strong class="text-slate-700">${c.total_orders || 0}</strong> orders</span>
@@ -4557,13 +4977,13 @@ const UI = {
                             </div>
                         </div>
                         <div class="flex items-center gap-2 self-end sm:self-center shrink-0">
-                            <button onclick="App.toggleCustomerVerification(${c.customer_id}, ${c.is_verified || 0})" class="px-3 py-1.5 rounded-xl text-xs font-bold ${isVer ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'} transition">
+                            <button onclick="App.toggleCustomerVerification(${c.customer_id}, ${c.is_verified || 0})" class="px-3 py-1.5 rounded-xl text-xs font-bold ${isVer ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'} transition cursor-pointer">
                                 ${isVer ? 'Unverify' : 'Verify'}
                             </button>
-                            <button onclick="App.openCustomerModal(JSON.parse(decodeURIComponent('${encodeURIComponent(JSON.stringify(c))}')))" class="p-2 rounded-xl bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-600 transition" title="Edit Customer">
+                            <button onclick="App.openCustomerModal(JSON.parse(decodeURIComponent('${encodeURIComponent(JSON.stringify(c))}')))" class="p-2 rounded-xl bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-600 transition cursor-pointer" title="Edit Customer">
                                 <i class="fa-solid fa-pen-to-square"></i>
                             </button>
-                            <button onclick="App.deleteCustomerUser(${c.customer_id}, decodeURIComponent('${encodeURIComponent(c.full_name || '')}'))" class="p-2 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 transition" title="Delete Customer">
+                            <button onclick="App.deleteCustomerUser(${c.customer_id}, decodeURIComponent('${encodeURIComponent(c.full_name || '')}'))" class="p-2 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 transition cursor-pointer" title="Delete Customer">
                                 <i class="fa-solid fa-trash"></i>
                             </button>
                         </div>

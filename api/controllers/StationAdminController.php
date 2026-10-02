@@ -30,7 +30,7 @@ class StationAdminController {
             exit;
         }
 
-        $stmtOrders = $this->pdo->prepare("SELECT o.order_id, o.station_id, o.customer_id, o.product_id, o.station_order_number, o.order_date, o.scheduled_date, o.order_status, o.total_price, o.payment_method, o.quantity, o.delivery_address, o.points_used, o.return_round, o.return_slim, o.borrow_round, o.borrow_slim, o.borrow_status, o.container_option, o.returning_borrowed_flag, o.jug_type, o.shipping_fee, o.jug_fee, o.discount_amount, IF(o.payment_proof IS NOT NULL AND o.payment_proof != '', 1, 0) as has_payment_proof, c.contact_number, c.full_name, p.name as product_name, IFNULL(l.points, 0) as user_points, IFNULL(l.lifetime_points, IFNULL(l.points, 0)) as user_lifetime_points FROM ORDERS o LEFT JOIN CUSTOMER c ON o.customer_id = c.customer_id LEFT JOIN PRODUCTS p ON o.product_id = p.product_id LEFT JOIN CUSTOMER_LOYALTY l ON o.customer_id = l.customer_id AND o.station_id = l.station_id WHERE o.station_id = ? ORDER BY o.order_date DESC"); 
+        $stmtOrders = $this->pdo->prepare("SELECT o.order_id, o.station_id, o.customer_id, o.product_id, o.station_order_number, o.order_date, o.scheduled_date, o.order_status, o.total_price, o.payment_method, o.quantity, o.delivery_address, o.delivery_latitude, o.delivery_longitude, o.receipt_viewed, o.points_used, o.return_round, o.return_slim, o.borrow_round, o.borrow_slim, o.borrow_status, o.container_option, o.returning_borrowed_flag, o.jug_type, o.shipping_fee, o.jug_fee, o.discount_amount, IF(o.payment_proof IS NOT NULL AND o.payment_proof != '', 1, 0) as has_payment_proof, c.contact_number, c.full_name, p.name as product_name, IFNULL(l.points, 0) as user_points, IFNULL(l.lifetime_points, IFNULL(l.points, 0)) as user_lifetime_points FROM ORDERS o LEFT JOIN CUSTOMER c ON o.customer_id = c.customer_id LEFT JOIN PRODUCTS p ON o.product_id = p.product_id LEFT JOIN CUSTOMER_LOYALTY l ON o.customer_id = l.customer_id AND o.station_id = l.station_id WHERE o.station_id = ? ORDER BY o.order_date DESC"); 
         $stmtOrders->execute([$sid]);
         $orders = $stmtOrders->fetchAll();
 
@@ -338,6 +338,19 @@ class StationAdminController {
             exit;
         }
         echo json_encode(['success' => true]); 
+        exit;
+    }
+
+    public function updateLocation() {
+        $admin = $this->requireStationAdmin();
+        $lat = isset($_POST['latitude']) && $_POST['latitude'] !== '' ? (float)$_POST['latitude'] : null;
+        $lng = isset($_POST['longitude']) && $_POST['longitude'] !== '' ? (float)$_POST['longitude'] : null;
+
+        $this->pdo->prepare("UPDATE STATION SET latitude = ?, longitude = ? WHERE station_id = ?")->execute([$lat, $lng, $admin['station_id']]);
+        if (class_exists('CustomerController')) {
+            CustomerController::clearStationsCache();
+        }
+        echo json_encode(['success' => true, 'latitude' => $lat, 'longitude' => $lng]);
         exit;
     }
 }

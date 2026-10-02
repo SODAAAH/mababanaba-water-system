@@ -13,20 +13,26 @@ require_once __DIR__ . '/controllers/AdminController.php';
 require_once __DIR__ . '/OrderHelper.php';
 
 
-$lifetime = 60 * 60 * 24 * 30; 
-ini_set('session.cookie_lifetime', $lifetime);
-ini_set('session.gc_maxlifetime', $lifetime);
-ini_set('session.use_strict_mode', 1);
+$lifetime = 60 * 60 * 24 * 30; // 30 days
+ini_set('session.cookie_lifetime', (string)$lifetime);
+ini_set('session.gc_maxlifetime', (string)$lifetime);
+ini_set('session.use_strict_mode', '0');
 
-$session_path = sys_get_temp_dir() . '/mbbnb_sessions';
-if (!is_dir($session_path)) {
-    @mkdir($session_path, 0700, true);
+$session_dir = __DIR__ . '/sessions';
+if (!is_dir($session_dir)) {
+    @mkdir($session_dir, 0700, true);
+    @file_put_contents($session_dir . '/.htaccess', "<IfModule !mod_authz_core.c>\nOrder allow,deny\nDeny from all\n</IfModule>\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n");
+    @file_put_contents($session_dir . '/index.html', "");
 }
-session_save_path($session_path);
+if (is_dir($session_dir) && is_writable($session_dir)) {
+    session_save_path($session_dir);
+}
 
 $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-    || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443)
-    || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+    || (isset($_SERVER['SERVER_PORT']) && (int)$_SERVER['SERVER_PORT'] === 443)
+    || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https')
+    || (isset($_SERVER['HTTP_CF_VISITOR']) && strpos($_SERVER['HTTP_CF_VISITOR'], 'https') !== false)
+    || (isset($_SERVER['HTTP_X_FORWARDED_SSL']) && strtolower($_SERVER['HTTP_X_FORWARDED_SSL']) === 'on');
 
 session_set_cookie_params([
     'lifetime' => $lifetime,
@@ -43,6 +49,18 @@ header("X-Content-Type-Options: nosniff");
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
 
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+if (!empty($origin)) {
+    header("Access-Control-Allow-Origin: $origin");
+    header("Access-Control-Allow-Credentials: true");
+    header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+    header("Access-Control-Allow-Headers: Content-Type, X-CSRF-TOKEN, Authorization");
+    if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+        http_response_code(200);
+        exit;
+    }
+}
+
 $action = $_GET['action'] ?? '';
 
 $readOnlyActions = [
@@ -54,10 +72,12 @@ $readOnlyActions = [
     'get_customer_orders',
     'sa_get_stations',
     'sa_get_users',
+    'sa_get_new_customers',
     'get_admin_dashboard_data',
     'get_sales_report',
     'get_admin_loyalty',
-    'get_vapid_public_key'
+    'get_vapid_public_key',
+    'get_mapbox_token'
 ];
 
 if (!in_array($action, $readOnlyActions, true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -78,7 +98,8 @@ $csrfExempt = [
     'forgot_password_request',
     'reset_password_submit',
     'logout',
-    'get_vapid_public_key'
+    'get_vapid_public_key',
+    'get_mapbox_token'
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !in_array($action, $csrfExempt, true)) {
@@ -98,7 +119,7 @@ try {
     $pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
     $pdo->exec("SET time_zone = '+08:00'");
 
-    if (!file_exists(__DIR__ . '/.migrated_v5')) {
+    if (!file_exists(__DIR__ . '/.migrated_v7')) {
         require_once __DIR__ . '/migrations.php';
         run_migrations($pdo);
     }
@@ -168,32 +189,38 @@ switch ($action) {
     case 'check_session':
         try {
             if (isset($_SESSION['customer_id'])) {
-                $stmt = $pdo->prepare("SELECT customer_id, full_name, contact_number, address, is_verified FROM CUSTOMER WHERE customer_id = ?");
+                $stmt = $pdo->prepare("SELECT customer_id, full_name, contact_number, address, is_verified, latitude, longitude, created_at FROM CUSTOMER WHERE customer_id = ?");
                 $stmt->execute([$_SESSION['customer_id']]);
                 if ($c = $stmt->fetch()) { 
                     if ($c['is_verified'] == 0) {
                         unset($_SESSION['customer_id']);
-                        echo json_encode(['logged_in' => false, 'csrf_token' => $_SESSION['csrf_token']]);
+                        echo json_encode(['logged_in' => false, 'csrf_token' => $_SESSION['csrf_token'], 'mapbox_token' => MAPBOX_ACCESS_TOKEN]);
                         exit;
                     }
+                    $loyaltyStmt = $pdo->prepare("SELECT IFNULL(SUM(points), 0) as total_points, IFNULL(SUM(lifetime_points), 0) as lifetime_points FROM CUSTOMER_LOYALTY WHERE customer_id = ?");
+                    $loyaltyStmt->execute([$_SESSION['customer_id']]);
+                    $loyaltyData = $loyaltyStmt->fetch();
+                    $c['total_points'] = (int)($loyaltyData['total_points'] ?? 0);
+                    $c['lifetime_points'] = (int)($loyaltyData['lifetime_points'] ?? 0);
+
                     $pdo->prepare("UPDATE CUSTOMER SET last_active = CURRENT_TIMESTAMP WHERE customer_id = ?")->execute([$_SESSION['customer_id']]);
-                    echo json_encode(['logged_in' => true, 'type' => 'customer', 'data' => $c, 'csrf_token' => $_SESSION['csrf_token']]); 
+                    echo json_encode(['logged_in' => true, 'type' => 'customer', 'data' => $c, 'csrf_token' => $_SESSION['csrf_token'], 'mapbox_token' => MAPBOX_ACCESS_TOKEN]); 
                     exit;
                 }
             } elseif (isset($_SESSION['admin_id'])) {
-                $stmt = $pdo->prepare("SELECT a.*, s.station_name FROM ADMIN a LEFT JOIN STATION s ON a.station_id = s.station_id WHERE a.admin_id = ?");
+                $stmt = $pdo->prepare("SELECT a.*, s.station_name, s.latitude as station_latitude, s.longitude as station_longitude FROM ADMIN a LEFT JOIN STATION s ON a.station_id = s.station_id WHERE a.admin_id = ?");
                 $stmt->execute([$_SESSION['admin_id']]);
                 if ($a = $stmt->fetch()) { 
                     $_SESSION['station_id'] = $a['station_id'];
                     $_SESSION['role'] = $a['role'];
                     unset($a['password'], $a['otp_code'], $a['otp_expiry'], $a['new_temp_contact'], $a['failed_otp_attempts']);
-                    echo json_encode(['logged_in' => true, 'type' => 'admin', 'data' => $a, 'csrf_token' => $_SESSION['csrf_token']]); 
+                    echo json_encode(['logged_in' => true, 'type' => 'admin', 'data' => $a, 'csrf_token' => $_SESSION['csrf_token'], 'mapbox_token' => MAPBOX_ACCESS_TOKEN]); 
                     exit; 
                 }
             }
         } catch(PDOException $e) { error_log($e->getMessage()); }
         
-        echo json_encode(['logged_in' => false, 'csrf_token' => $_SESSION['csrf_token']]);
+        echo json_encode(['logged_in' => false, 'csrf_token' => $_SESSION['csrf_token'], 'mapbox_token' => MAPBOX_ACCESS_TOKEN]);
         exit;
     case 'get_payment_proof':
         $cid = $_SESSION['customer_id'] ?? null;
@@ -285,6 +312,7 @@ switch ($action) {
     case 'change_phone_submit': getCustomerController($pdo)->changePhoneSubmit(); break;
     case 'place_order': getCustomerController($pdo)->placeOrder(); break;
     case 'get_customer_orders': getCustomerController($pdo)->getOrders(); break;
+    case 'customer_update_location': getCustomerController($pdo)->updateLocation(); break;
     case 'submit_review': getCustomerController($pdo)->submitReview(); break;
 
     case 'admin_login': getAdminController($pdo)->login(); break;
@@ -293,6 +321,8 @@ switch ($action) {
     case 'sa_toggle_station': getAdminController($pdo)->saToggleStation(); break;
     case 'sa_delete_station': getAdminController($pdo)->saDeleteStation(); break;
     case 'sa_get_users': getAdminController($pdo)->saGetUsers(); break;
+    case 'sa_mark_customers_seen': getAdminController($pdo)->saMarkCustomersSeen(); break;
+    case 'sa_get_new_customers': getAdminController($pdo)->saGetNewCustomers(); break;
     case 'sa_save_admin': getAdminController($pdo)->saSaveAdmin(); break;
     case 'sa_toggle_admin_status': getAdminController($pdo)->saToggleAdminStatus(); break;
     case 'sa_delete_admin': getAdminController($pdo)->saDeleteAdmin(); break;
@@ -302,6 +332,7 @@ switch ($action) {
     case 'get_admin_dashboard_data': getAdminController($pdo)->getAdminDashboardData(); break;
     case 'get_sales_report': getAdminController($pdo)->getSalesReport(); break;
     case 'admin_update_logistics': getAdminController($pdo)->adminUpdateLogistics(); break;
+    case 'admin_update_station_location': getAdminController($pdo)->adminUpdateLocation(); break;
     case 'admin_update_advanced_inventory': getAdminController($pdo)->adminUpdateAdvancedInventory(); break;
     case 'admin_mark_returned': getAdminController($pdo)->adminMarkReturned(); break;
     case 'admin_update_hours': getAdminController($pdo)->adminUpdateHours(); break;
@@ -316,6 +347,11 @@ switch ($action) {
     case 'admin_toggle_staff': getAdminController($pdo)->adminToggleStaff(); break;
     case 'get_admin_loyalty': getAdminController($pdo)->getAdminLoyalty(); break;
     case 'update_order_status': getAdminController($pdo)->updateOrderStatus(); break;
+    case 'admin_mark_receipt_viewed': getAdminController($pdo)->adminMarkReceiptViewed(); break;
+
+    case 'get_mapbox_token':
+        echo json_encode(['mapbox_token' => MAPBOX_ACCESS_TOKEN]);
+        exit;
 
     case 'get_vapid_public_key':
         echo json_encode(['vapid_public_key' => WebPush::getVapidPublicKey()]);

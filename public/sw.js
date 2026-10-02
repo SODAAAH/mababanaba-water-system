@@ -1,5 +1,5 @@
-const STATIC_CACHE_NAME = 'mababanaba-static-v1790853933585';
-const API_CACHE_NAME = 'mababanaba-api-v1790853933585';
+const STATIC_CACHE_NAME = 'mababanaba-static-v1790942468045';
+const API_CACHE_NAME = 'mababanaba-api-v1790942468045';
 
 const ASSETS_TO_CACHE = [
     './',
@@ -57,6 +57,10 @@ self.addEventListener('activate', (event) => {
                     }
                 })
             );
+        }).then(() => {
+            return self.clients.matchAll({ type: 'window' }).then(clients => {
+                clients.forEach(client => client.postMessage({ type: 'VERSION_UPDATED' }));
+            });
         })
     );
     self.clients.claim(); 
@@ -116,14 +120,18 @@ self.addEventListener('fetch', (event) => {
             return;
         }
 
-        // GET requests: Network-First with Cache Fallback (Safe offline browsing of stations, orders, catalogs)
+        const actionParam = url.searchParams.get('action') || '';
+        // Sensitive session and auth actions must never be cached by Service Worker
+        const isAuthAction = actionParam === 'check_session' || actionParam.includes('login') || actionParam.includes('logout');
+
+        // GET requests: Network-First with Cache Fallback for public stations & catalogs
         event.respondWith(
             fetch(request)
                 .then((networkResponse) => {
-                    if (networkResponse && networkResponse.status === 200) {
+                    if (networkResponse && networkResponse.status === 200 && !isAuthAction) {
                         const contentType = networkResponse.headers.get('content-type') || '';
-                        // Only cache verified JSON responses; never cache HTML WAF challenges
-                        if (contentType.includes('application/json')) {
+                        // Only cache verified JSON responses for cacheable public actions; never cache HTML WAF challenges or auth states
+                        if (contentType.includes('application/json') && (actionParam === 'get_stations' || actionParam === 'get_vapid_public_key' || actionParam === 'get_products')) {
                             const clone = networkResponse.clone();
                             caches.open(API_CACHE_NAME).then((cache) => cache.put(request, clone));
                         }
@@ -135,15 +143,24 @@ self.addEventListener('fetch', (event) => {
                         if (cached) {
                             return cached;
                         }
-                        // If completely offline and item not cached yet, return a valid offline JSON response
+                        // Only return placeholder for station catalog when offline; never mock orders or session with empty arrays
+                        if (actionParam === 'get_stations') {
+                            return new Response(
+                                JSON.stringify({ 
+                                    success: true, 
+                                    offline: true, 
+                                    data: [], 
+                                    message: "You are currently offline. Viewing cached placeholder." 
+                                }),
+                                { headers: { 'Content-Type': 'application/json' } }
+                            );
+                        }
                         return new Response(
                             JSON.stringify({ 
-                                success: true, 
-                                offline: true, 
-                                data: [], 
-                                message: "You are currently offline. Viewing cached placeholder." 
+                                error: "Network unavailable. Please check your internet connection.",
+                                offline: true
                             }),
-                            { headers: { 'Content-Type': 'application/json' } }
+                            { status: 503, headers: { 'Content-Type': 'application/json' } }
                         );
                     });
                 })
@@ -151,10 +168,9 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // 3. Static Assets (CSS, JS, Images, Fonts)
-    // Strategy: Stale-While-Revalidate with offline fallback
+    const hasVersionQuery = url.search && url.search.includes('v');
     event.respondWith(
-        caches.match(request, { ignoreSearch: true }).then((cachedResponse) => {
+        caches.match(request, { ignoreSearch: !hasVersionQuery }).then((cachedResponse) => {
             const fetchPromise = fetch(request)
                 .then((networkResponse) => {
                     if (networkResponse && (networkResponse.status === 200 || networkResponse.type === 'opaque')) {

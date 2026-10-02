@@ -97,6 +97,461 @@ const App = {
             perks: 'Standard Queue: Earn points on refills to unlock faster dispatch'
         };
     },
+
+    calculateDistanceKm(lat1, lon1, lat2, lon2) {
+        if (!lat1 || !lon1 || !lat2 || !lon2) return null;
+        const pLat1 = parseFloat(lat1);
+        const pLon1 = parseFloat(lon1);
+        const pLat2 = parseFloat(lat2);
+        const pLon2 = parseFloat(lon2);
+        if (isNaN(pLat1) || isNaN(pLon1) || isNaN(pLat2) || isNaN(pLon2)) return null;
+
+        const R = 6371; // Earth radius in km
+        const dLat = (pLat2 - pLat1) * Math.PI / 180;
+        const dLon = (pLon2 - pLon1) * Math.PI / 180;
+        const a = 
+            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(pLat1 * Math.PI / 180) * Math.cos(pLat2 * Math.PI / 180) * 
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const dist = R * c;
+        return isNaN(dist) ? null : dist;
+    },
+
+    calculateDynamicETA(distanceKm, queueCount = 0, userLifetimePoints = 0) {
+        const q = Math.max(0, parseInt(queueCount) || 0);
+        const rank = this.getLoyaltyRank(userLifetimePoints);
+
+        // Multipliers: Diamond > Platinum > Gold > Silver > Bronze > Normal
+        let rankMultiplier = 1.0;
+        let priorityLabel = 'Standard Dispatch';
+        if (rank.tier === 6) {
+            rankMultiplier = 0.20;
+            priorityLabel = 'Diamond Priority (80% Queue Skip)';
+        } else if (rank.tier === 5) {
+            rankMultiplier = 0.35;
+            priorityLabel = 'Platinum Priority (65% Queue Skip)';
+        } else if (rank.tier === 4) {
+            rankMultiplier = 0.55;
+            priorityLabel = 'Gold Priority (45% Queue Skip)';
+        } else if (rank.tier === 3) {
+            rankMultiplier = 0.75;
+            priorityLabel = 'Silver Priority (25% Queue Skip)';
+        } else if (rank.tier === 2) {
+            rankMultiplier = 0.90;
+            priorityLabel = 'Bronze Priority (10% Queue Skip)';
+        }
+
+        const effectiveQueueDelay = Math.round(q * rankMultiplier * 6); // 6 mins per effective queue slot
+        const basePrep = 10; // 10 minutes prep time
+        let transitTime = 10; // default 10 minutes transit
+        if (distanceKm !== null && distanceKm !== undefined && !isNaN(distanceKm)) {
+            transitTime = Math.max(5, Math.round(distanceKm * 3.5)); // ~3.5 mins per km, min 5
+        }
+
+        const minEta = Math.max(10, basePrep + effectiveQueueDelay + transitTime);
+        const maxEta = minEta + 10;
+
+        return {
+            min: minEta,
+            max: maxEta,
+            text: `${minEta}–${maxEta} mins`,
+            queueCount: q,
+            rankName: rank.name,
+            rankTier: rank.tier,
+            rankMultiplier,
+            priorityLabel,
+            distanceKm: (distanceKm !== null && !isNaN(distanceKm)) ? distanceKm.toFixed(1) : null
+        };
+    },
+
+    async getMapboxToken() {
+        if (State.mapboxToken) return State.mapboxToken;
+        try {
+            const res = await API.request('get_mapbox_token', 'GET', null, true);
+            if (res && res.mapbox_token) {
+                State.mapboxToken = res.mapbox_token;
+                if (typeof mapboxgl !== 'undefined') mapboxgl.accessToken = res.mapbox_token;
+                return res.mapbox_token;
+            }
+        } catch (e) {}
+        return State.mapboxToken || '';
+    },
+
+    async locateCustomer(forceGps = false) {
+        if (!forceGps && State.userLocation && State.userLocation.lat && State.userLocation.lng) {
+            return State.userLocation;
+        }
+
+        if (!navigator.geolocation) {
+            CustomToast.show("Geolocation is not supported by your browser.", "error");
+            return State.userLocation;
+        }
+
+        return new Promise((resolve) => {
+            CustomToast.show("Detecting your location...", "loading", 4000, "gps-locating");
+            navigator.geolocation.getCurrentPosition(
+                async (pos) => {
+                    CustomToast.dismiss("gps-locating");
+                    const lat = pos.coords.latitude;
+                    const lng = pos.coords.longitude;
+                    State.userLocation = {
+                        lat,
+                        lng,
+                        address: State.userLocation?.address || (State.user?.data?.address || '')
+                    };
+
+                    const token = await this.getMapboxToken();
+                    if (token) {
+                        try {
+                            const geoRes = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${token}&limit=1`);
+                            const geoJson = await geoRes.json();
+                            if (geoJson?.features?.[0]?.place_name) {
+                                State.userLocation.address = geoJson.features[0].place_name;
+                            }
+                        } catch (e) {}
+                    }
+
+                    CustomToast.show("Location detected successfully!", "success");
+                    if (UI._currentView === 'customer_home') {
+                        UI.renderCustomerHome();
+                    }
+                    resolve(State.userLocation);
+                },
+                (err) => {
+                    CustomToast.dismiss("gps-locating");
+                    console.warn("GPS error:", err);
+                    CustomToast.show("Could not access GPS. You can pin your location on the map.", "info");
+                    resolve(State.userLocation);
+                },
+                { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+            );
+        });
+    },
+
+    openMapLocationModal({ title = 'Pin Location on Map', initialLat, initialLng, initialAddress = '', onSave }) {
+        const existing = document.getElementById('mapbox-picker-modal');
+        if (existing) existing.remove();
+
+        const token = State.mapboxToken;
+        if (!token) {
+            CustomToast.show("Mapbox token is loading, please try again in a moment.", "error");
+            return;
+        }
+
+        let curLat = parseFloat(initialLat) || (State.userLocation?.lat || 14.7566);
+        let curLng = parseFloat(initialLng) || (State.userLocation?.lng || 120.9850);
+        let curAddress = initialAddress || (State.userLocation?.address || '');
+
+        const modal = document.createElement('div');
+        modal.id = 'mapbox-picker-modal';
+        modal.className = 'fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-4 bg-slate-900/80 backdrop-blur-sm opacity-0 transition-opacity duration-300';
+        modal.innerHTML = `
+            <div class="bg-white rounded-3xl w-full max-w-2xl shadow-2xl scale-95 transition-transform duration-300 relative flex flex-col overflow-hidden max-h-[92vh]">
+                <div class="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-base shadow-inner">
+                            <i class="fa-solid fa-map-location-dot"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-black text-slate-800 text-base sm:text-lg leading-tight">${escapeHtml(title)}</h3>
+                            <p class="text-[11px] text-slate-400 font-medium">Drag the marker or tap anywhere on the map to set exact coordinates</p>
+                        </div>
+                    </div>
+                    <button type="button" class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center transition active:scale-95" onclick="App.closeMapLocationModal()"><i class="fa-solid fa-times"></i></button>
+                </div>
+
+                <div class="p-3 bg-slate-50 border-b border-slate-200 flex gap-2 relative z-10">
+                    <div class="relative flex-1">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-slate-400 text-xs"></i>
+                        <input type="text" id="map-search-input" placeholder="Search address or street name in Philippines..." class="w-full pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none shadow-xs">
+                        <button type="button" id="map-search-clear" class="hidden absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 text-xs"><i class="fa-solid fa-circle-xmark"></i></button>
+                        <div id="map-search-results" class="hidden absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden max-h-48 overflow-y-auto z-50"></div>
+                    </div>
+                    <button type="button" id="map-gps-btn" class="px-3 py-2 bg-white border border-slate-200 hover:bg-blue-50 hover:text-blue-600 text-slate-700 font-bold rounded-xl text-xs flex items-center gap-1.5 transition active:scale-95 shrink-0 shadow-xs" title="Use current GPS location">
+                        <i class="fa-solid fa-crosshairs text-blue-500"></i> <span class="hidden sm:inline">Use GPS</span>
+                    </button>
+                </div>
+
+                <div class="relative w-full h-[320px] sm:h-[380px] bg-slate-100">
+                    <div id="mapbox-map-canvas" class="w-full h-full"></div>
+                    <div class="absolute bottom-2 left-2 bg-white/90 backdrop-blur-xs px-2.5 py-1 rounded-lg text-[10px] font-bold text-slate-600 border border-slate-200 shadow-xs pointer-events-none">
+                        Lat: <span id="map-display-lat">${curLat.toFixed(5)}</span> • Lng: <span id="map-display-lng">${curLng.toFixed(5)}</span>
+                    </div>
+                </div>
+
+                <div class="p-4 bg-white border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div class="min-w-0 flex-1">
+                        <div class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Pinned Location</div>
+                        <div id="map-address-display" class="text-xs font-bold text-slate-800 truncate mt-0.5">${escapeHtml(curAddress || 'Selected on map')}</div>
+                    </div>
+                    <div class="flex items-center gap-2 self-end sm:self-center shrink-0">
+                        <button type="button" class="btn btn-secondary px-4 py-2 text-xs" onclick="App.closeMapLocationModal()">Cancel</button>
+                        <button type="button" id="map-confirm-btn" class="btn btn-primary px-5 py-2 text-xs flex items-center gap-1.5 shadow-md shadow-blue-500/20">
+                            <i class="fa-solid fa-check"></i> <span>Confirm Pin</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        requestAnimationFrame(() => {
+            modal.classList.remove('opacity-0');
+            modal.querySelector('.scale-95')?.classList.remove('scale-95');
+        });
+
+        setTimeout(() => {
+            if (typeof mapboxgl === 'undefined') {
+                CustomToast.show("Mapbox library is still loading. Please try again.", "error");
+                return;
+            }
+            mapboxgl.accessToken = token;
+
+            const map = new mapboxgl.Map({
+                container: 'mapbox-map-canvas',
+                style: 'mapbox://styles/mapbox/streets-v12',
+                center: [curLng, curLat],
+                zoom: 14
+            });
+
+            map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
+
+            const marker = new mapboxgl.Marker({ draggable: true, color: '#2563eb' })
+                .setLngLat([curLng, curLat])
+                .addTo(map);
+
+            const reverseGeocode = async (lng, lat) => {
+                try {
+                    const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${token}&limit=1`);
+                    const data = await res.json();
+                    if (data?.features?.[0]?.place_name) {
+                        curAddress = data.features[0].place_name;
+                        const addrEl = document.getElementById('map-address-display');
+                        if (addrEl) addrEl.textContent = curAddress;
+                    }
+                } catch (e) {}
+            };
+
+            const updateCoords = (lng, lat, doReverse = true) => {
+                curLat = lat;
+                curLng = lng;
+                const latEl = document.getElementById('map-display-lat');
+                const lngEl = document.getElementById('map-display-lng');
+                if (latEl) latEl.textContent = lat.toFixed(5);
+                if (lngEl) lngEl.textContent = lng.toFixed(5);
+                if (doReverse) reverseGeocode(lng, lat);
+            };
+
+            marker.on('dragend', () => {
+                const lngLat = marker.getLngLat();
+                updateCoords(lngLat.lng, lngLat.lat, true);
+            });
+
+            map.on('click', (e) => {
+                marker.setLngLat(e.lngLat);
+                updateCoords(e.lngLat.lng, e.lngLat.lat, true);
+            });
+
+            if (!curAddress) reverseGeocode(curLng, curLat);
+
+            const searchInput = document.getElementById('map-search-input');
+            const searchResults = document.getElementById('map-search-results');
+            const searchClear = document.getElementById('map-search-clear');
+            let searchTimeout = null;
+
+            if (searchInput) {
+                searchInput.oninput = () => {
+                    const q = searchInput.value.trim();
+                    searchClear.classList.toggle('hidden', !q);
+                    clearTimeout(searchTimeout);
+                    if (!q) {
+                        searchResults.classList.add('hidden');
+                        searchResults.innerHTML = '';
+                        return;
+                    }
+                    searchTimeout = setTimeout(async () => {
+                        try {
+                            const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${token}&country=ph&limit=5`);
+                            const data = await res.json();
+                            if (data?.features?.length > 0) {
+                                searchResults.innerHTML = data.features.map(f => `
+                                    <div class="p-2.5 hover:bg-blue-50 cursor-pointer border-b border-slate-100 last:border-none flex items-start gap-2 text-xs" data-lng="${f.center[0]}" data-lat="${f.center[1]}" data-name="${escapeHtml(f.place_name)}">
+                                        <i class="fa-solid fa-location-dot text-blue-500 mt-0.5 text-[10px] shrink-0"></i>
+                                        <span class="font-medium text-slate-700">${escapeHtml(f.place_name)}</span>
+                                    </div>
+                                `).join('');
+                                searchResults.classList.remove('hidden');
+
+                                searchResults.querySelectorAll('[data-lng]').forEach(item => {
+                                    item.onclick = () => {
+                                        const lng = parseFloat(item.getAttribute('data-lng'));
+                                        const lat = parseFloat(item.getAttribute('data-lat'));
+                                        const name = item.getAttribute('data-name');
+                                        marker.setLngLat([lng, lat]);
+                                        map.flyTo({ center: [lng, lat], zoom: 16 });
+                                        curAddress = name;
+                                        const addrDisp = document.getElementById('map-address-display');
+                                        if (addrDisp) addrDisp.textContent = name;
+                                        updateCoords(lng, lat, false);
+                                        searchResults.classList.add('hidden');
+                                        searchInput.value = name;
+                                    };
+                                });
+                            } else {
+                                searchResults.innerHTML = '<div class="p-3 text-xs text-slate-400 text-center">No matching locations found</div>';
+                                searchResults.classList.remove('hidden');
+                            }
+                        } catch (e) {}
+                    }, 300);
+                };
+
+                searchClear.onclick = () => {
+                    searchInput.value = '';
+                    searchClear.classList.add('hidden');
+                    searchResults.classList.add('hidden');
+                };
+            }
+
+            const gpsBtn = document.getElementById('map-gps-btn');
+            if (gpsBtn) {
+                gpsBtn.onclick = () => {
+                    if (!navigator.geolocation) {
+                        CustomToast.show("Geolocation is not supported by your browser.", "error");
+                        return;
+                    }
+                    gpsBtn.classList.add('animate-pulse');
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => {
+                            gpsBtn.classList.remove('animate-pulse');
+                            const lat = pos.coords.latitude;
+                            const lng = pos.coords.longitude;
+                            marker.setLngLat([lng, lat]);
+                            map.flyTo({ center: [lng, lat], zoom: 16 });
+                            updateCoords(lng, lat, true);
+                            CustomToast.show("Centered to your GPS location!", "success");
+                        },
+                        (err) => {
+                            gpsBtn.classList.remove('animate-pulse');
+                            CustomToast.show("Could not access GPS location.", "error");
+                        },
+                        { enableHighAccuracy: true, timeout: 8000 }
+                    );
+                };
+            }
+
+            const confirmBtn = document.getElementById('map-confirm-btn');
+            if (confirmBtn) {
+                confirmBtn.onclick = () => {
+                    App.closeMapLocationModal();
+                    if (typeof onSave === 'function') {
+                        onSave({
+                            lat: curLat,
+                            lng: curLng,
+                            address: curAddress
+                        });
+                    }
+                };
+            }
+        }, 150);
+    },
+
+    closeMapLocationModal() {
+        const modal = document.getElementById('mapbox-picker-modal');
+        if (modal) {
+            modal.classList.add('opacity-0');
+            modal.querySelector('.scale-95')?.classList.add('scale-95');
+            setTimeout(() => modal.remove(), 250);
+        }
+    },
+
+    async saveStationLocation(lat, lng) {
+        try {
+            CustomToast.show("Saving station pin...", "loading", 4000, "station-loc-save");
+            const res = await API.request('admin_update_station_location', 'POST', { latitude: lat, longitude: lng });
+            CustomToast.dismiss("station-loc-save");
+            if (res && res.success) {
+                CustomToast.show("Station map location updated!", "success");
+                if (State.adminData && State.adminData.station) {
+                    State.adminData.station.latitude = lat;
+                    State.adminData.station.longitude = lng;
+                }
+                if (UI._currentView === 'admin_settings') {
+                    UI.renderAdminSettings();
+                }
+            } else {
+                CustomToast.show(res?.error || "Failed to save station location.", "error");
+            }
+        } catch (e) {
+            CustomToast.dismiss("station-loc-save");
+            CustomToast.show("Failed to update station location.", "error");
+        }
+    },
+
+    async saveCustomerLocation(lat, lng, address = '') {
+        try {
+            CustomToast.show("Saving delivery pin...", "loading", 4000, "cust-loc-save");
+            const res = await API.request('customer_update_location', 'POST', { latitude: lat, longitude: lng, address });
+            CustomToast.dismiss("cust-loc-save");
+            if (res && res.success) {
+                CustomToast.show("Delivery pin saved successfully!", "success");
+                State.userLocation = { lat, lng, address: address || State.userLocation?.address || '' };
+                if (State.user && State.user.data) {
+                    State.user.data.latitude = lat;
+                    State.user.data.longitude = lng;
+                    if (address) State.user.data.address = address;
+                }
+                if (UI._currentView === 'customer_home') {
+                    UI.renderCustomerHome();
+                }
+            } else {
+                CustomToast.show(res?.error || "Failed to save delivery location.", "error");
+            }
+        } catch (e) {
+            CustomToast.dismiss("cust-loc-save");
+            CustomToast.show("Failed to update delivery location.", "error");
+        }
+    },
+
+    async acceptOrderFromProof(orderId) {
+        if (!orderId) return;
+        State.viewedReceipts[orderId] = true;
+        const modal = document.querySelector('.fixed.z-\\[110\\]');
+        if (modal) modal.remove();
+        await this.updateOrderStatus(orderId, 'Preparing');
+    },
+
+    async markCustomersSeen() {
+        try {
+            const res = await API.request('sa_mark_customers_seen', 'POST');
+            if (res && res.success) {
+                State.saLastSeenCustomerTime = res.last_seen_customers;
+                State.saNewCustomers = [];
+                State.saCustomerFilter = 'all';
+                UI.renderSuperAdminDashboard();
+                CustomToast.show("Marked new customers as viewed.", "success");
+            }
+        } catch (e) {}
+    },
+
+    async checkSuperAdminNewCustomers() {
+        if (State.user?.type !== 'admin' || State.user?.data?.role !== 'Super Admin') return;
+        try {
+            const res = await API.request('sa_get_new_customers', 'GET', null, true);
+            if (res && Array.isArray(res.new_customers)) {
+                const prevCount = State.saNewCustomers?.length || 0;
+                State.saNewCustomers = res.new_customers;
+                State.saLastSeenCustomerTime = res.last_seen_customers;
+
+                if (res.new_customers.length > prevCount && prevCount > 0) {
+                    const newest = res.new_customers[0];
+                    CustomToast.show(`🔔 New Customer Registered: ${newest.full_name || 'Customer'} (${newest.contact_number})`, 'info', 7000);
+                    if (UI._currentView === 'sa_dashboard') {
+                        UI.renderSuperAdminDashboard();
+                    }
+                }
+            }
+        } catch (e) {}
+    },
     
     async requestNotificationPermission() {
         if ("Notification" in window && Notification.permission === "default") {
@@ -422,6 +877,22 @@ const App = {
                     }
                 }
 
+                State.viewedReceipts[orderId] = true;
+                API.request('admin_mark_receipt_viewed', 'POST', { order_id: orderId }).catch(() => {});
+                if (UI._currentView === 'admin_dashboard' && State.adminData?.orders) {
+                    const matched = State.adminData.orders.find(o => o.order_id == orderId);
+                    if (matched) matched.receipt_viewed = 1;
+                    const cardWrap = document.querySelector(`[data-accept-container-id="${orderId}"]`);
+                    if (cardWrap) {
+                        cardWrap.innerHTML = `
+                            <button type="button" onclick="App.updateOrderStatus(${orderId}, 'Preparing')" class="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-xs rounded-xl shadow-md shadow-blue-500/20 active:scale-[0.98] transition flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-circle-check text-sm"></i>
+                                <span>Accept Order</span>
+                            </button>
+                        `;
+                    }
+                }
+
                 const modal = document.createElement('div');
                 modal.className = 'fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm opacity-0 transition-opacity duration-300';
                 modal.innerHTML = `
@@ -431,11 +902,18 @@ const App = {
                         <div class="flex-1 overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-2 flex items-center justify-center min-h-[300px]">
                             <img id="proof-image-display" class="max-w-full h-auto rounded-lg shadow-sm" alt="Payment Proof">
                         </div>
-                        <div class="mt-4 flex justify-between items-center gap-3">
+                        <div class="mt-4 flex flex-wrap justify-between items-center gap-3">
                             <a id="proof-download-link" download="Receipt-Order-${orderId}.jpg" class="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 font-bold rounded-xl text-sm flex items-center gap-2 transition active:scale-95">
                                 <i class="fa-solid fa-download"></i> Save Receipt
                             </a>
-                            <button class="btn btn-primary" onclick="this.closest('.fixed').remove()">Close</button>
+                            <div class="flex items-center gap-2">
+                                ${(State.user?.type === 'admin') ? `
+                                    <button type="button" onclick="App.acceptOrderFromProof(${orderId})" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 transition active:scale-95 shadow-md shadow-emerald-500/20 cursor-pointer">
+                                        <i class="fa-solid fa-circle-check"></i> Accept Order
+                                    </button>
+                                ` : ''}
+                                <button class="btn btn-primary" onclick="this.closest('.fixed').remove()">Close</button>
+                            </div>
                         </div>
                     </div>
                 `;
@@ -542,7 +1020,23 @@ const App = {
             }
 
             if (res.success) {
-                if (window.API && window.API.clearCache) API.clearCache();
+                try {
+                    localStorage.removeItem('cache_get_customer_orders');
+                    localStorage.removeItem('cache_get_stations');
+                    State.stations = null;
+                    State.myOrders = null;
+                    localStorage.setItem('cache_check_session', JSON.stringify({
+                        data: {
+                            logged_in: true,
+                            type: type,
+                            data: type === 'customer' ? res : res.admin,
+                            csrf_token: res.csrf_token || State.csrfToken,
+                            mapbox_token: State.mapboxToken
+                        },
+                        cachedAt: Date.now()
+                    }));
+                } catch (e) {}
+
                 if (window.UI && window.UI._prefetchCache) window.UI._prefetchCache = {};
                 State.user = { type, data: type === 'customer' ? res : res.admin };
                 State.pushSubscriptionSynced = null;
@@ -794,6 +1288,26 @@ const App = {
                                 </button>
                             </div>
                         </div>
+
+                        ${isCustomer ? `
+                        <div>
+                            <div class="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5 px-1">Delivery Location (Mapbox)</div>
+                            <div class="bg-white rounded-2xl border border-slate-200/80 divide-y divide-slate-100 overflow-hidden shadow-xs">
+                                <button type="button" onclick="App.openMapLocationModal({ title: 'Set Delivery Location', initialLat: State.userLocation?.lat, initialLng: State.userLocation?.lng, initialAddress: State.userLocation?.address || State.user?.data?.address, onSave: (pos) => App.saveCustomerLocation(pos.lat, pos.lng, pos.address) })" class="w-full px-3.5 py-2.5 flex items-center justify-between hover:bg-blue-50/40 active:bg-blue-100/50 transition text-left cursor-pointer group">
+                                    <div class="flex items-center gap-3 min-w-0 flex-1">
+                                        <div class="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                                            <i class="fa-solid fa-map-location-dot text-xs"></i>
+                                        </div>
+                                        <div class="min-w-0 flex-1">
+                                            <div class="text-xs font-bold text-slate-800 group-hover:text-blue-600 transition-colors">Pin Delivery Coordinates</div>
+                                            <div class="text-[10px] text-slate-400 truncate">${State.userLocation?.lat ? `Lat: ${parseFloat(State.userLocation.lat).toFixed(4)}, Lng: ${parseFloat(State.userLocation.lng).toFixed(4)}` : 'Tap to pin your location on Mapbox'}</div>
+                                        </div>
+                                    </div>
+                                    <i class="fa-solid fa-chevron-right text-slate-300 text-xs group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all shrink-0"></i>
+                                </button>
+                            </div>
+                        </div>
+                        ` : ''}
 
                         <div>
                             <div class="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5 px-1">App & Preferences</div>
@@ -1185,6 +1699,13 @@ const App = {
             data.append('payment_method', last.payment_method || 'Cash on Delivery');
             data.append('use_points', 0);
             data.append('returning_borrowed', 0);
+            if (last.delivery_latitude && last.delivery_longitude) {
+                data.append('delivery_latitude', last.delivery_latitude);
+                data.append('delivery_longitude', last.delivery_longitude);
+            } else if (State.userLocation?.lat && State.userLocation?.lng) {
+                data.append('delivery_latitude', State.userLocation.lat);
+                data.append('delivery_longitude', State.userLocation.lng);
+            }
 
             try {
                 const res = await API.request('place_order', 'POST', data);
@@ -1450,6 +1971,13 @@ const App = {
         if (scheduleType === 'Scheduled' && scheduleDate) data.append('scheduled_date', scheduleDate);
         data.append('use_points', usePoints);
         data.append('returning_borrowed', returnBorrowed);
+        
+        const delivLat = document.getElementById('co-delivery-lat')?.value || State.userLocation?.lat || '';
+        const delivLng = document.getElementById('co-delivery-lng')?.value || State.userLocation?.lng || '';
+        if (delivLat && delivLng) {
+            data.append('delivery_latitude', delivLat);
+            data.append('delivery_longitude', delivLng);
+        }
         
         try {
             const res = await API.request('place_order', 'POST', data);
@@ -2471,8 +2999,33 @@ async function boot() {
 
     try {
         const res = await API.request('check_session', 'GET', null, true);
+        if (res && res.mapbox_token) {
+            State.mapboxToken = res.mapbox_token;
+            if (typeof mapboxgl !== 'undefined') {
+                mapboxgl.accessToken = res.mapbox_token;
+            }
+        }
         if (res && res.logged_in) {
             State.user = { type: res.type, data: res.data };
+            try {
+                localStorage.setItem('cache_check_session', JSON.stringify({
+                    data: res,
+                    cachedAt: Date.now()
+                }));
+            } catch (ign) {}
+
+            if (res.type === 'customer' && res.data) {
+                if (res.data.latitude && res.data.longitude) {
+                    State.userLocation = {
+                        lat: parseFloat(res.data.latitude),
+                        lng: parseFloat(res.data.longitude),
+                        address: res.data.address || ''
+                    };
+                }
+            } else if (res.type === 'admin' && res.data?.role === 'Super Admin') {
+                App.checkSuperAdminNewCustomers();
+                setInterval(() => App.checkSuperAdminNewCustomers(), 45000);
+            }
             App.initPushNotifications();
             
             const initialHash = window.location.hash.replace('#', '');
@@ -2482,7 +3035,7 @@ async function boot() {
                 UI.goHome('replace');
             }
         } else {
-            // Check if offline with cached session
+            // Server explicitly says not logged in
             const offlineSession = localStorage.getItem('cache_check_session');
             if (offlineSession && API.isOffline()) {
                 try {
@@ -2490,6 +3043,10 @@ async function boot() {
                     const sData = parsed.data || parsed;
                     if (sData && sData.logged_in) {
                         State.user = { type: sData.type, data: sData.data };
+                        if (sData.mapbox_token) {
+                            State.mapboxToken = sData.mapbox_token;
+                            if (typeof mapboxgl !== 'undefined') mapboxgl.accessToken = sData.mapbox_token;
+                        }
                         if (window.UI && window.UI.updateOfflineState) window.UI.updateOfflineState(true);
                         const initialHash = window.location.hash.replace('#', '');
                         if (initialHash && UI.canAccessView(initialHash)) {
@@ -2503,17 +3060,35 @@ async function boot() {
                 } catch (err) {}
             }
             State.user = null;
-            if (!API.isOffline() && window.API && window.API.clearCache) API.clearCache();
+            try {
+                localStorage.removeItem('cache_check_session');
+                localStorage.removeItem('cache_get_customer_orders');
+            } catch (ign) {}
             UI.navigate('login', 'replace');
         }
     } catch (e) {
+        console.warn('Session check error or offline mode:', e);
+        const isOffline = API.isOffline();
         const offlineSession = localStorage.getItem('cache_check_session');
-        if (offlineSession) {
+        if (offlineSession && isOffline) {
             try {
                 const parsed = JSON.parse(offlineSession);
                 const sData = parsed.data || parsed;
                 if (sData && sData.logged_in) {
                     State.user = { type: sData.type, data: sData.data };
+                    if (sData.mapbox_token) {
+                        State.mapboxToken = sData.mapbox_token;
+                        if (typeof mapboxgl !== 'undefined') mapboxgl.accessToken = sData.mapbox_token;
+                    }
+                    if (sData.type === 'customer' && sData.data) {
+                        if (sData.data.latitude && sData.data.longitude) {
+                            State.userLocation = {
+                                lat: parseFloat(sData.data.latitude),
+                                lng: parseFloat(sData.data.longitude),
+                                address: sData.data.address || ''
+                            };
+                        }
+                    }
                     if (window.UI && window.UI.updateOfflineState) window.UI.updateOfflineState(true);
                     const initialHash = window.location.hash.replace('#', '');
                     if (initialHash && UI.canAccessView(initialHash)) {
@@ -2527,7 +3102,10 @@ async function boot() {
             } catch (err) {}
         }
         State.user = null;
-        if (!API.isOffline() && window.API && window.API.clearCache) API.clearCache();
+        try {
+            localStorage.removeItem('cache_check_session');
+            localStorage.removeItem('cache_get_customer_orders');
+        } catch (ign) {}
         UI.navigate('login', 'replace');
     }
 
@@ -2575,17 +3153,29 @@ window.addEventListener('pageshow', async (e) => {
     if (e.persisted) {
         try {
             const res = await API.request('check_session', 'GET', null, true);
-            if (res.logged_in) {
+            if (res && res.logged_in) {
                 State.user = { type: res.type, data: res.data };
+                try {
+                    localStorage.setItem('cache_check_session', JSON.stringify({
+                        data: res,
+                        cachedAt: Date.now()
+                    }));
+                } catch (ign) {}
                 if (!UI.canAccessView(UI._currentView)) {
                     UI.goHome('replace');
                 }
-            } else {
-                State.user = null;
-                if (window.API && window.API.clearCache) API.clearCache();
-                UI.navigate('login', 'replace');
+            } else if (res && res.logged_in === false) {
+                if (!API.isOffline()) {
+                    State.user = null;
+                    try {
+                        localStorage.removeItem('cache_check_session');
+                        localStorage.removeItem('cache_get_customer_orders');
+                    } catch (ign) {}
+                    UI.navigate('login', 'replace');
+                }
             }
         } catch (err) {
+            console.warn('Pageshow check_session error:', err);
             if (!UI.canAccessView(UI._currentView)) {
                 UI.goHome('replace');
             }
@@ -2742,6 +3332,21 @@ if ('serviceWorker' in navigator) {
                 });
             })
             .catch(err => console.error('SW register failed', err));
+
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (!refreshing) {
+                refreshing = true;
+                window.location.reload();
+            }
+        });
+
+        navigator.serviceWorker.addEventListener('message', (event) => {
+            if (event.data?.type === 'VERSION_UPDATED' && !refreshing) {
+                refreshing = true;
+                window.location.reload();
+            }
+        });
     });
 
     document.addEventListener('visibilitychange', () => {

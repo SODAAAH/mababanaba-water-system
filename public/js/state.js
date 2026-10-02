@@ -30,6 +30,13 @@ const State = {
     deliveryPollingInitialized: false,
     adminSessionStartTime: null,
     customerSessionStartTime: null,
-    deliverySessionStartTime: null
+    deliverySessionStartTime: null,
+    mapboxToken: '',
+    userLocation: null,
+    viewedReceipts: {},
+    saLastSeenCustomerTime: null,
+    saNewCustomers: [],
+    saCustomerFilter: 'all',
+    saStaffGroupView: 'grouped'
 };
 if (typeof window !== 'undefined') window.State = State;

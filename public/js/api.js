@@ -55,7 +55,7 @@ const API = {
         const options = { 
             method: method, 
             headers: { 'Cache-Control': 'no-cache' }, 
-            credentials: 'same-origin' 
+            credentials: 'include' 
         };
 
         if (State.csrfToken && method !== 'GET') {
@@ -91,6 +91,22 @@ const API = {
                 if (errMsg.includes('Imunify360') || errMsg.includes('bot-protection')) {
                     errMsg = "Access temporarily flagged by server security (Imunify360). Please whitelist your IP in cPanel or wait a few moments.";
                 }
+
+                // If the server confirms unauthorized on an authenticated endpoint while online,
+                // purge any invalid session so client doesn't stay in a ghost state
+                if (res.status === 401 && !this.isOffline() && action !== 'check_session' && !action.includes('login')) {
+                    try {
+                        localStorage.removeItem('cache_check_session');
+                        localStorage.removeItem('cache_get_customer_orders');
+                        if (window.State && window.State.user) {
+                            window.State.user = null;
+                            if (window.UI && window.UI.navigate && window.UI._currentView !== 'login') {
+                                window.UI.navigate('login', 'replace');
+                            }
+                        }
+                    } catch(ign) {}
+                }
+
                 throw new Error(errMsg);
             }
             const text = await res.text();
@@ -118,17 +134,33 @@ const API = {
                 if (json && json.error) throw new Error("API_ERR:" + json.error);
                 if (json && json.csrf_token) State.csrfToken = json.csrf_token;
 
-                // Cache successful GET responses for instant offline access (public non-sensitive actions only)
+                // Cache successful GET responses for instant offline and resilient access
                 const actionBase = action.split('&')[0];
-                const publicCacheable = ['get_stations', 'get_vapid_public_key'];
-                if (method === 'GET' && json && !json.error && publicCacheable.includes(actionBase)) {
-                    try { 
-                        localStorage.setItem(cleanActionKey, JSON.stringify({
-                            data: json,
-                            cachedAt: Date.now()
-                        })); 
-                    } catch(e) { 
-                        console.warn('Cache quota exceeded for:', cleanActionKey); 
+                const cacheableActions = ['get_stations', 'get_vapid_public_key', 'get_customer_orders'];
+                if (method === 'GET' && json && !json.error) {
+                    if (cacheableActions.includes(actionBase)) {
+                        try { 
+                            localStorage.setItem(cleanActionKey, JSON.stringify({
+                                data: json,
+                                cachedAt: Date.now()
+                            })); 
+                        } catch(e) { 
+                            console.warn('Cache quota exceeded for:', cleanActionKey); 
+                        }
+                    } else if (actionBase === 'check_session') {
+                        if (json.logged_in) {
+                            try {
+                                localStorage.setItem('cache_check_session', JSON.stringify({
+                                    data: json,
+                                    cachedAt: Date.now()
+                                }));
+                            } catch(e) {}
+                        } else {
+                            try {
+                                localStorage.removeItem('cache_check_session');
+                                localStorage.removeItem('cache_get_customer_orders');
+                            } catch(e) {}
+                        }
                     }
                 }
 
@@ -157,14 +189,30 @@ const API = {
                     if (json && json.csrf_token) State.csrfToken = json.csrf_token;
 
                     const actionBaseFallback = action.split('&')[0];
-                    if (method === 'GET' && json && !json.error && ['get_stations', 'get_vapid_public_key'].includes(actionBaseFallback)) {
-                        try { 
-                            localStorage.setItem(cleanActionKey, JSON.stringify({
-                                data: json,
-                                cachedAt: Date.now()
-                            })); 
-                        } catch(e) { 
-                            console.warn('Cache quota exceeded for:', cleanActionKey); 
+                    if (method === 'GET' && json && !json.error) {
+                        if (['get_stations', 'get_vapid_public_key', 'get_customer_orders'].includes(actionBaseFallback)) {
+                            try { 
+                                localStorage.setItem(cleanActionKey, JSON.stringify({
+                                    data: json,
+                                    cachedAt: Date.now()
+                                })); 
+                            } catch(e) { 
+                                console.warn('Cache quota exceeded for:', cleanActionKey); 
+                            }
+                        } else if (actionBaseFallback === 'check_session') {
+                            if (json.logged_in) {
+                                try {
+                                    localStorage.setItem('cache_check_session', JSON.stringify({
+                                        data: json,
+                                        cachedAt: Date.now()
+                                    }));
+                                } catch(e) {}
+                            } else {
+                                try {
+                                    localStorage.removeItem('cache_check_session');
+                                    localStorage.removeItem('cache_get_customer_orders');
+                                } catch(e) {}
+                            }
                         }
                     }
 

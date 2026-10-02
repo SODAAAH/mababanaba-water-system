@@ -40,12 +40,19 @@ class CustomerController {
             $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
             SecurityContext::clearRateLimits($this->pdo, ['customer_login', 'admin_login']);
             $this->pdo->prepare("UPDATE CUSTOMER SET last_active = CURRENT_TIMESTAMP WHERE customer_id = ?")->execute([$u['customer_id']]);
+
+            $loyaltyStmt = $this->pdo->prepare("SELECT IFNULL(SUM(points), 0) as total_points, IFNULL(SUM(lifetime_points), 0) as lifetime_points FROM CUSTOMER_LOYALTY WHERE customer_id = ?");
+            $loyaltyStmt->execute([$u['customer_id']]);
+            $loyaltyData = $loyaltyStmt->fetch();
+
             echo json_encode([
                 'success' => true, 
                 'customer_id' => $u['customer_id'], 
                 'full_name' => $u['full_name'], 
                 'contact_number' => $u['contact_number'], 
                 'address' => $u['address'],
+                'total_points' => (int)($loyaltyData['total_points'] ?? 0),
+                'lifetime_points' => (int)($loyaltyData['lifetime_points'] ?? 0),
                 'csrf_token' => $_SESSION['csrf_token']
             ]);
         } else { 
@@ -155,10 +162,17 @@ class CustomerController {
                     0 as user_points, 
                     0 as user_lifetime_points, 
                     IFNULL(AVG(r.rating), 0) as avg_rating,
-                    0 as pending_borrowed
+                    0 as pending_borrowed,
+                    IFNULL(q.active_queue_count, 0) as active_queue_count
                     FROM STATION s 
                     JOIN INVENTORY i ON s.station_id = i.station_id 
                     LEFT JOIN REVIEWS r ON s.station_id = r.station_id 
+                    LEFT JOIN (
+                        SELECT station_id, COUNT(order_id) as active_queue_count 
+                        FROM ORDERS 
+                        WHERE order_status IN ('Pending', 'Preparing') 
+                        GROUP BY station_id
+                    ) q ON s.station_id = q.station_id
                     WHERE s.status = 'Active' 
                     GROUP BY s.station_id";
             $stmt = $this->pdo->query($sql);
@@ -168,7 +182,8 @@ class CustomerController {
                     IFNULL(l.points, 0) as user_points, 
                     IFNULL(l.lifetime_points, IFNULL(l.points, 0)) as user_lifetime_points, 
                     IFNULL(AVG(r.rating), 0) as avg_rating,
-                    IFNULL(b.pending_borrowed, 0) as pending_borrowed
+                    IFNULL(b.pending_borrowed, 0) as pending_borrowed,
+                    IFNULL(q.active_queue_count, 0) as active_queue_count
                     FROM STATION s 
                     JOIN INVENTORY i ON s.station_id = i.station_id 
                     LEFT JOIN CUSTOMER_LOYALTY l ON s.station_id = l.station_id AND l.customer_id = ? 
@@ -179,6 +194,12 @@ class CustomerController {
                         WHERE customer_id = ? AND borrow_status = 'Pending' AND (borrow_round > 0 OR borrow_slim > 0) 
                         GROUP BY station_id
                     ) b ON s.station_id = b.station_id
+                    LEFT JOIN (
+                        SELECT station_id, COUNT(order_id) as active_queue_count 
+                        FROM ORDERS 
+                        WHERE order_status IN ('Pending', 'Preparing') 
+                        GROUP BY station_id
+                    ) q ON s.station_id = q.station_id
                     WHERE s.status = 'Active' 
                     GROUP BY s.station_id";
             $stmt = $this->pdo->prepare($sql); 
@@ -211,7 +232,7 @@ class CustomerController {
     public function getOrders() {
         $customer = SecurityContext::requireCustomer($this->pdo);
         $cid = $customer['customer_id'];
-        $stmt = $this->pdo->prepare("SELECT o.order_id, o.station_id, o.customer_id, o.product_id, o.station_order_number, o.order_date, o.scheduled_date, o.order_status, o.total_price, o.payment_method, o.quantity, o.delivery_address, o.points_used, o.return_round, o.return_slim, o.borrow_round, o.borrow_slim, o.borrow_status, o.container_option, o.returning_borrowed_flag, o.jug_type, o.shipping_fee, o.jug_fee, o.discount_amount, IF(o.payment_proof IS NOT NULL AND o.payment_proof != '', 1, 0) as has_payment_proof, s.station_name, p.name as product_name, p.capacity_gallons, p.capacity_liters, r.rating FROM ORDERS o JOIN STATION s ON o.station_id = s.station_id JOIN PRODUCTS p ON o.product_id = p.product_id LEFT JOIN REVIEWS r ON o.order_id = r.order_id WHERE o.customer_id = ? ORDER BY o.order_date DESC");
+        $stmt = $this->pdo->prepare("SELECT o.order_id, o.station_id, o.customer_id, o.product_id, o.station_order_number, o.order_date, o.scheduled_date, o.order_status, o.total_price, o.payment_method, o.quantity, o.delivery_address, o.delivery_latitude, o.delivery_longitude, o.receipt_viewed, o.points_used, o.return_round, o.return_slim, o.borrow_round, o.borrow_slim, o.borrow_status, o.container_option, o.returning_borrowed_flag, o.jug_type, o.shipping_fee, o.jug_fee, o.discount_amount, IF(o.payment_proof IS NOT NULL AND o.payment_proof != '', 1, 0) as has_payment_proof, COALESCE(s.station_name, 'Water Station') as station_name, s.latitude as station_latitude, s.longitude as station_longitude, COALESCE(p.name, 'Purified Water') as product_name, p.capacity_gallons, p.capacity_liters, r.rating FROM ORDERS o LEFT JOIN STATION s ON o.station_id = s.station_id LEFT JOIN PRODUCTS p ON o.product_id = p.product_id LEFT JOIN REVIEWS r ON o.order_id = r.order_id WHERE o.customer_id = ? ORDER BY o.order_date DESC");
         $stmt->execute([$cid]);
         echo json_encode($stmt->fetchAll());
         exit;
@@ -494,6 +515,8 @@ class CustomerController {
         }
 
         $proof = $_POST['payment_proof'] ?? null;
+        $delivLat = isset($_POST['delivery_latitude']) && $_POST['delivery_latitude'] !== '' ? (float)$_POST['delivery_latitude'] : null;
+        $delivLng = isset($_POST['delivery_longitude']) && $_POST['delivery_longitude'] !== '' ? (float)$_POST['delivery_longitude'] : null;
         $schedule = !empty($_POST['scheduled_date']) ? date('Y-m-d H:i:s', strtotime($_POST['scheduled_date'])) : null;
         $use_points = (isset($_POST['use_points']) && $_POST['use_points'] == '1');
         $returning_borrowed = (isset($_POST['returning_borrowed']) && $_POST['returning_borrowed'] == '1') ? 1 : 0;
@@ -596,7 +619,14 @@ class CustomerController {
                 $prodMap[(int)$pRow['product_id']] = (float)$pRow['price'];
             }
 
-            $stmtInsertOrder = $this->pdo->prepare("INSERT INTO ORDERS (station_id, customer_id, product_id, station_order_number, total_price, payment_method, payment_proof, quantity, delivery_address, scheduled_date, points_used, return_round, return_slim, borrow_round, borrow_slim, container_option, returning_borrowed_flag, jug_type, shipping_fee, jug_fee, discount_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            if ($delivLat !== null && $delivLng !== null) {
+                try {
+                    $this->pdo->prepare("UPDATE CUSTOMER SET latitude = IFNULL(latitude, ?), longitude = IFNULL(longitude, ?) WHERE customer_id = ?")
+                        ->execute([$delivLat, $delivLng, $cid]);
+                } catch (Exception $e) {}
+            }
+
+            $stmtInsertOrder = $this->pdo->prepare("INSERT INTO ORDERS (station_id, customer_id, product_id, station_order_number, total_price, payment_method, payment_proof, quantity, delivery_address, delivery_latitude, delivery_longitude, scheduled_date, points_used, return_round, return_slim, borrow_round, borrow_slim, container_option, returning_borrowed_flag, jug_type, shipping_fee, jug_fee, discount_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             
             $isFirst = true; $i = 0; $discountIndex = count($cart) > 0 ? ($cartHash % count($cart)) : 0;
 
@@ -624,7 +654,7 @@ class CustomerController {
                 if($use_points && $i === $discountIndex) { $curr_discount = $pricePerItem; }
                 
                 $proofToSave = $isFirst ? $proof : null;
-                $stmtInsertOrder->execute([$sid, $cid, $pid, $stationOrderNumber, $item_total, $pay, $proofToSave, $cQty, $addr, $schedule, ($use_points && $i === $discountIndex ? 10 : 0), $curr_rr, $curr_rs, $curr_br, $curr_bs, $c_opt, $returning_borrowed, $jType, $curr_shipping, $curr_jug_buy, $curr_discount]);
+                $stmtInsertOrder->execute([$sid, $cid, $pid, $stationOrderNumber, $item_total, $pay, $proofToSave, $cQty, $addr, $delivLat, $delivLng, $schedule, ($use_points && $i === $discountIndex ? 10 : 0), $curr_rr, $curr_rs, $curr_br, $curr_bs, $c_opt, $returning_borrowed, $jType, $curr_shipping, $curr_jug_buy, $curr_discount]);
                 
                 $isFirst = false; $i++;
             }
@@ -676,6 +706,24 @@ class CustomerController {
         }
         CustomerController::clearStationsCache();
         echo json_encode(['success' => true]); 
+        exit;
+    }
+
+    public function updateLocation() {
+        $customer = SecurityContext::requireCustomer($this->pdo);
+        $cid = $customer['customer_id'];
+        $lat = isset($_POST['latitude']) && $_POST['latitude'] !== '' ? (float)$_POST['latitude'] : null;
+        $lng = isset($_POST['longitude']) && $_POST['longitude'] !== '' ? (float)$_POST['longitude'] : null;
+        $addr = trim($_POST['address'] ?? '');
+
+        if (!empty($addr)) {
+            $stmt = $this->pdo->prepare("UPDATE CUSTOMER SET latitude = ?, longitude = ?, address = ? WHERE customer_id = ?");
+            $stmt->execute([$lat, $lng, $addr, $cid]);
+        } else {
+            $stmt = $this->pdo->prepare("UPDATE CUSTOMER SET latitude = ?, longitude = ? WHERE customer_id = ?");
+            $stmt->execute([$lat, $lng, $cid]);
+        }
+        echo json_encode(['success' => true, 'latitude' => $lat, 'longitude' => $lng, 'address' => $addr]);
         exit;
     }
 }

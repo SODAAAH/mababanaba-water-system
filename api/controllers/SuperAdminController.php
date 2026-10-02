@@ -76,17 +76,18 @@ class SuperAdminController {
     }
 
     public function getUsers() {
-        $this->requireSuperAdmin();
+        $admin = $this->requireSuperAdmin();
+        $adminId = $admin['admin_id'] ?? ($_SESSION['admin_id'] ?? 0);
         
         $admins = $this->pdo->query("
             SELECT a.admin_id, a.station_id, a.username, a.role, a.status, s.station_name 
             FROM ADMIN a 
             LEFT JOIN STATION s ON a.station_id = s.station_id 
-            ORDER BY FIELD(a.role, 'Super Admin', 'Admin', 'Delivery Staff'), a.admin_id ASC
+            ORDER BY FIELD(a.role, 'Super Admin', 'Admin', 'Delivery Staff'), a.station_id ASC, a.admin_id ASC
         ")->fetchAll();
 
         $customers = $this->pdo->query("
-            SELECT c.customer_id, c.full_name, c.contact_number, c.address, c.is_verified, c.last_active,
+            SELECT c.customer_id, c.full_name, c.contact_number, c.address, c.is_verified, c.last_active, c.created_at, c.latitude, c.longitude,
                    COUNT(DISTINCT o.order_id) as total_orders,
                    IFNULL(SUM(IF(o.order_status = 'Delivered', o.quantity, 0)), 0) as total_containers,
                    IFNULL(SUM(IF(o.order_status = 'Delivered', o.total_price + o.shipping_fee + o.jug_fee - o.discount_amount, 0)), 0) as total_spent
@@ -96,12 +97,67 @@ class SuperAdminController {
             ORDER BY c.customer_id DESC
         ")->fetchAll();
 
-        $stations = $this->pdo->query("SELECT station_id, station_name, status FROM STATION ORDER BY station_name ASC")->fetchAll();
+        $stations = $this->pdo->query("SELECT station_id, station_name, address, status, latitude, longitude FROM STATION ORDER BY station_name ASC")->fetchAll();
+
+        $stmtSeen = $this->pdo->prepare("SELECT last_seen_customers FROM ADMIN WHERE admin_id = ?");
+        $stmtSeen->execute([$adminId]);
+        $lastSeenTime = $stmtSeen->fetchColumn();
 
         echo json_encode([
             'admins' => $admins,
             'customers' => $customers,
-            'stations' => $stations
+            'stations' => $stations,
+            'last_seen_customers' => $lastSeenTime
+        ]);
+        exit;
+    }
+
+    public function markCustomersSeen() {
+        $admin = $this->requireSuperAdmin();
+        $adminId = $admin['admin_id'] ?? ($_SESSION['admin_id'] ?? 0);
+        $now = date('Y-m-d H:i:s');
+        $this->pdo->prepare("UPDATE ADMIN SET last_seen_customers = ? WHERE admin_id = ?")->execute([$now, $adminId]);
+        echo json_encode(['success' => true, 'last_seen_customers' => $now]);
+        exit;
+    }
+
+    public function getNewCustomers() {
+        $admin = $this->requireSuperAdmin();
+        $adminId = $admin['admin_id'] ?? ($_SESSION['admin_id'] ?? 0);
+        
+        $stmtSeen = $this->pdo->prepare("SELECT last_seen_customers FROM ADMIN WHERE admin_id = ?");
+        $stmtSeen->execute([$adminId]);
+        $lastSeen = $stmtSeen->fetchColumn();
+
+        if ($lastSeen) {
+            $stmt = $this->pdo->prepare("
+                SELECT c.customer_id, c.full_name, c.contact_number, c.address, c.is_verified, c.created_at,
+                       COUNT(DISTINCT o.order_id) as total_orders
+                FROM CUSTOMER c
+                LEFT JOIN ORDERS o ON c.customer_id = o.customer_id
+                WHERE c.created_at > ?
+                GROUP BY c.customer_id
+                ORDER BY c.created_at DESC
+            ");
+            $stmt->execute([$lastSeen]);
+        } else {
+            $stmt = $this->pdo->prepare("
+                SELECT c.customer_id, c.full_name, c.contact_number, c.address, c.is_verified, c.created_at,
+                       COUNT(DISTINCT o.order_id) as total_orders
+                FROM CUSTOMER c
+                LEFT JOIN ORDERS o ON c.customer_id = o.customer_id
+                WHERE c.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                GROUP BY c.customer_id
+                ORDER BY c.created_at DESC
+            ");
+            $stmt->execute();
+        }
+        $newCustomers = $stmt->fetchAll();
+
+        echo json_encode([
+            'last_seen_customers' => $lastSeen,
+            'count' => count($newCustomers),
+            'new_customers' => $newCustomers
         ]);
         exit;
     }

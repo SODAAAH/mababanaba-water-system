@@ -182,4 +182,48 @@ function run_migrations($pdo) {
         }
         @file_put_contents($migrationLockFileV5, date('c'));
     }
+
+    $migrationLockFileV7 = __DIR__ . '/.migrated_v7';
+    if (!file_exists($migrationLockFileV7)) {
+        try {
+            // 1. Coordinates for Stations
+            try { $pdo->query("SELECT latitude FROM STATION LIMIT 1"); } 
+            catch (Exception $e) { $pdo->exec("ALTER TABLE STATION ADD COLUMN latitude DECIMAL(10, 8) NULL, ADD COLUMN longitude DECIMAL(11, 8) NULL"); }
+
+            // Set default coordinates for initial demo stations if empty
+            try {
+                $pdo->exec("UPDATE STATION SET latitude = 14.7566, longitude = 120.9850 WHERE station_id = 1 AND (latitude IS NULL OR latitude = 0)");
+                $pdo->exec("UPDATE STATION SET latitude = 14.7640, longitude = 121.0020 WHERE station_id = 2 AND (latitude IS NULL OR latitude = 0)");
+                $pdo->exec("UPDATE STATION SET latitude = 14.7480, longitude = 120.9700 WHERE station_id = 3 AND (latitude IS NULL OR latitude = 0)");
+            } catch (Exception $e) {}
+
+            // 2. Customer created_at and coordinates
+            try { $pdo->query("SELECT created_at FROM CUSTOMER LIMIT 1"); } 
+            catch (Exception $e) { $pdo->exec("ALTER TABLE CUSTOMER ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"); }
+
+            try { $pdo->query("SELECT latitude FROM CUSTOMER LIMIT 1"); } 
+            catch (Exception $e) { $pdo->exec("ALTER TABLE CUSTOMER ADD COLUMN latitude DECIMAL(10, 8) NULL, ADD COLUMN longitude DECIMAL(11, 8) NULL"); }
+
+            // 3. Orders delivery coordinates and receipt_viewed status
+            try { $pdo->query("SELECT delivery_latitude FROM ORDERS LIMIT 1"); } 
+            catch (Exception $e) { $pdo->exec("ALTER TABLE ORDERS ADD COLUMN delivery_latitude DECIMAL(10, 8) NULL, ADD COLUMN delivery_longitude DECIMAL(11, 8) NULL"); }
+
+            try { $pdo->query("SELECT receipt_viewed FROM ORDERS LIMIT 1"); } 
+            catch (Exception $e) { $pdo->exec("ALTER TABLE ORDERS ADD COLUMN receipt_viewed TINYINT(1) DEFAULT 0"); }
+
+            // 4. Admin last_seen_customers tracker for Super Admin
+            try { $pdo->query("SELECT last_seen_customers FROM ADMIN LIMIT 1"); } 
+            catch (Exception $e) { $pdo->exec("ALTER TABLE ADMIN ADD COLUMN last_seen_customers TIMESTAMP NULL DEFAULT NULL"); }
+
+            // 5. Index for customer created_at for fast new user lookups
+            try { $pdo->exec("CREATE INDEX idx_customer_created_at ON CUSTOMER(created_at)"); } catch (Exception $e) {}
+
+            if (class_exists('CustomerController')) {
+                CustomerController::clearStationsCache();
+            }
+        } catch (Exception $e) {
+            error_log("Migration v7 error: " . $e->getMessage());
+        }
+        @file_put_contents($migrationLockFileV7, date('c'));
+    }
 }

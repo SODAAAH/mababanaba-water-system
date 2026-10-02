@@ -101,10 +101,11 @@ class DeliveryStaffController {
                 }
             }
 
+            $receiptClause = ($status === 'Preparing') ? ", receipt_viewed = 1" : "";
             if (!empty($son)) {
-                $this->pdo->prepare("UPDATE ORDERS SET order_status = ? WHERE station_order_number = ? AND customer_id = ? AND station_id = ?")->execute([$status, $son, $oInfo['customer_id'], $sid]);
+                $this->pdo->prepare("UPDATE ORDERS SET order_status = ?{$receiptClause} WHERE station_order_number = ? AND customer_id = ? AND station_id = ?")->execute([$status, $son, $oInfo['customer_id'], $sid]);
             } else {
-                $this->pdo->prepare("UPDATE ORDERS SET order_status = ? WHERE order_id = ? AND station_id = ?")->execute([$status, $oid, $sid]);
+                $this->pdo->prepare("UPDATE ORDERS SET order_status = ?{$receiptClause} WHERE order_id = ? AND station_id = ?")->execute([$status, $oid, $sid]);
             }
             
             if ($status === 'To Deliver') {
@@ -188,6 +189,20 @@ class DeliveryStaffController {
             error_log($e->getMessage()); 
             echo json_encode(['error' => 'Failed to update order status']); 
         }
+        exit;
+    }
+
+    public function markReceiptViewed() {
+        $admin = $this->requireStationStaff();
+        $oid = (int)($_POST['order_id'] ?? 0);
+        $sid = $admin['station_id'];
+        $stmt = $this->pdo->prepare("UPDATE ORDERS SET receipt_viewed = 1 WHERE order_id = ? " . ($admin['role'] === 'Super Admin' ? '' : 'AND station_id = ?'));
+        if ($admin['role'] === 'Super Admin') {
+            $stmt->execute([$oid]);
+        } else {
+            $stmt->execute([$oid, $sid]);
+        }
+        echo json_encode(['success' => true]);
         exit;
     }
 }

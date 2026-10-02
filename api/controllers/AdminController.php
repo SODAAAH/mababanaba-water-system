@@ -93,6 +93,8 @@ class AdminController {
     public function saSaveCustomer() { $this->getSuperAdmin()->saveCustomer(); }
     public function saToggleCustomerVerification() { $this->getSuperAdmin()->toggleCustomerVerification(); }
     public function saDeleteCustomer() { $this->getSuperAdmin()->deleteCustomer(); }
+    public function saMarkCustomersSeen() { $this->getSuperAdmin()->markCustomersSeen(); }
+    public function saGetNewCustomers() { $this->getSuperAdmin()->getNewCustomers(); }
 
     public function getAdminDashboardData() { $this->getStationAdmin()->getAdminDashboardData(); }
     public function getSalesReport() { $this->getStationAdmin()->getSalesReport(); }
@@ -104,6 +106,7 @@ class AdminController {
     public function adminUpdateMaintenance() { $this->getStationAdmin()->updateMaintenance(); }
     public function adminUpdatePaymentProfile() { $this->getStationAdmin()->updatePaymentProfile(); }
     public function adminUpdateSecurity() { $this->getStationAdmin()->updateSecurity(); }
+    public function adminUpdateLocation() { $this->getStationAdmin()->updateLocation(); }
     public function adminAddProduct() { $this->getStationAdmin()->addProduct(); }
     public function adminEditProduct() { $this->getStationAdmin()->editProduct(); }
     public function adminDeleteProduct() { $this->getStationAdmin()->deleteProduct(); }
@@ -112,4 +115,5 @@ class AdminController {
 
     public function adminMarkReturned() { $this->getDeliveryStaff()->markReturned(); }
     public function updateOrderStatus() { $this->getDeliveryStaff()->updateOrderStatus(); }
+    public function adminMarkReceiptViewed() { $this->getDeliveryStaff()->markReceiptViewed(); }
 }
