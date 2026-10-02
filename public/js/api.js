@@ -55,7 +55,7 @@ const API = {
         const options = { 
             method: method, 
             headers: { 'Cache-Control': 'no-cache' }, 
-            credentials: 'include' 
+            credentials: 'same-origin' 
         };
 
         if (State.csrfToken && method !== 'GET') {
@@ -90,21 +90,6 @@ const API = {
                 } catch(ign) {}
                 if (errMsg.includes('Imunify360') || errMsg.includes('bot-protection')) {
                     errMsg = "Access temporarily flagged by server security (Imunify360). Please whitelist your IP in cPanel or wait a few moments.";
-                }
-
-                // If the server confirms unauthorized on an authenticated endpoint while online,
-                // purge any invalid session so client doesn't stay in a ghost state
-                if (res.status === 401 && !this.isOffline() && action !== 'check_session' && !action.includes('login')) {
-                    try {
-                        localStorage.removeItem('cache_check_session');
-                        localStorage.removeItem('cache_get_customer_orders');
-                        if (window.State && window.State.user) {
-                            window.State.user = null;
-                            if (window.UI && window.UI.navigate && window.UI._currentView !== 'login') {
-                                window.UI.navigate('login', 'replace');
-                            }
-                        }
-                    } catch(ign) {}
                 }
 
                 throw new Error(errMsg);

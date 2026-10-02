@@ -34,10 +34,16 @@ $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
     || (isset($_SERVER['HTTP_CF_VISITOR']) && strpos($_SERVER['HTTP_CF_VISITOR'], 'https') !== false)
     || (isset($_SERVER['HTTP_X_FORWARDED_SSL']) && strtolower($_SERVER['HTTP_X_FORWARDED_SSL']) === 'on');
 
+$host = $_SERVER['HTTP_HOST'] ?? '';
+$cookieDomain = '';
+if (strpos($host, 'mbbnbwater.com') !== false) {
+    $cookieDomain = '.mbbnbwater.com';
+}
+
 session_set_cookie_params([
     'lifetime' => $lifetime,
     'path' => '/',
-    'domain' => '',
+    'domain' => $cookieDomain,
     'secure' => $isHttps,
     'httponly' => true,
     'samesite' => 'Lax'
@@ -51,13 +57,21 @@ header("Pragma: no-cache");
 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 if (!empty($origin)) {
-    header("Access-Control-Allow-Origin: $origin");
-    header("Access-Control-Allow-Credentials: true");
-    header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-    header("Access-Control-Allow-Headers: Content-Type, X-CSRF-TOKEN, Authorization");
-    if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-        http_response_code(200);
-        exit;
+    $parsedOrigin = parse_url($origin, PHP_URL_HOST);
+    if ($parsedOrigin && (
+        $parsedOrigin === 'mbbnbwater.com' || 
+        str_ends_with($parsedOrigin, '.mbbnbwater.com') || 
+        $parsedOrigin === 'localhost' || 
+        $parsedOrigin === '127.0.0.1'
+    )) {
+        header("Access-Control-Allow-Origin: $origin");
+        header("Access-Control-Allow-Credentials: true");
+        header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+        header("Access-Control-Allow-Headers: Content-Type, X-CSRF-TOKEN, Authorization");
+        if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+            http_response_code(200);
+            exit;
+        }
     }
 }
 

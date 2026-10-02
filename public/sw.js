@@ -1,5 +1,5 @@
-const STATIC_CACHE_NAME = 'mababanaba-static-v1790942468045';
-const API_CACHE_NAME = 'mababanaba-api-v1790942468045';
+const STATIC_CACHE_NAME = 'mababanaba-static-v1790943062032';
+const API_CACHE_NAME = 'mababanaba-api-v1790943062032';
 
 const ASSETS_TO_CACHE = [
     './',
@@ -46,7 +46,7 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-    const expectedCaches = [STATIC_CACHE_NAME, API_CACHE_NAME];
+    const expectedCaches = [STATIC_CACHE_NAME];
     event.waitUntil(
         caches.keys().then((cacheNames) => {
             return Promise.all(
@@ -113,58 +113,12 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // 2. API Requests
-    if (url.pathname.includes('api.php')) {
-        // Mutations (POST, PUT, DELETE) must never be cached by SW; let api.js handle offline intercept
-        if (request.method !== 'GET') {
-            return;
-        }
-
-        const actionParam = url.searchParams.get('action') || '';
-        // Sensitive session and auth actions must never be cached by Service Worker
-        const isAuthAction = actionParam === 'check_session' || actionParam.includes('login') || actionParam.includes('logout');
-
-        // GET requests: Network-First with Cache Fallback for public stations & catalogs
-        event.respondWith(
-            fetch(request)
-                .then((networkResponse) => {
-                    if (networkResponse && networkResponse.status === 200 && !isAuthAction) {
-                        const contentType = networkResponse.headers.get('content-type') || '';
-                        // Only cache verified JSON responses for cacheable public actions; never cache HTML WAF challenges or auth states
-                        if (contentType.includes('application/json') && (actionParam === 'get_stations' || actionParam === 'get_vapid_public_key' || actionParam === 'get_products')) {
-                            const clone = networkResponse.clone();
-                            caches.open(API_CACHE_NAME).then((cache) => cache.put(request, clone));
-                        }
-                    }
-                    return networkResponse;
-                })
-                .catch(() => {
-                    return caches.match(request).then((cached) => {
-                        if (cached) {
-                            return cached;
-                        }
-                        // Only return placeholder for station catalog when offline; never mock orders or session with empty arrays
-                        if (actionParam === 'get_stations') {
-                            return new Response(
-                                JSON.stringify({ 
-                                    success: true, 
-                                    offline: true, 
-                                    data: [], 
-                                    message: "You are currently offline. Viewing cached placeholder." 
-                                }),
-                                { headers: { 'Content-Type': 'application/json' } }
-                            );
-                        }
-                        return new Response(
-                            JSON.stringify({ 
-                                error: "Network unavailable. Please check your internet connection.",
-                                offline: true
-                            }),
-                            { status: 503, headers: { 'Content-Type': 'application/json' } }
-                        );
-                    });
-                })
-        );
+    // 2. API Requests: Never intercept in Service Worker.
+    // The main window and api.js manage all API network requests and offline caching directly.
+    // Bypassing the Service Worker ensures authentication cookies (PHPSESSID), credentials,
+    // and headers are never stripped, blocked, or partitioned by browser privacy protections
+    // (such as Brave Shields, Safari ITP, and PWA sandboxes).
+    if (url.pathname.includes('api.php') || url.pathname.includes('/api/')) {
         return;
     }
 

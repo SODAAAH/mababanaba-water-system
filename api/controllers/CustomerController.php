@@ -45,6 +45,9 @@ class CustomerController {
             $loyaltyStmt->execute([$u['customer_id']]);
             $loyaltyData = $loyaltyStmt->fetch();
 
+            $csrfToken = $_SESSION['csrf_token'] ?? null;
+            session_write_close();
+
             echo json_encode([
                 'success' => true, 
                 'customer_id' => $u['customer_id'], 
@@ -53,7 +56,7 @@ class CustomerController {
                 'address' => $u['address'],
                 'total_points' => (int)($loyaltyData['total_points'] ?? 0),
                 'lifetime_points' => (int)($loyaltyData['lifetime_points'] ?? 0),
-                'csrf_token' => $_SESSION['csrf_token']
+                'csrf_token' => $csrfToken
             ]);
         } else { 
             echo json_encode(['error' => 'Invalid mobile number or password']); 
