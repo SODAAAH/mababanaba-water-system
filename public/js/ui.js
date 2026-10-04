@@ -4281,21 +4281,41 @@ const UI = {
                 <h3 class="font-bold text-slate-800 mb-4 flex items-center"><i class="fa-solid fa-qrcode text-blue-500 mr-2"></i> Payment Profiles (Cashless)</h3>
                 <form onsubmit="App.updatePaymentProfile(event)" class="space-y-5">
                     <div class="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
-                        <h4 class="font-bold text-slate-700 text-sm">GCash Settings</h4>
+                        <div class="flex items-center justify-between">
+                            <h4 class="font-bold text-slate-700 text-sm">GCash Settings</h4>
+                            ${station.gcash_qr ? `<span class="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200"><i class="fa-solid fa-check mr-1"></i> QR Active</span>` : ''}
+                        </div>
                         <input type="text" id="set_gcash_name" placeholder="GCash Account Name" value="${escapeHtml(station.gcash_name || '')}" class="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm">
                         <input type="tel" id="set_gcash_num" placeholder="GCash Mobile Number" value="${escapeHtml(station.gcash_number || '')}" maxlength="11" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,11)" class="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm">
                         <div>
-                            <label class="block text-xs font-bold text-slate-500 mb-1">Upload New GCash QR Image</label>
-                            <input type="file" id="set_gcash_qr" accept="image/*" class="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-100 file:text-blue-700">
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Upload GCash QR (or Screenshot)</label>
+                            <input type="file" id="set_gcash_qr" accept="image/*" onchange="App.handleQrUploadPreview(event, 'gcash')" class="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-100 file:text-blue-700 file:font-bold hover:file:bg-blue-200 cursor-pointer transition">
+                            <div id="preview_gcash_wrap" class="${station.gcash_qr ? '' : 'hidden'} mt-3 p-3 bg-white rounded-xl border border-slate-200 flex items-center gap-3">
+                                <img id="img_preview_gcash" src="${station.gcash_qr || ''}" class="w-16 h-16 object-contain rounded-lg border border-slate-200 shadow-sm bg-white p-1">
+                                <div class="min-w-0">
+                                    <p id="status_preview_gcash" class="text-xs font-bold text-slate-800">${station.gcash_qr ? 'Current QR Code' : 'New QR Code'}</p>
+                                    <p id="sub_preview_gcash" class="text-[11px] text-slate-500">${station.gcash_qr ? 'Ready to accept payments' : 'Screenshot auto-cropped to QR code'}</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
-                        <h4 class="font-bold text-slate-700 text-sm">Maya Settings</h4>
+                        <div class="flex items-center justify-between">
+                            <h4 class="font-bold text-slate-700 text-sm">Maya Settings</h4>
+                            ${station.maya_qr ? `<span class="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200"><i class="fa-solid fa-check mr-1"></i> QR Active</span>` : ''}
+                        </div>
                         <input type="text" id="set_maya_name" placeholder="Maya Account Name" value="${escapeHtml(station.maya_name || '')}" class="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm">
                         <input type="tel" id="set_maya_num" placeholder="Maya Mobile Number" value="${escapeHtml(station.maya_number || '')}" maxlength="11" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,11)" class="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm">
                         <div>
-                            <label class="block text-xs font-bold text-slate-500 mb-1">Upload New Maya QR Image</label>
-                            <input type="file" id="set_maya_qr" accept="image/*" class="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-100 file:text-blue-700">
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Upload Maya QR (or Screenshot)</label>
+                            <input type="file" id="set_maya_qr" accept="image/*" onchange="App.handleQrUploadPreview(event, 'maya')" class="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-100 file:text-blue-700 file:font-bold hover:file:bg-blue-200 cursor-pointer transition">
+                            <div id="preview_maya_wrap" class="${station.maya_qr ? '' : 'hidden'} mt-3 p-3 bg-white rounded-xl border border-slate-200 flex items-center gap-3">
+                                <img id="img_preview_maya" src="${station.maya_qr || ''}" class="w-16 h-16 object-contain rounded-lg border border-slate-200 shadow-sm bg-white p-1">
+                                <div class="min-w-0">
+                                    <p id="status_preview_maya" class="text-xs font-bold text-slate-800">${station.maya_qr ? 'Current QR Code' : 'New QR Code'}</p>
+                                    <p id="sub_preview_maya" class="text-[11px] text-slate-500">${station.maya_qr ? 'Ready to accept payments' : 'Screenshot auto-cropped to QR code'}</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition shadow-md flex justify-center items-center">Save Profiles</button>

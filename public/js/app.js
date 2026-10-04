@@ -2602,15 +2602,70 @@ const App = {
         
         const gcashFile = document.getElementById('set_gcash_qr').files[0];
         const mayaFile = document.getElementById('set_maya_qr').files[0];
-        if(gcashFile) data.append('gcash_qr', await this.compressImage(gcashFile, 600, 600, 0.85));
-        if(mayaFile) data.append('maya_qr', await this.compressImage(mayaFile, 600, 600, 0.85));
+        
+        let gcashQrData = State._croppedQrGcash;
+        if (!gcashQrData && gcashFile) {
+            const cropRes = await this.extractAndCropQr(gcashFile);
+            gcashQrData = cropRes ? cropRes.croppedDataUrl : await this.compressImage(gcashFile, 600, 600, 0.85);
+        }
+        if (gcashQrData) data.append('gcash_qr', gcashQrData);
+
+        let mayaQrData = State._croppedQrMaya;
+        if (!mayaQrData && mayaFile) {
+            const cropRes = await this.extractAndCropQr(mayaFile);
+            mayaQrData = cropRes ? cropRes.croppedDataUrl : await this.compressImage(mayaFile, 600, 600, 0.85);
+        }
+        if (mayaQrData) data.append('maya_qr', mayaQrData);
         
         try {
             await API.request('admin_update_payment_profile', 'POST', data);
+            State._croppedQrGcash = null;
+            State._croppedQrMaya = null;
             CustomToast.show('Payment profiles saved.', 'success');
             UI.renderAdminSettings(); 
         } catch(e) {
             this.setLoading(btn, false);
+        }
+    },
+
+    async handleQrUploadPreview(event, type) {
+        const file = event.target.files && event.target.files[0];
+        if (!file) return;
+
+        const wrap = document.getElementById(`preview_${type}_wrap`);
+        const img = document.getElementById(`img_preview_${type}`);
+        const statusEl = document.getElementById(`status_preview_${type}`);
+        const subEl = document.getElementById(`sub_preview_${type}`);
+
+        if (statusEl) statusEl.innerText = 'Detecting QR code...';
+        if (subEl) subEl.innerText = 'Scanning screenshot boundaries';
+        if (wrap) wrap.classList.remove('hidden');
+
+        try {
+            const res = await this.extractAndCropQr(file);
+            if (res && res.croppedDataUrl) {
+                if (type === 'gcash') {
+                    State._croppedQrGcash = res.croppedDataUrl;
+                } else if (type === 'maya') {
+                    State._croppedQrMaya = res.croppedDataUrl;
+                }
+
+                if (img) img.src = res.croppedDataUrl;
+                if (statusEl) {
+                    statusEl.innerText = res.wasCropped ? 'QR Code Auto-Cropped' : 'QR Image Ready';
+                }
+                if (subEl) {
+                    subEl.innerText = res.wasCropped 
+                        ? 'Successfully extracted QR code from screenshot' 
+                        : 'Image optimized and ready for save';
+                }
+                CustomToast.show(
+                    res.wasCropped ? 'QR code detected & cropped from screenshot.' : 'QR image loaded successfully.',
+                    'success'
+                );
+            }
+        } catch (err) {
+            console.error('[QR] Preview extraction failed:', err);
         }
     },
 
@@ -2938,6 +2993,191 @@ const App = {
         }
     },
 
+
+    /**
+     * Automatically detects and crops a QR code from any image or mobile screenshot.
+     * Uses native BarcodeDetector if available, falling back to jsQR, with a quiet-zone white border.
+     * @param {File|Blob|string} imageSource File object, Blob, or Data URL
+     * @returns {Promise<{ croppedDataUrl: string, wasCropped: boolean }>}
+     */
+    async extractAndCropQr(imageSource) {
+        if (!imageSource) return null;
+
+        return new Promise((resolve) => {
+            const img = new Image();
+            const cleanup = () => {
+                if (typeof imageSource === 'object' && imageSource instanceof Blob) {
+                    try { URL.revokeObjectURL(img.src); } catch(e) {}
+                }
+            };
+
+            img.onload = async () => {
+                try {
+                    const origW = img.naturalWidth || img.width;
+                    const origH = img.naturalHeight || img.height;
+
+                    if (!origW || !origH) {
+                        cleanup();
+                        const fallback = typeof imageSource === 'string' ? imageSource : await this.compressImage(imageSource);
+                        return resolve({ croppedDataUrl: fallback, wasCropped: false });
+                    }
+
+                    // 1. Draw onto an inspection canvas (scale down if extraordinarily huge for fast scanning)
+                    const maxScanDim = 1600;
+                    let scanW = origW;
+                    let scanH = origH;
+                    if (scanW > maxScanDim || scanH > maxScanDim) {
+                        if (scanW > scanH) {
+                            scanH = Math.round((scanH * maxScanDim) / scanW);
+                            scanW = maxScanDim;
+                        } else {
+                            scanW = Math.round((scanW * maxScanDim) / scanH);
+                            scanH = maxScanDim;
+                        }
+                    }
+
+                    const scanCanvas = document.createElement('canvas');
+                    scanCanvas.width = scanW;
+                    scanCanvas.height = scanH;
+                    const scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
+                    scanCtx.drawImage(img, 0, 0, scanW, scanH);
+
+                    let bbox = null;
+
+                    // 2. Try native BarcodeDetector first (hardware-accelerated on Chrome / Android)
+                    if ('BarcodeDetector' in window) {
+                        try {
+                            const detector = new BarcodeDetector({ formats: ['qr_code'] });
+                            const detected = await detector.detect(scanCanvas);
+                            if (detected && detected.length > 0) {
+                                const box = detected[0].boundingBox;
+                                bbox = {
+                                    x: box.x,
+                                    y: box.y,
+                                    width: box.width,
+                                    height: box.height
+                                };
+                            }
+                        } catch (err) {
+                            console.warn('[QR] Native BarcodeDetector error:', err);
+                        }
+                    }
+
+                    // 3. Fallback to jsQR if BarcodeDetector is not supported or found nothing
+                    if (!bbox && typeof jsQR === 'function') {
+                        try {
+                            const imgData = scanCtx.getImageData(0, 0, scanW, scanH);
+                            const code = jsQR(imgData.data, imgData.width, imgData.height, {
+                                inversionAttempts: 'attemptBoth'
+                            });
+                            if (code && code.location) {
+                                const loc = code.location;
+                                const xs = [loc.topLeftCorner.x, loc.topRightCorner.x, loc.bottomRightCorner.x, loc.bottomLeftCorner.x];
+                                const ys = [loc.topLeftCorner.y, loc.topRightCorner.y, loc.bottomRightCorner.y, loc.bottomLeftCorner.y];
+                                const minX = Math.min(...xs);
+                                const maxX = Math.max(...xs);
+                                const minY = Math.min(...ys);
+                                const maxY = Math.max(...ys);
+                                bbox = {
+                                    x: minX,
+                                    y: minY,
+                                    width: maxX - minX,
+                                    height: maxY - minY
+                                };
+                            }
+                        } catch (err) {
+                            console.warn('[QR] jsQR scanning error:', err);
+                        }
+                    }
+
+                    // 4. If QR code was detected, crop with generous quiet zone margin
+                    if (bbox && bbox.width > 20 && bbox.height > 20) {
+                        const scaleX = origW / scanW;
+                        const scaleY = origH / scanH;
+                        const origBoxX = bbox.x * scaleX;
+                        const origBoxY = bbox.y * scaleY;
+                        const origBoxW = bbox.width * scaleX;
+                        const origBoxH = bbox.height * scaleY;
+
+                        // Add 16% quiet zone margin around the QR code
+                        const pad = Math.max(origBoxW, origBoxH) * 0.16;
+                        const targetSide = Math.max(origBoxW, origBoxH) + (pad * 2);
+
+                        // Center the square crop box around the QR code
+                        const centerX = origBoxX + (origBoxW / 2);
+                        const centerY = origBoxY + (origBoxH / 2);
+                        const cropLeft = Math.max(0, centerX - (targetSide / 2));
+                        const cropTop = Math.max(0, centerY - (targetSide / 2));
+                        const cropRight = Math.min(origW, centerX + (targetSide / 2));
+                        const cropBottom = Math.min(origH, centerY + (targetSide / 2));
+                        const actualCropW = cropRight - cropLeft;
+                        const actualCropH = cropBottom - cropTop;
+
+                        // Create clean output square canvas (600x600)
+                        const outputSize = 600;
+                        const outCanvas = document.createElement('canvas');
+                        outCanvas.width = outputSize;
+                        outCanvas.height = outputSize;
+                        const outCtx = outCanvas.getContext('2d');
+
+                        // Crisp white background for optimal scannability
+                        outCtx.fillStyle = '#FFFFFF';
+                        outCtx.fillRect(0, 0, outputSize, outputSize);
+
+                        // Draw cropped QR centered
+                        const destSide = Math.min(outputSize - 24, Math.round(outputSize * 0.94));
+                        const destOffset = Math.round((outputSize - destSide) / 2);
+                        outCtx.drawImage(
+                            img,
+                            cropLeft, cropTop, actualCropW, actualCropH,
+                            destOffset, destOffset, destSide, destSide
+                        );
+
+                        cleanup();
+                        let format = 'image/jpeg';
+                        try {
+                            if (outCanvas.toDataURL('image/webp').startsWith('data:image/webp')) {
+                                format = 'image/webp';
+                            }
+                        } catch (e) {}
+
+                        return resolve({
+                            croppedDataUrl: outCanvas.toDataURL(format, 0.88),
+                            wasCropped: true
+                        });
+                    }
+
+                    // 5. Fallback: if no QR pattern detected (e.g. logo or already cropped image)
+                    cleanup();
+                    const defaultCompressed = await this.compressImage(imageSource, 600, 600, 0.85);
+                    return resolve({
+                        croppedDataUrl: defaultCompressed,
+                        wasCropped: false
+                    });
+
+                } catch (err) {
+                    console.error('[QR] Failed to crop QR:', err);
+                    cleanup();
+                    const fallback = await this.compressImage(imageSource, 600, 600, 0.85);
+                    return resolve({ croppedDataUrl: fallback, wasCropped: false });
+                }
+            };
+
+            img.onerror = async () => {
+                cleanup();
+                const fallback = await this.compressImage(imageSource, 600, 600, 0.85);
+                return resolve({ croppedDataUrl: fallback, wasCropped: false });
+            };
+
+            if (typeof imageSource === 'string') {
+                img.src = imageSource;
+            } else if (imageSource instanceof Blob) {
+                img.src = URL.createObjectURL(imageSource);
+            } else {
+                resolve({ croppedDataUrl: null, wasCropped: false });
+            }
+        });
+    },
 
     async compressImage(file, maxWidth = 800, maxHeight = 800, quality = 0.82) {
         if (!file) return null;

@@ -1,5 +1,5 @@
-const STATIC_CACHE_NAME = 'mababanaba-static-v1791131525655';
-const API_CACHE_NAME = 'mababanaba-api-v1791131525655';
+const STATIC_CACHE_NAME = 'mababanaba-static-v1791133076896';
+const API_CACHE_NAME = 'mababanaba-api-v1791133076896';
 
 const ASSETS_TO_CACHE = [
     './',
@@ -15,6 +15,7 @@ const ASSETS_TO_CACHE = [
     './css/flatpickr.min.css',
     './css/style.css',
     './js/flatpickr.min.js',
+    './js/jsqr.min.js',
     './js/state.js',
     './js/ui.js',
     './js/api.js',
