@@ -44,7 +44,19 @@ class CustomerController {
             $loyaltyStmt = $this->pdo->prepare("SELECT IFNULL(SUM(points), 0) as total_points, IFNULL(SUM(lifetime_points), 0) as lifetime_points FROM CUSTOMER_LOYALTY WHERE customer_id = ?");
             $loyaltyStmt->execute([$u['customer_id']]);
             $loyaltyData = $loyaltyStmt->fetch();
+            $totPts = (int)($loyaltyData['total_points'] ?? 0);
+            $totLife = (int)($loyaltyData['lifetime_points'] ?? 0);
 
+            if ($totPts === 0) {
+                $orderPtsStmt = $this->pdo->prepare("SELECT GREATEST(0, (IFNULL(SUM(quantity), 0) * 2) - IFNULL(SUM(points_used), 0)) as tot_pts, (IFNULL(SUM(quantity), 0) * 3) as tot_life FROM ORDERS WHERE customer_id = ? AND order_status = 'Delivered'");
+                $orderPtsStmt->execute([$u['customer_id']]);
+                if ($ordPts = $orderPtsStmt->fetch()) {
+                    $totPts = max($totPts, (int)($ordPts['tot_pts'] ?? 0));
+                    $totLife = max($totLife, (int)($ordPts['tot_life'] ?? 0));
+                }
+            }
+
+            $authToken = SecurityContext::generateAuthToken((int)$u['customer_id'], 'customer');
             $csrfToken = $_SESSION['csrf_token'] ?? null;
             session_write_close();
 
@@ -54,8 +66,9 @@ class CustomerController {
                 'full_name' => $u['full_name'], 
                 'contact_number' => $u['contact_number'], 
                 'address' => $u['address'],
-                'total_points' => (int)($loyaltyData['total_points'] ?? 0),
-                'lifetime_points' => (int)($loyaltyData['lifetime_points'] ?? 0),
+                'total_points' => $totPts,
+                'lifetime_points' => $totLife,
+                'auth_token' => $authToken,
                 'csrf_token' => $csrfToken
             ]);
         } else { 
@@ -130,12 +143,14 @@ class CustomerController {
         $_SESSION['customer_id'] = $u['customer_id'];
         $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
         SecurityContext::clearRateLimits($this->pdo, ['customer_register', 'verify_registration_otp', 'customer_login']);
+        $authToken = SecurityContext::generateAuthToken((int)$u['customer_id'], 'customer');
         echo json_encode([
             'success' => true, 
             'customer_id' => $u['customer_id'], 
             'full_name' => $u['full_name'], 
             'contact_number' => $u['contact_number'], 
             'address' => $u['address'],
+            'auth_token' => $authToken,
             'csrf_token' => $_SESSION['csrf_token']
         ]);
         exit;
@@ -182,20 +197,35 @@ class CustomerController {
             $stations = $stmt->fetchAll();
         } else {
             $sql = "SELECT s.*, i.stock_level, i.round_jugs, i.slim_jugs, 
-                    IFNULL(l.points, 0) as user_points, 
-                    IFNULL(l.lifetime_points, IFNULL(l.points, 0)) as user_lifetime_points, 
+                    GREATEST(IFNULL(l.points, 0), GREATEST(0, (IFNULL(deliv.tot_deliv_qty, 0) * 2) - IFNULL(deliv.tot_pts_used, 0))) as user_points, 
+                    GREATEST(IFNULL(l.lifetime_points, IFNULL(l.points, 0)), IFNULL(deliv.tot_deliv_qty, 0) * 3) as user_lifetime_points, 
                     IFNULL(AVG(r.rating), 0) as avg_rating,
                     IFNULL(b.pending_borrowed, 0) as pending_borrowed,
                     IFNULL(q.active_queue_count, 0) as active_queue_count
                     FROM STATION s 
                     JOIN INVENTORY i ON s.station_id = i.station_id 
-                    LEFT JOIN CUSTOMER_LOYALTY l ON s.station_id = l.station_id AND l.customer_id = ? 
+                    LEFT JOIN (
+                        SELECT COALESCE(NULLIF(station_id, 0), 1) as station_id, 
+                               MAX(points) as points, 
+                               MAX(lifetime_points) as lifetime_points 
+                        FROM CUSTOMER_LOYALTY 
+                        WHERE customer_id = ? 
+                        GROUP BY COALESCE(NULLIF(station_id, 0), 1)
+                    ) l ON s.station_id = l.station_id
+                    LEFT JOIN (
+                        SELECT COALESCE(NULLIF(station_id, 0), 1) as station_id, 
+                               SUM(quantity) as tot_deliv_qty, 
+                               SUM(points_used) as tot_pts_used 
+                        FROM ORDERS 
+                        WHERE customer_id = ? AND order_status = 'Delivered' 
+                        GROUP BY COALESCE(NULLIF(station_id, 0), 1)
+                    ) deliv ON s.station_id = deliv.station_id
                     LEFT JOIN REVIEWS r ON s.station_id = r.station_id 
                     LEFT JOIN (
-                        SELECT station_id, COUNT(order_id) as pending_borrowed 
+                        SELECT COALESCE(NULLIF(station_id, 0), 1) as station_id, COUNT(order_id) as pending_borrowed 
                         FROM ORDERS 
                         WHERE customer_id = ? AND borrow_status = 'Pending' AND (borrow_round > 0 OR borrow_slim > 0) 
-                        GROUP BY station_id
+                        GROUP BY COALESCE(NULLIF(station_id, 0), 1)
                     ) b ON s.station_id = b.station_id
                     LEFT JOIN (
                         SELECT station_id, COUNT(order_id) as active_queue_count 
@@ -206,7 +236,7 @@ class CustomerController {
                     WHERE s.status = 'Active' 
                     GROUP BY s.station_id";
             $stmt = $this->pdo->prepare($sql); 
-            $stmt->execute([$cid, $cid]);
+            $stmt->execute([$cid, $cid, $cid]);
             $stations = $stmt->fetchAll();
         }
         
@@ -219,16 +249,52 @@ class CustomerController {
         }
         foreach ($stations as &$st) { 
             $st['products'] = $productsByStation[$st['station_id']] ?? []; 
+            $st['user_points'] = (int)($st['user_points'] ?? 0);
+            $st['user_lifetime_points'] = (int)($st['user_lifetime_points'] ?? 0);
+            $st['pending_borrowed'] = (int)($st['pending_borrowed'] ?? 0);
+            $st['active_queue_count'] = (int)($st['active_queue_count'] ?? 0);
+            $st['avg_rating'] = (float)($st['avg_rating'] ?? 0);
+
+            if ($cid === null) {
+                $st['gcash_number'] = null;
+                $st['gcash_name'] = null;
+                $st['gcash_qr'] = null;
+                $st['maya_number'] = null;
+                $st['maya_name'] = null;
+                $st['maya_qr'] = null;
+            }
         }
+        unset($st);
         
         $json = json_encode($stations);
         if ($cid === null) {
             @file_put_contents($cacheFile, $json);
             header('X-Cache: MISS');
             header('Cache-Control: public, max-age=5, stale-while-revalidate=5');
+        } else {
+            header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
         }
 
         echo $json;
+        exit;
+    }
+
+    public function getStationPaymentInfo() {
+        $sid = (int)($_GET['station_id'] ?? $_POST['station_id'] ?? 0);
+        if ($sid <= 0) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Valid station_id is required.']);
+            exit;
+        }
+        $stmt = $this->pdo->prepare("SELECT station_id, station_name, gcash_name, gcash_number, gcash_qr, maya_name, maya_number, maya_qr FROM STATION WHERE station_id = ? AND status = 'Active'");
+        $stmt->execute([$sid]);
+        $station = $stmt->fetch();
+        if (!$station) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Station not found or inactive.']);
+            exit;
+        }
+        echo json_encode(['success' => true, 'station' => $station]);
         exit;
     }
 
@@ -598,9 +664,27 @@ class CustomerController {
             $shippingFee = (float)$st['shipping_fee'];
 
             if ($use_points) {
-                $stmtC = $this->pdo->prepare("SELECT points FROM CUSTOMER_LOYALTY WHERE customer_id = ? AND station_id = ? FOR UPDATE"); $stmtC->execute([$cid, $sid]);
-                if ((int)$stmtC->fetchColumn() < 10) { throw new Exception("Not enough loyalty points."); }
-                $this->pdo->prepare("UPDATE CUSTOMER_LOYALTY SET points = points - 10 WHERE customer_id = ? AND station_id = ?")->execute([$cid, $sid]);
+                $stmtC = $this->pdo->prepare("SELECT points FROM CUSTOMER_LOYALTY WHERE customer_id = ? AND station_id = ? FOR UPDATE"); 
+                $stmtC->execute([$cid, $sid]);
+                $currPoints = (int)$stmtC->fetchColumn();
+                if ($currPoints < 10) {
+                    $stmtDeliv = $this->pdo->prepare("SELECT GREATEST(0, (IFNULL(SUM(quantity), 0) * 2) - IFNULL(SUM(points_used), 0)) FROM ORDERS WHERE customer_id = ? AND station_id = ? AND order_status = 'Delivered'");
+                    $stmtDeliv->execute([$cid, $sid]);
+                    $ordPoints = (int)$stmtDeliv->fetchColumn();
+                    if ($ordPoints >= 10) {
+                        $currPoints = $ordPoints;
+                    } else {
+                        $stmtAll = $this->pdo->prepare("SELECT IFNULL(SUM(points), 0) FROM CUSTOMER_LOYALTY WHERE customer_id = ?");
+                        $stmtAll->execute([$cid]);
+                        $allPts = (int)$stmtAll->fetchColumn();
+                        if ($allPts >= 10) {
+                            $currPoints = $allPts;
+                        }
+                    }
+                }
+                if ($currPoints < 10) { throw new Exception("Not enough loyalty points."); }
+                $newPts = max(0, $currPoints - 10);
+                $this->pdo->prepare("INSERT INTO CUSTOMER_LOYALTY (customer_id, station_id, points, lifetime_points) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE points = GREATEST(0, points - 10)")->execute([$cid, $sid, $newPts, $currPoints]);
             }
             
             $stationOrderNumber = 1;
@@ -665,8 +749,8 @@ class CustomerController {
 
             WebPush::flushFastResponse(['success' => true, 'station_order_number' => $stationOrderNumber]);
 
-            WebPush::sendToStationAdmins($this->pdo, $sid, "🔔 New Order #{$stationOrderNumber}", "A new order ({$totalQty} jugs) was placed. Tap to review.", '/#admin_dashboard');
-            WebPush::sendToCustomer($this->pdo, $cid, "✅ Order #{$stationOrderNumber} Placed", "Your refilling order of {$totalQty} jugs was placed successfully. Waiting for station acceptance.", '/#customer_orders');
+            WebPush::sendToStationAdmins($this->pdo, $sid, "New Order #{$stationOrderNumber}", "A new order ({$totalQty} jugs) was placed. Tap to review.", '/#admin_dashboard');
+            WebPush::sendToCustomer($this->pdo, $cid, "Order #{$stationOrderNumber} Placed", "Your refilling order of {$totalQty} jugs was placed successfully. Waiting for station acceptance.", '/#customer_orders');
             exit;
         } catch (Exception $e) {
             $this->pdo->rollBack();
@@ -727,6 +811,33 @@ class CustomerController {
             $stmt->execute([$lat, $lng, $cid]);
         }
         echo json_encode(['success' => true, 'latitude' => $lat, 'longitude' => $lng, 'address' => $addr]);
+        exit;
+    }
+
+    public function updateAddress() {
+        $customer = SecurityContext::requireCustomer($this->pdo);
+        $cid = $customer['customer_id'];
+        $addr = trim($_POST['address'] ?? '');
+
+        if (empty($addr)) {
+            SecurityContext::jsonResponse(400, ['error' => 'Address cannot be empty.']);
+        }
+
+        if (mb_strlen($addr) > 255) {
+            SecurityContext::jsonResponse(400, ['error' => 'Address is too long (maximum 255 characters).']);
+        }
+
+        $stmt = $this->pdo->prepare("UPDATE CUSTOMER SET address = ? WHERE customer_id = ?");
+        $stmt->execute([$addr, $cid]);
+
+        $authToken = SecurityContext::generateAuthToken((int)$cid, 'customer');
+        echo json_encode([
+            'success' => true, 
+            'address' => $addr, 
+            'auth_token' => $authToken,
+            'csrf_token' => $_SESSION['csrf_token'] ?? null, 
+            'message' => 'Default address updated successfully.'
+        ]);
         exit;
     }
 }

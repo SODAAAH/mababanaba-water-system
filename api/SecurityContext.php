@@ -7,8 +7,98 @@ class SecurityContext {
         exit;
     }
 
+    private static function getSecret(): string {
+        if (defined('APP_SECRET_KEY') && !empty(constant('APP_SECRET_KEY'))) {
+            return constant('APP_SECRET_KEY');
+        }
+        $envKey = getenv('APP_SECRET_KEY') ?: ($_ENV['APP_SECRET_KEY'] ?? '');
+        if (!empty($envKey)) {
+            return $envKey;
+        }
+        if (defined('CRON_SECRET') && strlen(CRON_SECRET) >= 32) {
+            return CRON_SECRET;
+        }
+        if (defined('VAPID_PRIVATE_KEY') && strlen(VAPID_PRIVATE_KEY) >= 32) {
+            return VAPID_PRIVATE_KEY;
+        }
+
+        $keyFile = __DIR__ . '/.secret_key';
+        if (file_exists($keyFile)) {
+            $key = trim((string)@file_get_contents($keyFile));
+            if (strlen($key) >= 32) {
+                return $key;
+            }
+        }
+
+        // Auto-generate a secure random 256-bit key and persist it locally
+        try {
+            $newKey = bin2hex(random_bytes(32));
+        } catch (\Throwable $e) {
+            $newKey = hash('sha256', uniqid(mt_rand(), true) . microtime(true));
+        }
+        @file_put_contents($keyFile, $newKey, LOCK_EX);
+        @chmod($keyFile, 0600);
+        return $newKey;
+    }
+
+    public static function generateAuthToken(int $id, string $type = 'customer'): string {
+        $secret = self::getSecret();
+        $payload = json_encode([
+            'id' => $id, 
+            'type' => $type, 
+            'exp' => time() + (86400 * 30),
+            'iat' => time()
+        ]);
+        $b64 = rtrim(strtr(base64_encode($payload), '+/', '-_'), '=');
+        $sig = hash_hmac('sha256', $b64, $secret);
+        return $b64 . '.' . $sig;
+    }
+
+    public static function verifyAuthToken(?string $token): ?array {
+        if (empty($token)) return null;
+        $token = trim($token);
+        $parts = explode('.', $token);
+        if (count($parts) !== 2) return null;
+        [$b64, $sig] = $parts;
+        $secret = self::getSecret();
+        $expectedSig = hash_hmac('sha256', $b64, $secret);
+        if (!hash_equals($expectedSig, $sig)) {
+            return null;
+        }
+        $padded = strtr($b64, '-_', '+/');
+        $rem = strlen($padded) % 4;
+        if ($rem) {
+            $padded .= str_repeat('=', 4 - $rem);
+        }
+        $json = base64_decode($padded);
+        $data = json_decode($json, true);
+        if (!$data || !isset($data['id'], $data['type'], $data['exp'])) {
+            return null;
+        }
+        if ((int)$data['exp'] < time()) {
+            return null;
+        }
+        return $data;
+    }
+
     public static function requireCustomer(PDO $pdo): array {
         $cid = $_SESSION['customer_id'] ?? null;
+
+        // Auto-heal session if customer_id was dropped but valid signed token is present
+        if (!$cid) {
+            $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['HTTP_X_AUTH_TOKEN'] ?? $_POST['auth_token'] ?? '';
+            if (str_starts_with($authHeader, 'Bearer ')) {
+                $authHeader = substr($authHeader, 7);
+            }
+            if (!empty($authHeader)) {
+                $tokenData = self::verifyAuthToken($authHeader);
+                if ($tokenData && ($tokenData['type'] ?? '') === 'customer' && !empty($tokenData['id'])) {
+                    $cid = (int)$tokenData['id'];
+                    $_SESSION['customer_id'] = $cid;
+                }
+            }
+        }
+
         if (!$cid) {
             self::jsonResponse(401, ['error' => 'Unauthorized: Please log in as a customer.']);
         }
@@ -27,6 +117,22 @@ class SecurityContext {
 
     public static function getAuthAdmin(PDO $pdo): ?array {
         $aid = $_SESSION['admin_id'] ?? null;
+
+        // Auto-heal admin session if admin_id was dropped but valid signed token is present
+        if (!$aid) {
+            $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['HTTP_X_AUTH_TOKEN'] ?? $_POST['auth_token'] ?? '';
+            if (str_starts_with($authHeader, 'Bearer ')) {
+                $authHeader = substr($authHeader, 7);
+            }
+            if (!empty($authHeader)) {
+                $tokenData = self::verifyAuthToken($authHeader);
+                if ($tokenData && ($tokenData['type'] ?? '') === 'admin' && !empty($tokenData['id'])) {
+                    $aid = (int)$tokenData['id'];
+                    $_SESSION['admin_id'] = $aid;
+                }
+            }
+        }
+
         if (!$aid) {
             return null;
         }
@@ -95,7 +201,25 @@ class SecurityContext {
         }
     }
 
+    private const ALLOWED_OTP_TARGETS = [
+        'CUSTOMER' => 'customer_id',
+        'ADMIN' => 'admin_id'
+    ];
+
     public static function verifyOtp(PDO $pdo, string $table, string $idCol, int $idVal, ?string $expectedOtp, ?string $expiry, int $failedAttempts, string $code): array {
+        $validTarget = false;
+        foreach (self::ALLOWED_OTP_TARGETS as $tbl => $col) {
+            if (strcasecmp($tbl, $table) === 0 && strcasecmp($col, $idCol) === 0) {
+                $table = $tbl;
+                $idCol = $col;
+                $validTarget = true;
+                break;
+            }
+        }
+        if (!$validTarget) {
+            throw new InvalidArgumentException("Invalid target table or column for OTP verification.");
+        }
+
         if ($failedAttempts >= 5) {
             $pdo->prepare("UPDATE {$table} SET otp_code = NULL, otp_expiry = NULL, failed_otp_attempts = 0 WHERE {$idCol} = ?")->execute([$idVal]);
             return ['valid' => false, 'error' => 'Too many failed attempts. This OTP has been invalidated. Please request a new code.'];

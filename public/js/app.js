@@ -118,7 +118,7 @@ const App = {
         return isNaN(dist) ? null : dist;
     },
 
-    calculateDynamicETA(distanceKm, queueCount = 0, userLifetimePoints = 0) {
+    calculateDynamicETA(distanceKm, queueCount = 0, userLifetimePoints = 0, jugCount = 1, orderDate = null) {
         const q = Math.max(0, parseInt(queueCount) || 0);
         const rank = this.getLoyaltyRank(userLifetimePoints);
 
@@ -143,25 +143,58 @@ const App = {
         }
 
         const effectiveQueueDelay = Math.round(q * rankMultiplier * 6); // 6 mins per effective queue slot
-        const basePrep = 10; // 10 minutes prep time
+        const basePrep = 10; // 10 minutes baseline prep time
+
+        // Volume scaling: ~1.5 mins per additional jug above 1, capped at 20 mins max extra prep
+        const safeJugCount = Math.max(1, parseInt(jugCount) || 1);
+        const volumePrep = Math.min(20, Math.round((safeJugCount - 1) * 1.5));
+
         let transitTime = 10; // default 10 minutes transit
         if (distanceKm !== null && distanceKm !== undefined && !isNaN(distanceKm)) {
-            transitTime = Math.max(5, Math.round(distanceKm * 3.5)); // ~3.5 mins per km, min 5
+            // Water refilling stations deliver locally. Cap effective distance to local radius (max 8 km)
+            // so testing outside coverage or remote IP geolocation never inflates ETA to hundreds of minutes.
+            const localDist = Math.min(Math.max(0.3, distanceKm), 8.0);
+            transitTime = Math.max(5, Math.round(localDist * 3.5)); // ~3.5 mins per km, min 5, max 28 mins
         }
 
-        const minEta = Math.max(10, basePrep + effectiveQueueDelay + transitTime);
-        const maxEta = minEta + 10;
+        // Total required operational duration
+        const totalDuration = basePrep + volumePrep + effectiveQueueDelay + transitTime;
+
+        // Calculate elapsed minutes if orderDate is provided
+        let elapsedMins = 0;
+        if (orderDate) {
+            const orderTimestamp = new Date(orderDate).getTime();
+            if (!isNaN(orderTimestamp)) {
+                elapsedMins = Math.max(0, Math.floor((Date.now() - orderTimestamp) / 60000));
+            }
+        }
+
+        // Dynamic remaining window (countdown)
+        const remainingMin = Math.max(3, totalDuration - elapsedMins);
+        const remainingMax = remainingMin + 10;
+
+        let etaText = `${remainingMin}–${remainingMax} mins`;
+        if (remainingMin <= 5) {
+            etaText = 'Arriving shortly';
+        }
+
+        // Projected target clock arrival time
+        const targetArrival = new Date(Date.now() + remainingMin * 60000);
+        const targetTimeStr = targetArrival.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
         return {
-            min: minEta,
-            max: maxEta,
-            text: `${minEta}–${maxEta} mins`,
+            min: remainingMin,
+            max: remainingMax,
+            text: etaText,
+            targetTimeStr: targetTimeStr,
             queueCount: q,
+            jugCount: safeJugCount,
+            elapsedMins: elapsedMins,
             rankName: rank.name,
             rankTier: rank.tier,
             rankMultiplier,
             priorityLabel,
-            distanceKm: (distanceKm !== null && !isNaN(distanceKm)) ? distanceKm.toFixed(1) : null
+            distanceKm: (distanceKm !== null && !isNaN(distanceKm)) ? Math.min(distanceKm, 8.0).toFixed(1) : null
         };
     },
 
@@ -239,9 +272,9 @@ const App = {
             return;
         }
 
-        let curLat = parseFloat(initialLat) || (State.userLocation?.lat || 14.7566);
-        let curLng = parseFloat(initialLng) || (State.userLocation?.lng || 120.9850);
-        let curAddress = initialAddress || (State.userLocation?.address || '');
+        let curLat = parseFloat(initialLat) || (State.userLocation?.lat || 15.5056);
+        let curLng = parseFloat(initialLng) || (State.userLocation?.lng || 120.4462);
+        let curAddress = initialAddress || (State.userLocation?.address || 'Mababanaba, San Jose, Tarlac');
 
         const modal = document.createElement('div');
         modal.id = 'mapbox-picker-modal';
@@ -544,7 +577,7 @@ const App = {
 
                 if (res.new_customers.length > prevCount && prevCount > 0) {
                     const newest = res.new_customers[0];
-                    CustomToast.show(`🔔 New Customer Registered: ${newest.full_name || 'Customer'} (${newest.contact_number})`, 'info', 7000);
+                    CustomToast.show(`New Customer Registered: ${newest.full_name || 'Customer'} (${newest.contact_number})`, 'info', 7000);
                     if (UI._currentView === 'sa_dashboard') {
                         UI.renderSuperAdminDashboard();
                     }
@@ -562,11 +595,11 @@ const App = {
         }
     },
     
-    sendNativeNotification(title, body, tag = null, inAppFeedback = true) {
+    sendNativeNotification(title, body, tag = null, inAppFeedback = false) {
         if (inAppFeedback) {
-            this.playNotificationChime();
+            this.playNotificationChime(tag);
             if (typeof CustomToast !== 'undefined') {
-                CustomToast.show(body ? `${title}: ${body}` : title, 'info', 5000);
+                CustomToast.show(body ? `${title}: ${body}` : title, 'info', 5000, null, tag);
             }
         }
         if (!("Notification" in window)) return;
@@ -591,7 +624,28 @@ const App = {
         }
     },
 
-    playNotificationChime() {
+    _recentNotifs: new Map(),
+
+    shouldNotify(key, ttlMs = 12000) {
+        if (!key) return true;
+        const now = Date.now();
+        if (this._recentNotifs.has(key)) {
+            const last = this._recentNotifs.get(key);
+            if (now - last < ttlMs) {
+                return false;
+            }
+        }
+        this._recentNotifs.set(key, now);
+        if (this._recentNotifs.size > 100) {
+            for (const [k, v] of this._recentNotifs.entries()) {
+                if (now - v > 60000) this._recentNotifs.delete(k);
+            }
+        }
+        return true;
+    },
+
+    playNotificationChime(key = null) {
+        if (key && !this.shouldNotify('chime-' + key, 4000)) return;
         try {
             const AudioCtx = window.AudioContext || window.webkitAudioContext;
             if (!AudioCtx) return;
@@ -672,27 +726,32 @@ const App = {
         if (!data || !data.type) return;
 
         if (data.type === 'ORDER_STATUS_CHANGED' || data.type === 'NEW_ORDER_PLACED') {
+            const rawSon = data.station_order_number || data.orderId || data.order_id;
+            const notifKey = rawSon ? (data.type === 'ORDER_STATUS_CHANGED' ? `order-${rawSon}-${data.status || 'chg'}` : `order-${rawSon}`) : null;
+            const shouldAlert = !notifKey || this.shouldNotify(notifKey, 14000);
             const orderLabel = data.station_order_number ? `#${data.station_order_number}` : (data.orderId || data.order_id ? `#${data.orderId || data.order_id}` : 'Order');
             
-            // 1. In-app audible chime
-            this.playNotificationChime();
+            if (shouldAlert) {
+                // 1. In-app audible chime
+                this.playNotificationChime(notifKey);
 
-            // 2. Visible in-app toast
-            if (typeof CustomToast !== 'undefined') {
-                if (data.type === 'ORDER_STATUS_CHANGED') {
-                    CustomToast.show(`⚡ Order ${orderLabel} status is now ${data.status || 'Updated'}`, 'info', 5000);
-                } else if (data.type === 'NEW_ORDER_PLACED') {
-                    CustomToast.show(`🔔 New Order ${orderLabel} has been placed!`, 'info', 5000);
+                // 2. Visible in-app toast
+                if (typeof CustomToast !== 'undefined') {
+                    if (data.type === 'ORDER_STATUS_CHANGED') {
+                        CustomToast.show(`Order ${orderLabel} status is now ${data.status || 'Updated'}`, 'info', 5000, null, notifKey);
+                    } else if (data.type === 'NEW_ORDER_PLACED') {
+                        CustomToast.show(`New Order ${orderLabel} has been placed!`, 'info', 5000, null, notifKey);
+                    }
                 }
-            }
 
-            // 3. Native notification if document is hidden
-            if (document.hidden && this.sendNativeNotification) {
-                const title = data.type === 'ORDER_STATUS_CHANGED' ? 'Order Update' : 'New Order';
-                const body = data.type === 'ORDER_STATUS_CHANGED' 
-                    ? `Order ${orderLabel} status is now ${data.status || 'Updated'}` 
-                    : `New Order ${orderLabel} placed!`;
-                this.sendNativeNotification(title, body, 'sync-' + Date.now(), false);
+                // 3. Native notification if document is hidden
+                if (document.hidden && this.sendNativeNotification) {
+                    const title = data.type === 'ORDER_STATUS_CHANGED' ? 'Order Update' : 'New Order';
+                    const body = data.type === 'ORDER_STATUS_CHANGED' 
+                        ? `Order ${orderLabel} status is now ${data.status || 'Updated'}` 
+                        : `New Order ${orderLabel} placed!`;
+                    this.sendNativeNotification(title, body, notifKey || ('sync-' + Date.now()), false);
+                }
             }
 
             // 4. Invalidate caches
@@ -848,12 +907,20 @@ const App = {
         }
     },
     
+    _proofCache: new Map(),
+
     async viewProof(orderId) {
         if (!orderId) { CustomToast.show("No payment proof provided", "error"); return; }
-        CustomToast.show("Loading receipt...", "loading", 10000, "proof-loading");
+
+        if (this._proofCache.has(orderId)) {
+            this._displayProofModal(orderId, this._proofCache.get(orderId));
+            return;
+        }
+
+        CustomToast.show("Loading receipt...", "loading", 6000, "proof-loading");
         
         try {
-            const res = await API.request('get_payment_proof', 'POST', { order_id: orderId });
+            const res = await API.request('get_payment_proof', 'POST', { order_id: orderId }, true);
             CustomToast.dismiss("proof-loading");
             if (res && res.payment_proof) {
                 let base64 = String(res.payment_proof).trim();
@@ -877,68 +944,75 @@ const App = {
                     }
                 }
 
-                State.viewedReceipts[orderId] = true;
-                API.request('admin_mark_receipt_viewed', 'POST', { order_id: orderId }).catch(() => {});
-                if (UI._currentView === 'admin_dashboard' && State.adminData?.orders) {
-                    const matched = State.adminData.orders.find(o => o.order_id == orderId);
-                    if (matched) matched.receipt_viewed = 1;
-                    const cardWrap = document.querySelector(`[data-accept-container-id="${orderId}"]`);
-                    if (cardWrap) {
-                        cardWrap.innerHTML = `
-                            <button type="button" onclick="App.updateOrderStatus(${orderId}, 'Preparing')" class="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-xs rounded-xl shadow-md shadow-blue-500/20 active:scale-[0.98] transition flex items-center justify-center gap-2">
-                                <i class="fa-solid fa-circle-check text-sm"></i>
-                                <span>Accept Order</span>
-                            </button>
-                        `;
-                    }
-                }
-
-                const modal = document.createElement('div');
-                modal.className = 'fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm opacity-0 transition-opacity duration-300';
-                modal.innerHTML = `
-                    <div class="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl scale-95 transition-transform duration-300 relative flex flex-col max-h-[90vh]">
-                        <button class="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700 transition" onclick="this.closest('.fixed').remove()"><i class="fa-solid fa-times"></i></button>
-                        <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><i class="fa-solid fa-receipt text-blue-500"></i> Payment Proof</h3>
-                        <div class="flex-1 overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-2 flex items-center justify-center min-h-[300px]">
-                            <img id="proof-image-display" class="max-w-full h-auto rounded-lg shadow-sm" alt="Payment Proof">
-                        </div>
-                        <div class="mt-4 flex flex-wrap justify-between items-center gap-3">
-                            <a id="proof-download-link" download="Receipt-Order-${orderId}.jpg" class="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 font-bold rounded-xl text-sm flex items-center gap-2 transition active:scale-95">
-                                <i class="fa-solid fa-download"></i> Save Receipt
-                            </a>
-                            <div class="flex items-center gap-2">
-                                ${(State.user?.type === 'admin') ? `
-                                    <button type="button" onclick="App.acceptOrderFromProof(${orderId})" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 transition active:scale-95 shadow-md shadow-emerald-500/20 cursor-pointer">
-                                        <i class="fa-solid fa-circle-check"></i> Accept Order
-                                    </button>
-                                ` : ''}
-                                <button class="btn btn-primary" onclick="this.closest('.fixed').remove()">Close</button>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                const proofImg = modal.querySelector('#proof-image-display');
-                proofImg.onerror = function() {
-                    this.onerror = null;
-                    this.parentElement.innerHTML = '<div class="text-center text-slate-500 p-8"><i class="fa-solid fa-image-slash text-4xl mb-3 opacity-50"></i><p>Image cannot be loaded or is corrupted.</p></div>';
-                };
-                proofImg.src = base64;
-                const dlLink = modal.querySelector('#proof-download-link');
-                if (dlLink) dlLink.href = base64;
-
-                document.body.appendChild(modal);
-                requestAnimationFrame(() => {
-                    modal.classList.remove('opacity-0');
-                    modal.querySelector('.scale-95').classList.remove('scale-95');
-                });
+                this._proofCache.set(orderId, base64);
+                this._displayProofModal(orderId, base64);
             } else {
-                CustomToast.show("No payment proof found for this order", "error");
+                CustomToast.show(res?.error || "No payment proof found for this order", "error");
             }
         } catch (e) {
             CustomToast.dismiss("proof-loading");
             console.error(e);
             CustomToast.show("Error loading payment proof", "error");
         }
+    },
+
+    _displayProofModal(orderId, base64) {
+        State.viewedReceipts[orderId] = true;
+        if (State.user?.type === 'admin') {
+            API.request('admin_mark_receipt_viewed', 'POST', { order_id: orderId }, true).catch(() => {});
+        }
+        if (UI._currentView === 'admin_dashboard' && State.adminData?.orders) {
+            const matched = State.adminData.orders.find(o => o.order_id == orderId);
+            if (matched) matched.receipt_viewed = 1;
+            const cardWrap = document.querySelector(`[data-accept-container-id="${orderId}"]`);
+            if (cardWrap) {
+                cardWrap.innerHTML = `
+                    <button type="button" onclick="App.updateOrderStatus(${orderId}, 'Preparing')" class="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-xs rounded-xl shadow-md shadow-blue-500/20 active:scale-[0.98] transition flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-circle-check text-sm"></i>
+                        <span>Accept Order</span>
+                    </button>
+                `;
+            }
+        }
+
+        const modal = document.createElement('div');
+        modal.className = 'fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm opacity-0 transition-opacity duration-300';
+        modal.innerHTML = `
+            <div class="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl scale-95 transition-transform duration-300 relative flex flex-col max-h-[90vh]">
+                <button class="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700 transition" onclick="this.closest('.fixed').remove()"><i class="fa-solid fa-times"></i></button>
+                <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><i class="fa-solid fa-receipt text-blue-500"></i> Payment Proof</h3>
+                <div class="flex-1 overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-2 flex items-center justify-center min-h-[300px]">
+                    <img id="proof-image-display" class="max-w-full h-auto rounded-lg shadow-sm" alt="Payment Proof">
+                </div>
+                <div class="mt-4 flex flex-wrap justify-between items-center gap-3">
+                    <a id="proof-download-link" download="Receipt-Order-${orderId}.jpg" class="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 font-bold rounded-xl text-sm flex items-center gap-2 transition active:scale-95">
+                        <i class="fa-solid fa-download"></i> Save Receipt
+                    </a>
+                    <div class="flex items-center gap-2">
+                        ${(State.user?.type === 'admin') ? `
+                            <button type="button" onclick="App.acceptOrderFromProof(${orderId})" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 transition active:scale-95 shadow-md shadow-emerald-500/20 cursor-pointer">
+                                <i class="fa-solid fa-circle-check"></i> Accept Order
+                            </button>
+                        ` : ''}
+                        <button class="btn btn-primary" onclick="this.closest('.fixed').remove()">Close</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        const proofImg = modal.querySelector('#proof-image-display');
+        proofImg.onerror = function() {
+            this.onerror = null;
+            this.parentElement.innerHTML = '<div class="text-center text-slate-500 p-8"><i class="fa-solid fa-image-slash text-4xl mb-3 opacity-50"></i><p>Image cannot be loaded or is corrupted.</p></div>';
+        };
+        proofImg.src = base64;
+        const dlLink = modal.querySelector('#proof-download-link');
+        if (dlLink) dlLink.href = base64;
+
+        document.body.appendChild(modal);
+        requestAnimationFrame(() => {
+            modal.classList.remove('opacity-0');
+            modal.querySelector('.scale-95').classList.remove('scale-95');
+        });
     },
     
     formatDate(dateString) {
@@ -1020,6 +1094,13 @@ const App = {
             }
 
             if (res.success) {
+                if (res.auth_token) {
+                    State.authToken = res.auth_token;
+                    try {
+                        sessionStorage.setItem('auth_token', res.auth_token);
+                        localStorage.setItem('auth_token', res.auth_token);
+                    } catch(e) {}
+                }
                 try {
                     localStorage.removeItem('cache_get_customer_orders');
                     localStorage.removeItem('cache_get_stations');
@@ -1030,6 +1111,7 @@ const App = {
                             logged_in: true,
                             type: type,
                             data: type === 'customer' ? res : res.admin,
+                            auth_token: res.auth_token || State.authToken,
                             csrf_token: res.csrf_token || State.csrfToken,
                             mapbox_token: State.mapboxToken
                         },
@@ -1154,7 +1236,7 @@ const App = {
                 </div>
                 <div class="flex items-center gap-1.5 truncate">
                     <i class="fa-solid fa-location-dot text-blue-500 text-[10px] shrink-0"></i>
-                    <span class="truncate text-slate-500">${escapeHtml(address)}</span>
+                    <span id="profile-identity-address-text" class="truncate text-slate-500">${escapeHtml(address)}</span>
                 </div>
             `;
 
@@ -1291,8 +1373,23 @@ const App = {
 
                         ${isCustomer ? `
                         <div>
-                            <div class="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5 px-1">Delivery Location (Mapbox)</div>
+                            <div class="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5 px-1">Delivery Location & Address</div>
                             <div class="bg-white rounded-2xl border border-slate-200/80 divide-y divide-slate-100 overflow-hidden shadow-xs">
+                                <button type="button" onclick="App.openChangeAddressModal()" class="w-full px-3.5 py-2.5 flex items-center justify-between hover:bg-blue-50/40 active:bg-blue-100/50 transition text-left cursor-pointer group">
+                                    <div class="flex items-center gap-3 min-w-0 flex-1">
+                                        <div class="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                                            <i class="fa-solid fa-house-chimney text-xs"></i>
+                                        </div>
+                                        <div class="min-w-0 flex-1 pr-2">
+                                            <div class="text-xs font-bold text-slate-800 group-hover:text-blue-600 transition-colors">Default Delivery Address</div>
+                                            <div id="profile-default-address-text" class="text-[10px] text-slate-500 font-medium truncate">${escapeHtml(State.user?.data?.address || State.userLocation?.address || 'No address set')}</div>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-1.5 shrink-0">
+                                        <span class="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100 group-hover:bg-blue-600 group-hover:text-white transition-colors">Edit</span>
+                                        <i class="fa-solid fa-chevron-right text-slate-300 text-xs group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all"></i>
+                                    </div>
+                                </button>
                                 <button type="button" onclick="App.openMapLocationModal({ title: 'Set Delivery Location', initialLat: State.userLocation?.lat, initialLng: State.userLocation?.lng, initialAddress: State.userLocation?.address || State.user?.data?.address, onSave: (pos) => App.saveCustomerLocation(pos.lat, pos.lng, pos.address) })" class="w-full px-3.5 py-2.5 flex items-center justify-between hover:bg-blue-50/40 active:bg-blue-100/50 transition text-left cursor-pointer group">
                                     <div class="flex items-center gap-3 min-w-0 flex-1">
                                         <div class="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 group-hover:bg-blue-600 group-hover:text-white transition-colors">
@@ -1300,7 +1397,7 @@ const App = {
                                         </div>
                                         <div class="min-w-0 flex-1">
                                             <div class="text-xs font-bold text-slate-800 group-hover:text-blue-600 transition-colors">Pin Delivery Coordinates</div>
-                                            <div class="text-[10px] text-slate-400 truncate">${State.userLocation?.lat ? `Lat: ${parseFloat(State.userLocation.lat).toFixed(4)}, Lng: ${parseFloat(State.userLocation.lng).toFixed(4)}` : 'Tap to pin your location on Mapbox'}</div>
+                                            <div class="text-[10px] text-slate-400 truncate">${State.userLocation?.lat ? `Lat: ${parseFloat(State.userLocation.lat).toFixed(4)}, Lng: ${parseFloat(State.userLocation.lng).toFixed(4)}` : 'Tap to pin your location on map'}</div>
                                         </div>
                                     </div>
                                     <i class="fa-solid fa-chevron-right text-slate-300 text-xs group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all shrink-0"></i>
@@ -1361,6 +1458,172 @@ const App = {
                 if (card) card.classList.remove('scale-95');
             }
         }, 15);
+    },
+
+    openChangeAddressModal() {
+        this.closeChangeAddressModal();
+        const currentAddr = State.user?.data?.address || State.userLocation?.address || '';
+        const modalDiv = document.createElement('div');
+        modalDiv.id = 'user-change-address-modal-container';
+        modalDiv.innerHTML = `
+            <div id="user-change-address-backdrop" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4 opacity-0 transition-opacity duration-200" onclick="if(event.target === this) App.closeChangeAddressModal()">
+                <div class="user-change-address-card bg-white rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-2xl shadow-blue-500/15 border border-blue-200/80 ring-2 ring-blue-500/30 transform scale-95 transition-all duration-200 relative">
+                    <div class="flex justify-between items-center mb-4">
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-sm shrink-0">
+                                <i class="fa-solid fa-house-chimney"></i>
+                            </div>
+                            <h3 class="font-black text-slate-800 text-base">Default Address</h3>
+                        </div>
+                        <button type="button" onclick="App.closeChangeAddressModal()" class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center transition active:scale-95 cursor-pointer" title="Close">
+                            <i class="fa-solid fa-xmark text-sm"></i>
+                        </button>
+                    </div>
+
+                    <form onsubmit="App.saveCustomerAddress(event)" class="space-y-4">
+                        <div>
+                            <label class="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-1.5 px-0.5">Street / House / Delivery Address</label>
+                            <textarea id="modal-customer-address-input" rows="3" required placeholder="e.g. Purok 3, Mababanaba, San Jose, Tarlac" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition text-xs sm:text-sm text-slate-800 font-medium">${escapeHtml(currentAddr)}</textarea>
+                            <p class="text-[10px] text-slate-400 mt-1 px-0.5">This address will be loaded automatically on checkout.</p>
+                        </div>
+
+                        <div class="flex items-center gap-2 pt-2">
+                            <button type="button" onclick="App.closeChangeAddressModal()" class="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition active:scale-95 cursor-pointer">
+                                Cancel
+                            </button>
+                            <button type="submit" id="btn-save-customer-address" class="flex-1 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition active:scale-95 shadow-md shadow-blue-500/20 cursor-pointer">
+                                Save Address
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modalDiv);
+
+        window._addressModalEscHandler = (e) => {
+            if (e.key === 'Escape') this.closeChangeAddressModal();
+        };
+        window.addEventListener('keydown', window._addressModalEscHandler);
+
+        requestAnimationFrame(() => {
+            const backdrop = document.getElementById('user-change-address-backdrop');
+            if (backdrop) {
+                backdrop.classList.remove('opacity-0');
+                const card = backdrop.querySelector('.user-change-address-card');
+                if (card) card.classList.remove('scale-95');
+                const textarea = document.getElementById('modal-customer-address-input');
+                if (textarea) {
+                    textarea.focus();
+                    textarea.select();
+                }
+            }
+        });
+    },
+
+    closeChangeAddressModal() {
+        const container = document.getElementById('user-change-address-modal-container');
+        if (!container) return;
+        if (window._addressModalEscHandler) {
+            window.removeEventListener('keydown', window._addressModalEscHandler);
+            window._addressModalEscHandler = null;
+        }
+        const backdrop = document.getElementById('user-change-address-backdrop');
+        if (backdrop) {
+            backdrop.classList.add('opacity-0');
+            const card = backdrop.querySelector('.user-change-address-card');
+            if (card) card.classList.add('scale-95');
+        }
+        setTimeout(() => {
+            if (container) container.remove();
+        }, 200);
+    },
+
+    async saveCustomerAddress(e) {
+        if (e && e.preventDefault) e.preventDefault();
+        const input = document.getElementById('modal-customer-address-input');
+        if (!input) return;
+        const newAddress = input.value.trim();
+        if (!newAddress) {
+            CustomToast.show('Please enter a delivery address.', 'error');
+            return;
+        }
+
+        const saveBtn = document.getElementById('btn-save-customer-address');
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Saving...';
+        }
+
+        try {
+            if (!State.authToken && typeof sessionStorage !== 'undefined') {
+                State.authToken = sessionStorage.getItem('auth_token') || localStorage.getItem('auth_token') || null;
+            }
+
+            const payload = { 
+                address: newAddress, 
+                customer_id: State.user?.data?.customer_id,
+                csrf_token: State.csrfToken 
+            };
+            if (State.authToken) {
+                payload.auth_token = State.authToken;
+            }
+
+            const res = await API.request('customer_update_address', 'POST', payload);
+            if (res && res.success) {
+                if (res.auth_token) {
+                    State.authToken = res.auth_token;
+                    try {
+                        sessionStorage.setItem('auth_token', res.auth_token);
+                        localStorage.setItem('auth_token', res.auth_token);
+                    } catch(e) {}
+                }
+
+                if (State.user && State.user.data) {
+                    State.user.data.address = newAddress;
+                }
+                if (!State.userLocation) State.userLocation = {};
+                State.userLocation.address = newAddress;
+
+                try {
+                    const raw = localStorage.getItem('cache_check_session');
+                    if (raw) {
+                        const cached = JSON.parse(raw);
+                        if (cached && cached.data && cached.data.data) {
+                            cached.data.data.address = newAddress;
+                            localStorage.setItem('cache_check_session', JSON.stringify(cached));
+                        }
+                    }
+                } catch(ign) {}
+
+                const addrLabel = document.getElementById('profile-default-address-text');
+                if (addrLabel) addrLabel.innerText = newAddress;
+                const identityAddr = document.getElementById('profile-identity-address-text');
+                if (identityAddr) identityAddr.innerText = newAddress;
+                const coAddr = document.getElementById('co-address');
+                if (coAddr) coAddr.value = newAddress;
+
+                CustomToast.show('Default address updated successfully!', 'success');
+                this.closeChangeAddressModal();
+            } else {
+                CustomToast.show(res?.error || 'Failed to update address.', 'error');
+            }
+        } catch (err) {
+            console.error('saveCustomerAddress error:', err);
+            if (err.message && (err.message.includes('Unauthorized') || err.message.includes('log in'))) {
+                CustomToast.show('Your session has expired. Please sign in to save your address.', 'warning');
+                setTimeout(() => {
+                    UI.navigate('login');
+                }, 1500);
+            } else {
+                CustomToast.show(err.message || 'Failed to update address.', 'error');
+            }
+        } finally {
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.innerText = 'Save Address';
+            }
+        }
     },
 
     async startChangePhoneFlow() {
@@ -1717,8 +1980,13 @@ const App = {
                         delete window.UI._prefetchCache['customer_dashboard'];
                     }
                     State.customerOrderTab = 'active';
-                    this.playNotificationChime();
-                    CustomToast.show('Quick Reorder placed successfully!', 'success');
+                    const placedOrderNum = res.station_order_number || res.order_id;
+                    if (placedOrderNum) {
+                        this.shouldNotify(`order-${placedOrderNum}`, 18000);
+                        this.shouldNotify(`order-${placedOrderNum}-Placed`, 18000);
+                    }
+                    this.playNotificationChime(`order-${placedOrderNum}`);
+                    CustomToast.show('Quick Reorder placed successfully!', 'success', 3000, `placed-${placedOrderNum}`);
                     this.broadcastOrderUpdate({
                         type: 'NEW_ORDER_PLACED',
                         station_order_number: res.station_order_number,
@@ -1835,7 +2103,7 @@ const App = {
     },
     
     recalculateTotal() {
-        const station = State.stations.find(s => s.station_id == State.selectedStation);
+        const station = (State.stations || []).find(s => s.station_id == State.selectedStation) || (State.stations || [])[0] || {};
         const subtotal = State.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         const totalQty = State.cart.reduce((sum, item) => sum + item.quantity, 0);
         const shippingFee = parseFloat(station.shipping_fee || 0);
@@ -1955,11 +2223,11 @@ const App = {
         if (method === 'GCash') {
             const fileInput = document.getElementById('co-receipt-gcash');
             if (fileInput.files.length === 0) { this.setLoading(btn, false); return CustomToast.show('Please upload your GCash receipt.', 'error'); }
-            proofBase64 = await this.getBase64(fileInput.files[0]);
+            proofBase64 = await this.compressImage(fileInput.files[0], 1200, 1200, 0.8);
         } else if (method === 'Maya') {
             const fileInput = document.getElementById('co-receipt-maya');
             if (fileInput.files.length === 0) { this.setLoading(btn, false); return CustomToast.show('Please upload your Maya receipt.', 'error'); }
-            proofBase64 = await this.getBase64(fileInput.files[0]);
+            proofBase64 = await this.compressImage(fileInput.files[0], 1200, 1200, 0.8);
         }
         
         const data = new FormData();
@@ -1989,8 +2257,13 @@ const App = {
                     delete window.UI._prefetchCache['customer_dashboard'];
                 }
                 State.customerOrderTab = 'active';
-                this.playNotificationChime();
-                CustomToast.show('Your order has been placed successfully.', 'success');
+                const placedOrderNum = res.station_order_number || res.order_id;
+                if (placedOrderNum) {
+                    this.shouldNotify(`order-${placedOrderNum}`, 18000);
+                    this.shouldNotify(`order-${placedOrderNum}-Placed`, 18000);
+                }
+                this.playNotificationChime(`order-${placedOrderNum}`);
+                CustomToast.show('Your order has been placed successfully.', 'success', 3000, `placed-${placedOrderNum}`);
                 this.broadcastOrderUpdate({
                     type: 'NEW_ORDER_PLACED',
                     station_order_number: res.station_order_number,
@@ -2329,8 +2602,8 @@ const App = {
         
         const gcashFile = document.getElementById('set_gcash_qr').files[0];
         const mayaFile = document.getElementById('set_maya_qr').files[0];
-        if(gcashFile) data.append('gcash_qr', await this.getBase64(gcashFile));
-        if(mayaFile) data.append('maya_qr', await this.getBase64(mayaFile));
+        if(gcashFile) data.append('gcash_qr', await this.compressImage(gcashFile, 600, 600, 0.85));
+        if(mayaFile) data.append('maya_qr', await this.compressImage(mayaFile, 600, 600, 0.85));
         
         try {
             await API.request('admin_update_payment_profile', 'POST', data);
@@ -2665,6 +2938,49 @@ const App = {
         }
     },
 
+
+    async compressImage(file, maxWidth = 800, maxHeight = 800, quality = 0.82) {
+        if (!file) return null;
+        if (!file.type || !file.type.startsWith('image/')) {
+            return this.getBase64(file);
+        }
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    let w = img.width;
+                    let h = img.height;
+                    if (w > maxWidth || h > maxHeight) {
+                        if (w > h) {
+                            h = Math.round((h * maxWidth) / w);
+                            w = maxWidth;
+                        } else {
+                            w = Math.round((w * maxHeight) / h);
+                            h = maxHeight;
+                        }
+                    }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w;
+                    canvas.height = h;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, w, h);
+                    let format = 'image/jpeg';
+                    try {
+                        const webpTest = canvas.toDataURL('image/webp');
+                        if (webpTest.startsWith('data:image/webp')) {
+                            format = 'image/webp';
+                        }
+                    } catch (err) {}
+                    resolve(canvas.toDataURL(format, quality));
+                };
+                img.onerror = () => resolve(e.target.result);
+                img.src = e.target.result;
+            };
+            reader.onerror = () => resolve(null);
+        });
+    },
 
     getBase64(file) {
         return new Promise((resolve, reject) => {
@@ -3005,6 +3321,20 @@ async function boot() {
                 mapboxgl.accessToken = res.mapbox_token;
             }
         }
+        if (res && res.csrf_token) {
+            State.csrfToken = res.csrf_token;
+            try {
+                sessionStorage.setItem('csrf_token', res.csrf_token);
+                localStorage.setItem('csrf_token', res.csrf_token);
+            } catch (ign) {}
+        }
+        if (res && res.auth_token) {
+            State.authToken = res.auth_token;
+            try {
+                sessionStorage.setItem('auth_token', res.auth_token);
+                localStorage.setItem('auth_token', res.auth_token);
+            } catch (ign) {}
+        }
         if (res && res.logged_in) {
             State.user = { type: res.type, data: res.data };
             try {
@@ -3047,6 +3377,7 @@ async function boot() {
                             State.mapboxToken = sData.mapbox_token;
                             if (typeof mapboxgl !== 'undefined') mapboxgl.accessToken = sData.mapbox_token;
                         }
+                        if (sData.csrf_token) State.csrfToken = sData.csrf_token;
                         if (window.UI && window.UI.updateOfflineState) window.UI.updateOfflineState(true);
                         const initialHash = window.location.hash.replace('#', '');
                         if (initialHash && UI.canAccessView(initialHash)) {
@@ -3080,6 +3411,7 @@ async function boot() {
                         State.mapboxToken = sData.mapbox_token;
                         if (typeof mapboxgl !== 'undefined') mapboxgl.accessToken = sData.mapbox_token;
                     }
+                    if (sData.csrf_token) State.csrfToken = sData.csrf_token;
                     if (sData.type === 'customer' && sData.data) {
                         if (sData.data.latitude && sData.data.longitude) {
                             State.userLocation = {
@@ -3204,22 +3536,31 @@ if ('serviceWorker' in navigator) {
         if (event.data && event.data.type === 'ORDER_PUSH_RECEIVED') {
             const payload = event.data.payload || {};
             
-            // Audible chime feedback
-            if (window.App && window.App.playNotificationChime) {
-                window.App.playNotificationChime();
-            }
+            const orderNumMatch = (payload.title || '').match(/#(\d+)/) || (payload.body || '').match(/#(\d+)/);
+            const extractedSon = orderNumMatch ? orderNumMatch[1] : null;
+            const notifKey = extractedSon ? `order-${extractedSon}` : (payload.title || 'push-order');
 
-            // Visible in-app toast notification with navigation callback
-            if (payload.title && typeof CustomToast !== 'undefined') {
-                const toastMsg = payload.body ? `${payload.title}\n${payload.body}` : payload.title;
-                CustomToast.show(toastMsg, 'info', 7000, () => {
-                    if (payload.url) {
-                        const hashPart = payload.url.split('#')[1];
-                        if (hashPart && window.UI && window.UI.navigate) {
-                            window.UI.navigate(hashPart);
+            // Deduplicate: if this order alert was already emitted or handled locally, suppress duplicate
+            const shouldAlert = window.App && window.App.shouldNotify ? window.App.shouldNotify(notifKey, 14000) : true;
+
+            if (shouldAlert) {
+                // Audible chime feedback
+                if (window.App && window.App.playNotificationChime) {
+                    window.App.playNotificationChime(notifKey);
+                }
+
+                // Visible in-app toast notification with navigation callback
+                if (payload.title && typeof CustomToast !== 'undefined') {
+                    const toastMsg = payload.body ? `${payload.title}\n${payload.body}` : payload.title;
+                    CustomToast.show(toastMsg, 'info', 7000, () => {
+                        if (payload.url) {
+                            const hashPart = payload.url.split('#')[1];
+                            if (hashPart && window.UI && window.UI.navigate) {
+                                window.UI.navigate(hashPart);
+                            }
                         }
-                    }
-                });
+                    }, notifKey);
+                }
             }
 
             if (window.UI && window.UI._prefetchCache) {
@@ -3237,9 +3578,6 @@ if ('serviceWorker' in navigator) {
             else if (/out for delivery|to deliver|delivery is on its way/i.test(textToInspect)) extractedStatus = 'To Deliver';
             else if (/delivered/i.test(textToInspect)) extractedStatus = 'Delivered';
             else if (/cancelled/i.test(textToInspect)) extractedStatus = 'Cancelled';
-
-            const orderNumMatch = (payload.title || '').match(/#(\d+)/) || (payload.body || '').match(/#(\d+)/);
-            const extractedSon = orderNumMatch ? orderNumMatch[1] : null;
 
             if (extractedStatus && extractedSon) {
                 if (State.myOrders && Array.isArray(State.myOrders)) {

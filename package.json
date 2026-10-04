@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Multi-tenant PWA for water refilling station management",
   "scripts": {
-    "build:css": "tailwindcss -i ./public/css/input.css -o ./public/css/tailwind.css --minify",
+    "build:css": "tailwindcss -i ./public/css/input.css -o ./public/css/tailwind.css --minify && node ./scripts/fix-css.js",
     "watch:css": "tailwindcss -i ./public/css/input.css -o ./public/css/tailwind.css --watch"
   },
   "devDependencies": {

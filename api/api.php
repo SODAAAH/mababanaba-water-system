@@ -40,6 +40,25 @@ if (strpos($httpHost, 'mbbnbwater.com') !== false) {
     $cookieDomain = '.mbbnbwater.com';
 }
 
+// Resilient cookie candidate resolution: if browser sends duplicate PHPSESSID cookies
+// (e.g. from host-only vs apex domain collisions), select the session that holds authenticated credentials.
+if (!empty($_SERVER['HTTP_COOKIE']) && preg_match_all('/PHPSESSID=([a-zA-Z0-9,-]+)/', $_SERVER['HTTP_COOKIE'], $cookieMatches)) {
+    $sessCandidates = array_unique($cookieMatches[1]);
+    if (count($sessCandidates) > 1) {
+        $sessDir = is_dir($session_dir) ? $session_dir : sys_get_temp_dir();
+        foreach ($sessCandidates as $cand) {
+            $sf = $sessDir . '/sess_' . $cand;
+            if (file_exists($sf)) {
+                $raw = @file_get_contents($sf);
+                if ($raw && (strpos($raw, 'customer_id') !== false || strpos($raw, 'admin_id') !== false)) {
+                    session_id($cand);
+                    break;
+                }
+            }
+        }
+    }
+}
+
 session_set_cookie_params([
     'lifetime' => $lifetime,
     'path' => '/',
@@ -50,6 +69,25 @@ session_set_cookie_params([
 ]);
 
 session_start();
+
+// Resilient session auto-healing via cryptographically signed Auth Token
+if (empty($_SESSION['customer_id']) && empty($_SESSION['admin_id'])) {
+    $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['HTTP_X_AUTH_TOKEN'] ?? $_POST['auth_token'] ?? '';
+    if (str_starts_with($authHeader, 'Bearer ')) {
+        $authHeader = substr($authHeader, 7);
+    }
+    if (!empty($authHeader)) {
+        $tokenData = SecurityContext::verifyAuthToken($authHeader);
+        if ($tokenData && !empty($tokenData['id'])) {
+            if (($tokenData['type'] ?? '') === 'customer') {
+                $_SESSION['customer_id'] = (int)$tokenData['id'];
+            } elseif (($tokenData['type'] ?? '') === 'admin') {
+                $_SESSION['admin_id'] = (int)$tokenData['id'];
+            }
+        }
+    }
+}
+
 header("Content-Type: application/json; charset=utf-8");
 header("X-Content-Type-Options: nosniff");
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
@@ -83,6 +121,7 @@ $readOnlyActions = [
     'ping',
     'get_payment_proof',
     'get_stations',
+    'get_station_payment_info',
     'get_customer_orders',
     'sa_get_stations',
     'sa_get_users',
@@ -91,13 +130,24 @@ $readOnlyActions = [
     'get_sales_report',
     'get_admin_loyalty',
     'get_vapid_public_key',
-    'get_mapbox_token'
+    'get_mapbox_token',
+    'get_csrf_token'
 ];
 
 if (!in_array($action, $readOnlyActions, true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['error' => 'Method Not Allowed. This action requires a POST request.']);
     exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($_POST)) {
+    $rawInput = file_get_contents('php://input');
+    if (!empty($rawInput)) {
+        $jsonDecoded = json_decode($rawInput, true);
+        if (is_array($jsonDecoded)) {
+            $_POST = $jsonDecoded;
+        }
+    }
 }
 
 if (empty($_SESSION['csrf_token'])) {
@@ -113,16 +163,43 @@ $csrfExempt = [
     'reset_password_submit',
     'logout',
     'get_vapid_public_key',
-    'get_mapbox_token'
+    'get_mapbox_token',
+    'get_csrf_token'
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !in_array($action, $csrfExempt, true)) {
-    $clientToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    $clientToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? $_POST['csrf_token'] ?? $_GET['csrf_token'] ?? '';
+
+    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+    $referer = $_SERVER['HTTP_REFERER'] ?? '';
+    $reqHost = parse_url($origin ?: $referer, PHP_URL_HOST);
+    $isSameOrigin = false;
+    if (!empty($reqHost)) {
+        if ($reqHost === 'mbbnbwater.com' || str_ends_with($reqHost, '.mbbnbwater.com') || $reqHost === 'localhost' || $reqHost === '127.0.0.1') {
+            $isSameOrigin = true;
+        }
+    }
 
     if (!hash_equals($_SESSION['csrf_token'], $clientToken)) {
-        http_response_code(403);
-        echo json_encode(['error' => 'Invalid CSRF token. Refresh the page and try again.']);
-        exit;
+        // Bearer tokens in Authorization header provide standard CSRF immunity for API / PWA requests
+        $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['HTTP_X_AUTH_TOKEN'] ?? '';
+        $isBearerAuth = false;
+        if (!empty($authHeader)) {
+            $tokenStr = str_starts_with($authHeader, 'Bearer ') ? substr($authHeader, 7) : $authHeader;
+            $tokenPayload = SecurityContext::verifyAuthToken($tokenStr);
+            if ($tokenPayload && !empty($tokenPayload['id'])) {
+                $isBearerAuth = true;
+            }
+        }
+
+        if (!$isBearerAuth) {
+            http_response_code(403);
+            echo json_encode([
+                'error' => 'Invalid or expired CSRF token. Please refresh and try again.',
+                'csrf_token' => $_SESSION['csrf_token']
+            ]);
+            exit;
+        }
     }
 }
 
@@ -132,8 +209,11 @@ try {
     $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
     $pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
     $pdo->exec("SET time_zone = '+08:00'");
+    try {
+        $pdo->exec("SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY',''))");
+    } catch (PDOException $ignoreSqlMode) {}
 
-    if (!file_exists(__DIR__ . '/.migrated_v7')) {
+    if (!file_exists(__DIR__ . '/.migrated_v9')) {
         require_once __DIR__ . '/migrations.php';
         run_migrations($pdo);
     }
@@ -146,16 +226,6 @@ try {
 }
 
 OrderHelper::autoCancelExpiredOrders($pdo);
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($_POST)) {
-    $rawInput = file_get_contents('php://input');
-    if (!empty($rawInput)) {
-        $jsonDecoded = json_decode($rawInput, true);
-        if (is_array($jsonDecoded)) {
-            $_POST = $jsonDecoded;
-        }
-    }
-}
 
 $rate_limit_actions = ['customer_login', 'customer_register', 'verify_registration_otp', 'forgot_password_request', 'reset_password_submit', 'request_password_change_otp', 'change_password_submit', 'request_phone_change_otp', 'change_phone_submit', 'admin_login'];
 $ip = $_SERVER['REMOTE_ADDR'] ?? '';
@@ -214,11 +284,31 @@ switch ($action) {
                     $loyaltyStmt = $pdo->prepare("SELECT IFNULL(SUM(points), 0) as total_points, IFNULL(SUM(lifetime_points), 0) as lifetime_points FROM CUSTOMER_LOYALTY WHERE customer_id = ?");
                     $loyaltyStmt->execute([$_SESSION['customer_id']]);
                     $loyaltyData = $loyaltyStmt->fetch();
-                    $c['total_points'] = (int)($loyaltyData['total_points'] ?? 0);
-                    $c['lifetime_points'] = (int)($loyaltyData['lifetime_points'] ?? 0);
+                    $totPts = (int)($loyaltyData['total_points'] ?? 0);
+                    $totLife = (int)($loyaltyData['lifetime_points'] ?? 0);
 
+                    if ($totPts === 0) {
+                        $orderPtsStmt = $pdo->prepare("SELECT GREATEST(0, (IFNULL(SUM(quantity), 0) * 2) - IFNULL(SUM(points_used), 0)) as tot_pts, (IFNULL(SUM(quantity), 0) * 3) as tot_life FROM ORDERS WHERE customer_id = ? AND order_status = 'Delivered'");
+                        $orderPtsStmt->execute([$_SESSION['customer_id']]);
+                        if ($ordPts = $orderPtsStmt->fetch()) {
+                            $totPts = max($totPts, (int)($ordPts['tot_pts'] ?? 0));
+                            $totLife = max($totLife, (int)($ordPts['tot_life'] ?? 0));
+                        }
+                    }
+
+                    $c['total_points'] = $totPts;
+                    $c['lifetime_points'] = $totLife;
+
+                    $authToken = SecurityContext::generateAuthToken((int)$_SESSION['customer_id'], 'customer');
                     $pdo->prepare("UPDATE CUSTOMER SET last_active = CURRENT_TIMESTAMP WHERE customer_id = ?")->execute([$_SESSION['customer_id']]);
-                    echo json_encode(['logged_in' => true, 'type' => 'customer', 'data' => $c, 'csrf_token' => $_SESSION['csrf_token'], 'mapbox_token' => MAPBOX_ACCESS_TOKEN]); 
+                    echo json_encode([
+                        'logged_in' => true, 
+                        'type' => 'customer', 
+                        'data' => $c, 
+                        'auth_token' => $authToken,
+                        'csrf_token' => $_SESSION['csrf_token'], 
+                        'mapbox_token' => MAPBOX_ACCESS_TOKEN
+                    ]); 
                     exit;
                 }
             } elseif (isset($_SESSION['admin_id'])) {
@@ -228,7 +318,15 @@ switch ($action) {
                     $_SESSION['station_id'] = $a['station_id'];
                     $_SESSION['role'] = $a['role'];
                     unset($a['password'], $a['otp_code'], $a['otp_expiry'], $a['new_temp_contact'], $a['failed_otp_attempts']);
-                    echo json_encode(['logged_in' => true, 'type' => 'admin', 'data' => $a, 'csrf_token' => $_SESSION['csrf_token'], 'mapbox_token' => MAPBOX_ACCESS_TOKEN]); 
+                    $authToken = SecurityContext::generateAuthToken((int)$_SESSION['admin_id'], 'admin');
+                    echo json_encode([
+                        'logged_in' => true, 
+                        'type' => 'admin', 
+                        'data' => $a, 
+                        'auth_token' => $authToken,
+                        'csrf_token' => $_SESSION['csrf_token'], 
+                        'mapbox_token' => MAPBOX_ACCESS_TOKEN
+                    ]); 
                     exit; 
                 }
             }
@@ -327,7 +425,9 @@ switch ($action) {
     case 'place_order': getCustomerController($pdo)->placeOrder(); break;
     case 'get_customer_orders': getCustomerController($pdo)->getOrders(); break;
     case 'customer_update_location': getCustomerController($pdo)->updateLocation(); break;
+    case 'customer_update_address': getCustomerController($pdo)->updateAddress(); break;
     case 'submit_review': getCustomerController($pdo)->submitReview(); break;
+    case 'get_station_payment_info': getCustomerController($pdo)->getStationPaymentInfo(); break;
 
     case 'admin_login': getAdminController($pdo)->login(); break;
     case 'sa_get_stations': getAdminController($pdo)->saGetStations(); break;
@@ -362,6 +462,10 @@ switch ($action) {
     case 'get_admin_loyalty': getAdminController($pdo)->getAdminLoyalty(); break;
     case 'update_order_status': getAdminController($pdo)->updateOrderStatus(); break;
     case 'admin_mark_receipt_viewed': getAdminController($pdo)->adminMarkReceiptViewed(); break;
+
+    case 'get_csrf_token':
+        echo json_encode(['csrf_token' => $_SESSION['csrf_token']]);
+        exit;
 
     case 'get_mapbox_token':
         echo json_encode(['mapbox_token' => MAPBOX_ACCESS_TOKEN]);
@@ -403,7 +507,7 @@ switch ($action) {
         $pushResult = null;
         if ($testPush) {
             $pushResult = WebPush::sendPush($endpoint, $p256dh, $auth, [
-                'title' => '💧 Notifications Enabled!',
+                'title' => 'Notifications Enabled!',
                 'body' => 'You will now receive instant order updates on your lock screen.',
                 'url' => '/#customer_orders'
             ]);

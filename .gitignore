@@ -13,8 +13,14 @@ api/sessions/*
 !api/sessions/.gitkeep
 !api/sessions/.htaccess
 
-# Runtime migration lock files
+# User uploads
+public/uploads/qr/*
+!public/uploads/qr/.gitkeep
+
+# Runtime migration lock files & secrets
 api/.migrated*
+.secret_key
+api/.secret_key
 
 # Logs & scratch debug files
 *.log
@@ -25,7 +31,9 @@ tests/error_log
 
 # Local development & testing (not part of core system)
 tests/
-scripts/
+scripts/*
+!scripts/fix-css.js
+!scripts/migrate.php
 deploy/
 scratch/
 
@@ -35,6 +43,8 @@ Thumbs.db
 .vscode/
 .idea/
 .agents/
+*.docx
+*.pdf
 
 
 

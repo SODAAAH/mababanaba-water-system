@@ -47,16 +47,19 @@ class DeliveryStaffController {
             SecurityContext::jsonResponse(400, ['error' => 'Invalid order status.']);
         }
         
+        $this->pdo->beginTransaction();
         try {
             $stmtOrder = $this->pdo->prepare("SELECT o.order_status, o.customer_id, o.station_order_number, o.payment_method, c.full_name, c.contact_number, c.last_active FROM ORDERS o JOIN CUSTOMER c ON o.customer_id = c.customer_id WHERE o.order_id = ? AND o.station_id = ? FOR UPDATE"); 
             $stmtOrder->execute([$oid, $sid]);
             $oInfo = $stmtOrder->fetch();
             
             if (!$oInfo) {
+                $this->pdo->rollBack();
                 SecurityContext::jsonResponse(404, ['error' => 'Order not found for your station.']);
             }
 
             if ($oInfo['order_status'] === $status) {
+                $this->pdo->rollBack();
                 SecurityContext::jsonResponse(200, [
                     'success' => true,
                     'message' => "Order #{$oid} is already {$status}.",
@@ -64,18 +67,21 @@ class DeliveryStaffController {
                 ]);
             }
             if (in_array($oInfo['order_status'], ['Delivered', 'Cancelled'], true)) {
+                $this->pdo->rollBack();
                 SecurityContext::jsonResponse(400, [
                     'error' => "Order #{$oid} is already {$oInfo['order_status']} and cannot be changed to {$status}."
                 ]);
             }
 
             if ($oInfo['order_status'] === 'Pending' && $status !== 'Preparing') {
+                $this->pdo->rollBack();
                 SecurityContext::jsonResponse(400, [
                     'error' => "Order #{$oid} must be accepted before its status can be changed."
                 ]);
             }
 
             if ($status === 'Pending') {
+                $this->pdo->rollBack();
                 SecurityContext::jsonResponse(400, [
                     'error' => "Order status cannot be reverted to Pending."
                 ]);
@@ -160,34 +166,38 @@ class DeliveryStaffController {
                 }
             }
             
-            $pushTitle = "💧 Order #{$son} Update";
-            $pushBody = "Your order status has been updated to {$status}.";
-            if ($status === 'Preparing') {
-                $pushTitle = "🧪 Order #{$son} Being Prepared";
-                $pushBody = "Your water refilling order is now being prepared.";
-            } elseif ($status === 'To Deliver') {
-                $pushTitle = "🛵 Order #{$son} Out for Delivery!";
-                $pushBody = "Your delivery is on its way! Please expect the driver shortly.";
-            } elseif ($status === 'Delivered') {
-                $pushTitle = "🎉 Order #{$son} Delivered!";
-                $pushBody = "Your water has been delivered. Thank You!";
-            } elseif ($status === 'Cancelled') {
-                $pushTitle = "⚠️ Order #{$son} Cancelled";
-                $pushBody = "Your order has been cancelled by the station.";
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
             }
+            error_log("Delivery status update failed: " . $e->getMessage());
+            SecurityContext::jsonResponse(500, ['error' => 'Failed to update order status. Please try again.']);
+        }
 
-            WebPush::flushFastResponse(['success' => true]);
+        $pushTitle = "Order #{$son} Update";
+        $pushBody = "Your order status has been updated to {$status}.";
+        if ($status === 'Preparing') {
+            $pushTitle = "Order #{$son} Being Prepared";
+            $pushBody = "Your water refilling order is now being prepared.";
+        } elseif ($status === 'To Deliver') {
+            $pushTitle = "Order #{$son} Out for Delivery!";
+            $pushBody = "Your delivery is on its way! Please expect the driver shortly.";
+        } elseif ($status === 'Delivered') {
+            $pushTitle = "Order #{$son} Delivered!";
+            $pushBody = "Your water has been delivered. Thank You!";
+        } elseif ($status === 'Cancelled') {
+            $pushTitle = "Order #{$son} Cancelled";
+            $pushBody = "Your order has been cancelled by the station.";
+        }
 
-            WebPush::sendToCustomer($this->pdo, $oInfo['customer_id'], $pushTitle, $pushBody, '/#customer_orders');
-            if ($status === 'To Deliver') {
-                WebPush::sendToStationAdmins($this->pdo, $sid, "🛵 Order #{$son} Out for Delivery", "Order #{$son} has been dispatched for delivery.", '/#delivery_dashboard');
-            } elseif (($admin['role'] ?? '') === 'Delivery Staff' && in_array($status, ['Delivered', 'Cancelled'], true)) {
-                WebPush::sendToStationAdmins($this->pdo, $sid, "📋 Order #{$son} {$status}", "Order was marked {$status} by {$admin['username']}.", '/#admin_dashboard');
-            }
-            exit;
-        } catch (PDOException $e) { 
-            error_log($e->getMessage()); 
-            echo json_encode(['error' => 'Failed to update order status']); 
+        WebPush::flushFastResponse(['success' => true]);
+
+        WebPush::sendToCustomer($this->pdo, $oInfo['customer_id'], $pushTitle, $pushBody, '/#customer_orders');
+        if ($status === 'To Deliver') {
+            WebPush::sendToStationAdmins($this->pdo, $sid, "Order #{$son} Out for Delivery", "Order #{$son} has been dispatched for delivery.", '/#delivery_dashboard');
+        } elseif (($admin['role'] ?? '') === 'Delivery Staff' && in_array($status, ['Delivered', 'Cancelled'], true)) {
+            WebPush::sendToStationAdmins($this->pdo, $sid, "Order #{$son} {$status}", "Order was marked {$status} by {$admin['username']}.", '/#admin_dashboard');
         }
         exit;
     }

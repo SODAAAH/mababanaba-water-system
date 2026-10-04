@@ -6,7 +6,7 @@ const API = {
             const toRemove = [];
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
-                if (key && (key.startsWith('cache_') || key.startsWith('mbbnb_') || key.includes('session'))) {
+                if (key && (key.startsWith('cache_') || key.startsWith('mbbnb_') || key.includes('session') || key === 'auth_token')) {
                     toRemove.push(key);
                 }
             }
@@ -20,7 +20,29 @@ const API = {
         return typeof navigator !== 'undefined' && !navigator.onLine;
     },
 
-    async request(action, method = 'GET', data = null, silent = false) {
+    async refreshCsrfToken() {
+        try {
+            const res = await fetch(`${this.base}?action=get_csrf_token&_t=${Date.now()}`, {
+                credentials: 'same-origin',
+                headers: { 'Cache-Control': 'no-cache' }
+            });
+            const text = await res.text();
+            const data = JSON.parse(text);
+            if (data && data.csrf_token) {
+                State.csrfToken = data.csrf_token;
+                try {
+                    sessionStorage.setItem('csrf_token', data.csrf_token);
+                    localStorage.setItem('csrf_token', data.csrf_token);
+                } catch(e) {}
+                return data.csrf_token;
+            }
+        } catch(e) {
+            console.warn('Failed to refresh CSRF token:', e);
+        }
+        return null;
+    },
+
+    async request(action, method = 'GET', data = null, silent = false, isRetry = false) {
         const cleanActionKey = 'cache_' + action.replace(/&_t=\d+/, '');
 
         // Intercept mutations if client is strictly offline
@@ -44,7 +66,7 @@ const API = {
                     if (window.UI && window.UI.updateOfflineState) {
                         window.UI.updateOfflineState(true);
                     }
-                    console.warn('⚡ Offline mode active. Serving directly from offline cache for action:', action);
+                    console.warn('[Offline] Mode active. Serving directly from offline cache for action:', action);
                     return data;
                 } catch (e) {
                     console.warn('Failed to parse cached entry for:', cleanActionKey);
@@ -58,20 +80,45 @@ const API = {
             credentials: 'same-origin' 
         };
 
+        if (!State.authToken && typeof sessionStorage !== 'undefined') {
+            State.authToken = sessionStorage.getItem('auth_token') || localStorage.getItem('auth_token') || null;
+        }
+
+        if (State.authToken) {
+            options.headers['Authorization'] = `Bearer ${State.authToken}`;
+            options.headers['X-Auth-Token'] = State.authToken;
+        }
+
+        if (!State.csrfToken && typeof sessionStorage !== 'undefined') {
+            State.csrfToken = sessionStorage.getItem('csrf_token') || localStorage.getItem('csrf_token') || null;
+        }
+
         if (State.csrfToken && method !== 'GET') {
             options.headers['X-CSRF-TOKEN'] = State.csrfToken;
         }
 
         if (data) {
             if (data instanceof FormData) {
+                if (State.csrfToken && !data.has('csrf_token')) {
+                    data.append('csrf_token', State.csrfToken);
+                }
                 options.body = data;
             } else if (typeof URLSearchParams !== 'undefined' && data instanceof URLSearchParams) {
+                if (State.csrfToken && !data.has('csrf_token')) {
+                    data.append('csrf_token', State.csrfToken);
+                }
                 options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
                 options.body = data.toString();
             } else if (typeof data === 'string') {
                 options.headers['Content-Type'] = 'application/json';
                 options.body = data;
             } else {
+                if (State.csrfToken && typeof data === 'object' && !Array.isArray(data) && !data.csrf_token) {
+                    data.csrf_token = State.csrfToken;
+                }
+                if (State.authToken && typeof data === 'object' && !Array.isArray(data) && !data.auth_token) {
+                    data.auth_token = State.authToken;
+                }
                 options.headers['Content-Type'] = 'application/json';
                 options.body = JSON.stringify(data);
             }
@@ -87,7 +134,41 @@ const API = {
                     const errJson = JSON.parse(errTxt);
                     if (errJson && errJson.error) errMsg = errJson.error;
                     if (errJson && errJson.message) errMsg = errJson.message;
+                    if (errJson && errJson.csrf_token) {
+                        State.csrfToken = errJson.csrf_token;
+                        try {
+                            sessionStorage.setItem('csrf_token', errJson.csrf_token);
+                            localStorage.setItem('csrf_token', errJson.csrf_token);
+                        } catch(e) {}
+                    }
                 } catch(ign) {}
+
+                // Transparent CSRF token recovery
+                if (res.status === 403 && errMsg.toLowerCase().includes('csrf') && !isRetry) {
+                    console.warn('[CSRF] Token invalid or expired. Refreshing token and retrying action...');
+                    const freshToken = await this.refreshCsrfToken();
+                    if (freshToken) {
+                        return this.request(action, method, data, silent, true);
+                    }
+                }
+
+                // Transparent Session Auto-Recovery on 401 via persistent Auth Token
+                if (res.status === 401 && !isRetry) {
+                    const savedAuthToken = State.authToken || (typeof sessionStorage !== 'undefined' ? (sessionStorage.getItem('auth_token') || localStorage.getItem('auth_token')) : null);
+                    if (savedAuthToken) {
+                        console.warn('[Auth] 401 received. Attempting session restoration via auth token...');
+                        try {
+                            const refreshRes = await this.request('check_session', 'GET', null, true, true);
+                            if (refreshRes && refreshRes.logged_in) {
+                                console.log('[Auth] Session restored successfully! Retrying action:', action);
+                                return this.request(action, method, data, silent, true);
+                            }
+                        } catch (refreshErr) {
+                            console.warn('Session refresh attempt failed:', refreshErr);
+                        }
+                    }
+                }
+
                 if (errMsg.includes('Imunify360') || errMsg.includes('bot-protection')) {
                     errMsg = "Access temporarily flagged by server security (Imunify360). Please whitelist your IP in cPanel or wait a few moments.";
                 }
@@ -117,7 +198,20 @@ const API = {
             try {
                 const json = JSON.parse(text);
                 if (json && json.error) throw new Error("API_ERR:" + json.error);
-                if (json && json.csrf_token) State.csrfToken = json.csrf_token;
+                if (json && json.csrf_token) {
+                    State.csrfToken = json.csrf_token;
+                    try {
+                        sessionStorage.setItem('csrf_token', json.csrf_token);
+                        localStorage.setItem('csrf_token', json.csrf_token);
+                    } catch(e) {}
+                }
+                if (json && json.auth_token) {
+                    State.authToken = json.auth_token;
+                    try {
+                        sessionStorage.setItem('auth_token', json.auth_token);
+                        localStorage.setItem('auth_token', json.auth_token);
+                    } catch(e) {}
+                }
 
                 // Cache successful GET responses for instant offline and resilient access
                 const actionBase = action.split('&')[0];
@@ -249,7 +343,7 @@ const API = {
                         if (window.UI && window.UI.updateOfflineState) {
                             window.UI.updateOfflineState(true);
                         }
-                        console.warn('⚡ Network unavailable. Serving from offline cache for action:', action);
+                        console.warn('[Offline] Network unavailable. Serving from offline cache for action:', action);
                         return data;
                     } catch (e) {
                         console.warn('Failed to parse cached entry for:', cleanActionKey);

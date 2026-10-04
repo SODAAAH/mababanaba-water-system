@@ -42,3 +42,4 @@ define('VAPID_PRIVATE_KEY', $_ENV['VAPID_PRIVATE_KEY'] ?? '');
 define('VAPID_SUBJECT', $_ENV['VAPID_SUBJECT'] ?? '');
 define('CRON_SECRET', $_ENV['CRON_SECRET'] ?? '');
 define('MAPBOX_ACCESS_TOKEN', $_ENV['MAPBOX_ACCESS_TOKEN'] ?? '');
+define('APP_SECRET_KEY', $_ENV['APP_SECRET_KEY'] ?? '');

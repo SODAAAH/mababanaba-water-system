@@ -173,7 +173,7 @@ const CustomDialog = {
 const CustomToast = {
     _activeToasts: new Map(),
 
-    show(message, type = 'success', duration = 2500, key = null) {
+    show(message, type = 'success', duration = 2500, actionOrCallbackOrKey = null, explicitKey = null) {
         let container = document.getElementById('toast-container');
         if (!container) {
             container = document.createElement('div');
@@ -182,7 +182,27 @@ const CustomToast = {
             document.body.appendChild(container);
         }
 
-        const toastKey = key || message;
+        let onClick = null;
+        let toastKey = null;
+        if (typeof actionOrCallbackOrKey === 'function') {
+            onClick = actionOrCallbackOrKey;
+            toastKey = explicitKey || null;
+        } else if (typeof actionOrCallbackOrKey === 'string') {
+            toastKey = actionOrCallbackOrKey;
+            if (typeof explicitKey === 'function') onClick = explicitKey;
+        } else if (explicitKey) {
+            toastKey = explicitKey;
+        }
+
+        if (!toastKey) {
+            const orderMatch = (typeof message === 'string') ? message.match(/#(\d+)/) : null;
+            if (orderMatch) {
+                toastKey = `order-${orderMatch[1]}`;
+            } else {
+                toastKey = String(message);
+            }
+        }
+
         let toast = this._activeToasts.get(toastKey);
 
         let icon = '<i class="fa-solid fa-circle-info text-blue-500"></i>';
@@ -198,11 +218,19 @@ const CustomToast = {
             icon = '<i class="fa-solid fa-circle-info text-blue-500"></i>';
         }
 
+        // Format message with title and subtitle if newline exists
+        let formattedInner = '';
+        if (typeof message === 'string' && message.includes('\n')) {
+            const parts = message.split('\n');
+            const titlePart = escapeHtml(parts[0]);
+            const bodyPart = escapeHtml(parts.slice(1).join(' '));
+            formattedInner = `<div class="shrink-0 text-xl">${icon}</div><div class="flex-1 min-w-0 pr-1"><div class="font-bold text-slate-800 text-sm leading-tight">${titlePart}</div><div class="text-xs font-normal text-slate-600 mt-0.5 leading-snug line-clamp-2">${bodyPart}</div></div>${onClick ? '<i class="fa-solid fa-chevron-right text-xs text-slate-400 shrink-0 ml-1"></i>' : ''}`;
+        } else {
+            formattedInner = `<div class="shrink-0 text-lg">${icon}</div><span class="toast-msg break-words leading-tight flex-1 min-w-0">${escapeHtml(message)}</span>${onClick ? '<i class="fa-solid fa-chevron-right text-xs text-slate-400 shrink-0 ml-1"></i>' : ''}`;
+        }
+
         if (toast && toast.parentNode === container) {
-            const msgSpan = toast.querySelector('.toast-msg');
-            if (msgSpan) msgSpan.innerHTML = escapeHtml(message);
-            const iconDiv = toast.querySelector('.shrink-0');
-            if (iconDiv) iconDiv.innerHTML = icon;
+            toast.innerHTML = formattedInner;
             toast.classList.remove('scale-100');
             toast.classList.add('scale-105');
             setTimeout(() => toast.classList.remove('scale-105'), 150);
@@ -218,7 +246,8 @@ const CustomToast = {
             return;
         }
 
-        while (container.children.length >= 2) {
+        // Keep maximum of 1 toast on screen so they never stack awkwardly
+        while (container.children.length >= 1) {
             const oldToast = container.firstChild;
             if (oldToast && oldToast._key) CustomToast._activeToasts.delete(oldToast._key);
             container.removeChild(oldToast);
@@ -226,8 +255,15 @@ const CustomToast = {
 
         toast = document.createElement('div');
         toast._key = toastKey;
-        toast.className = 'bg-white/95 backdrop-blur-md border border-slate-100 shadow-xl rounded-2xl px-4 py-2.5 flex items-center gap-3 text-sm font-bold text-slate-800 transform -translate-y-10 opacity-0 transition-all duration-200 pointer-events-auto w-max max-w-full';
-        toast.innerHTML = `<div class="shrink-0 text-lg">${icon}</div> <span class="toast-msg break-words leading-tight">${escapeHtml(message)}</span>`;
+        toast.className = 'bg-white/95 backdrop-blur-md border border-slate-100 shadow-xl rounded-2xl px-4 py-2.5 flex items-center gap-3 text-sm font-bold text-slate-800 transform -translate-y-10 opacity-0 transition-all duration-200 pointer-events-auto w-max max-w-full' + (onClick ? ' cursor-pointer hover:bg-slate-50 active:scale-95' : '');
+        toast.innerHTML = formattedInner;
+
+        if (onClick) {
+            toast.addEventListener('click', () => {
+                try { onClick(); } catch(e) {}
+                CustomToast.dismiss(toastKey);
+            });
+        }
         
         container.appendChild(toast);
         this._activeToasts.set(toastKey, toast);
@@ -250,12 +286,14 @@ const CustomToast = {
     dismiss(key) {
         if (!key) {
             this._activeToasts.forEach((toast, k) => {
+                if (toast._timeout) clearTimeout(toast._timeout);
                 toast.classList.add('-translate-y-10', 'opacity-0');
                 setTimeout(() => {
                     if (toast.parentNode) toast.parentNode.removeChild(toast);
                     CustomToast._activeToasts.delete(k);
                 }, 200);
             });
+            this._activeToasts.clear();
             return;
         }
         const toast = this._activeToasts.get(key);
@@ -611,6 +649,10 @@ const UI = {
                 } catch(ce) {}
             }
             State.csrfToken = null;
+            try {
+                sessionStorage.removeItem('csrf_token');
+                localStorage.removeItem('csrf_token');
+            } catch(e) {}
             this.navigate('login', 'replace');
             API.request('check_session').catch(() => {});
         }
@@ -1135,7 +1177,7 @@ const UI = {
                         <button type="button" onclick="App.locateCustomer(true)" class="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition active:scale-95 shadow-sm shadow-blue-500/20 flex items-center gap-1.5 cursor-pointer">
                             <i class="fa-solid fa-location-arrow"></i> Detect Nearest Station
                         </button>
-                        <button type="button" onclick="App.openMapLocationModal({ title: 'Pin Your Location', onSave: (pos) => App.saveCustomerLocation(pos.lat, pos.lng, pos.address) })" class="px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs border border-slate-200 transition active:scale-95 cursor-pointer">
+                        <button type="button" onclick="App.openMapLocationModal({ title: 'Pin Your Location', initialLat: 15.5056, initialLng: 120.4462, initialAddress: 'Mababanaba, San Jose, Tarlac', onSave: (pos) => App.saveCustomerLocation(pos.lat, pos.lng, pos.address) })" class="px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs border border-slate-200 transition active:scale-95 cursor-pointer">
                             <i class="fa-solid fa-map-pin"></i> Pin Map
                         </button>
                     </div>
@@ -1191,9 +1233,37 @@ const UI = {
         } else {
             stations.forEach(s => {
                 const isClosed = s.status !== 'Active';
-                const stRank = App.getLoyaltyRank(s.user_lifetime_points || s.user_points || 0);
+                let stPts = parseInt(s.user_points || 0);
+                let stLifePts = parseInt(s.user_lifetime_points || s.user_points || 0);
+
+                if (stPts === 0 && orders && orders.length > 0) {
+                    const stOrders = orders.filter(o => (o.station_id == s.station_id || (!o.station_id && s.station_id == 1)) && o.order_status === 'Delivered');
+                    if (stOrders.length > 0) {
+                        let jugs = 0;
+                        let used = 0;
+                        stOrders.forEach(o => {
+                            jugs += parseInt(o.quantity || 1);
+                            used += parseInt(o.points_used || 0);
+                        });
+                        stPts = Math.max(stPts, (jugs * 2) - used);
+                        stLifePts = Math.max(stLifePts, jugs * 3, stPts);
+                    }
+                }
+
+                if (stPts === 0 && stLifePts === 0 && userTotalPts > 0) {
+                    const hasOrdersAtOtherStations = (orders || []).some(o => o.station_id && o.station_id != s.station_id && o.order_status === 'Delivered');
+                    if (!hasOrdersAtOtherStations && (s.station_id == 1 || (stations || []).length === 1)) {
+                        stPts = userTotalPts;
+                        stLifePts = userLifetimePts || userTotalPts;
+                    }
+                }
+
+                s.user_points = stPts;
+                s.user_lifetime_points = stLifePts;
+
+                const stRank = App.getLoyaltyRank(stLifePts || stPts);
                 const isNearest = (s.station_id === nearestStationId);
-                const eta = App.calculateDynamicETA(s._distanceKm, s.active_queue_count || 0, s.user_lifetime_points || s.user_points || 0);
+                const eta = App.calculateDynamicETA(s._distanceKm, s.active_queue_count || 0, stLifePts || stPts);
 
                 let ratingHtml = `<span class="text-slate-400 text-xs font-medium">No ratings</span>`;
                 if(s.avg_rating > 0) {
@@ -1225,7 +1295,7 @@ const UI = {
                                         <span class="whitespace-nowrap">${App.formatTime(s.opening_time)} - ${App.formatTime(s.closing_time)}</span>
                                     </span>
                                 </div>
-                                <span class="text-[11px] font-bold text-blue-600 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-lg shrink-0">${s.user_points || 0} pts</span>
+                                <span class="text-[11px] font-bold text-blue-600 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-lg shrink-0">${stPts} pts</span>
                             </div>
                         </div>
                         <div class="text-slate-300 group-hover:text-blue-500 group-hover:translate-x-0.5 transition-all shrink-0">
@@ -1287,7 +1357,7 @@ const UI = {
             if (orders && Array.isArray(orders)) State.myOrders = orders;
 
             const oldHash = State.lastDataHash;
-            const newHash = JSON.stringify((newStations || []).map(s => s.station_id + s.user_points + s.is_manually_closed));
+            const newHash = JSON.stringify((newStations || []).map(s => `${s.station_id}_${s.user_points}_${s.user_lifetime_points}_${s.is_manually_closed}`));
             const oldOrdersHash = State.lastCustomerOrdersHash;
             const newOrdersHash = JSON.stringify((State.myOrders || []).map(o => o.order_id + o.order_status));
 
@@ -1350,7 +1420,7 @@ const UI = {
                                     const orderNum = o.station_order_number || o.order_id;
                                     const msg = `Your Order #${orderNum} is now ${o.order_status}!`;
                                     if (window.App && window.App.playNotificationChime) window.App.playNotificationChime();
-                                    if (typeof CustomToast !== 'undefined') CustomToast.show(`💧 ${msg}`, 'info', 6000);
+                                    if (typeof CustomToast !== 'undefined') CustomToast.show(msg, 'info', 6000);
                                     if (document.hidden && window.App && window.App.sendNativeNotification) {
                                         App.sendNativeNotification('Order Update', msg, 'order-' + orderNum);
                                     }
@@ -1417,8 +1487,23 @@ const UI = {
         let pts = parseInt(curStation.user_points || 0);
         let lifetimePts = parseInt(curStation.user_lifetime_points || curStation.user_points || 0);
         if (pts === 0 && lifetimePts === 0) {
-            pts = parseInt(State.user?.data?.total_points || 0);
-            lifetimePts = parseInt(State.user?.data?.lifetime_points || pts);
+            const stOrders = (State.myOrders || []).filter(o => (o.station_id == curStation.station_id || (!o.station_id && curStation.station_id == 1)) && o.order_status === 'Delivered');
+            if (stOrders.length > 0) {
+                let jugs = 0;
+                let used = 0;
+                stOrders.forEach(o => {
+                    jugs += parseInt(o.quantity || 1);
+                    used += parseInt(o.points_used || 0);
+                });
+                pts = Math.max(0, (jugs * 2) - used);
+                lifetimePts = Math.max(lifetimePts, jugs * 3, pts);
+            } else if (State.user?.data?.total_points) {
+                const otherStationHasOrders = (State.myOrders || []).some(o => o.station_id && o.station_id != curStation.station_id && o.order_status === 'Delivered');
+                if (!otherStationHasOrders && (curStation.station_id == 1 || stations.length === 1)) {
+                    pts = parseInt(State.user?.data?.total_points || 0);
+                    lifetimePts = parseInt(State.user?.data?.lifetime_points || pts);
+                }
+            }
         }
         const rank = App.getLoyaltyRank(lifetimePts || pts);
 
@@ -1591,7 +1676,31 @@ const UI = {
         const station = (State.stations || []).find(s => s.station_id == State.selectedStation);
         if(!station) return this.navigate('customer_dashboard');
 
-        const stRank = App.getLoyaltyRank(station.user_lifetime_points || station.user_points || 0);
+        let stPts = parseInt(station.user_points || 0);
+        let stLifePts = parseInt(station.user_lifetime_points || station.user_points || 0);
+        if (stPts === 0 && stLifePts === 0) {
+            const stOrders = (State.myOrders || []).filter(o => (o.station_id == station.station_id || (!o.station_id && station.station_id == 1)) && o.order_status === 'Delivered');
+            if (stOrders.length > 0) {
+                let jugs = 0;
+                let used = 0;
+                stOrders.forEach(o => {
+                    jugs += parseInt(o.quantity || 1);
+                    used += parseInt(o.points_used || 0);
+                });
+                stPts = Math.max(0, (jugs * 2) - used);
+                stLifePts = Math.max(stLifePts, jugs * 3, stPts);
+            } else if (State.user?.data?.total_points) {
+                const otherStationHasOrders = (State.myOrders || []).some(o => o.station_id && o.station_id != station.station_id && o.order_status === 'Delivered');
+                if (!otherStationHasOrders && (station.station_id == 1 || (State.stations || []).length === 1)) {
+                    stPts = parseInt(State.user.data.total_points || 0);
+                    stLifePts = parseInt(State.user.data.lifetime_points || stPts);
+                }
+            }
+        }
+        station.user_points = stPts;
+        station.user_lifetime_points = stLifePts;
+
+        const stRank = App.getLoyaltyRank(stLifePts || stPts);
 
         let html = `
             <button onclick="UI.goBack('customer_dashboard')" class="text-sm font-bold text-slate-500 hover:text-slate-800 mb-6 flex items-center transition"><i class="fa-solid fa-arrow-left mr-2"></i> Back to Stations</button>
@@ -1603,7 +1712,7 @@ const UI = {
                         <span class="px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider border ${stRank.badgeBg}">
                             <i class="fa-solid ${stRank.icon} mr-1"></i>${stRank.name} Member
                         </span>
-                        <span class="text-xs text-slate-500 font-medium">• <strong>${station.user_points || 0}</strong> pts available</span>
+                        <span class="text-xs text-slate-500 font-medium">• <strong>${stPts}</strong> pts available</span>
                         <button onclick="State.selectedLoyaltyStation=${station.station_id}; UI.navigate('customer_loyalty')" class="text-xs font-bold text-blue-600 hover:underline ml-1 flex items-center gap-1">
                             View Progress <i class="fa-solid fa-chevron-right text-[9px]"></i>
                         </button>
@@ -1786,11 +1895,38 @@ const UI = {
         const station = stations.find(s => s.station_id == State.selectedStation) || stations[0];
         if (!station) return this.navigate('customer_dashboard');
 
+        if (station && (!station.gcash_name && !station.gcash_qr && !station.maya_name && !station.maya_qr)) {
+            try {
+                const payRes = await API.request(`get_station_payment_info&station_id=${station.station_id}`, 'GET');
+                if (payRes && payRes.station) {
+                    Object.assign(station, payRes.station);
+                }
+            } catch (err) {}
+        }
+
         const subtotal = State.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         const shippingFee = parseFloat(station.shipping_fee || 0);
         const total = subtotal + shippingFee;
         
-        const canUsePoints = (station.user_points || 0) >= 10;
+        let userPts = parseInt(station.user_points || 0);
+        if (userPts === 0) {
+            const stOrders = (State.myOrders || []).filter(o => (o.station_id == station.station_id || (!o.station_id && station.station_id == 1)) && o.order_status === 'Delivered');
+            if (stOrders.length > 0) {
+                let jugs = 0;
+                let used = 0;
+                stOrders.forEach(o => {
+                    jugs += parseInt(o.quantity || 1);
+                    used += parseInt(o.points_used || 0);
+                });
+                userPts = Math.max(0, (jugs * 2) - used);
+            } else if (State.user?.data?.total_points) {
+                const otherStationHasOrders = (State.myOrders || []).some(o => o.station_id && o.station_id != station.station_id && o.order_status === 'Delivered');
+                if (!otherStationHasOrders && (station.station_id == 1 || (State.stations || []).length === 1)) {
+                    userPts = parseInt(State.user.data.total_points);
+                }
+            }
+        }
+        const canUsePoints = userPts >= 10;
         
         const coLat = State.userLocation?.lat || '';
         const coLng = State.userLocation?.lng || '';
@@ -1799,8 +1935,9 @@ const UI = {
         if (coLat && coLng && station.latitude && station.longitude) {
             checkoutDist = App.calculateDistanceKm(coLat, coLng, station.latitude, station.longitude);
         }
-        const userLifetimePts = station.user_lifetime_points || station.user_points || 0;
-        const checkoutEta = App.calculateDynamicETA(checkoutDist, station.active_queue_count || 0, userLifetimePts);
+        const userLifetimePts = station.user_lifetime_points || station.user_points || (State.user?.data?.lifetime_points || userPts);
+        const cartJugCount = (State.cart || []).reduce((sum, item) => sum + (parseInt(item.quantity) || 1), 0);
+        const checkoutEta = App.calculateDynamicETA(checkoutDist, station.active_queue_count || 0, userLifetimePts, cartJugCount);
         const hasPin = !!(coLat && coLng);
         
         const now = new Date();
@@ -1819,9 +1956,9 @@ const UI = {
             <button onclick="UI.goBack('customer_station')" class="text-sm font-bold text-slate-500 hover:text-slate-800 mb-6 flex items-center transition"><i class="fa-solid fa-arrow-left mr-2"></i> Back to Menu</button>
             <h2 class="text-2xl font-black text-slate-800 mb-6">Complete Order</h2>
             
-            <form onsubmit="App.processCheckout(event)" novalidate class="space-y-6">
+            <form onsubmit="App.processCheckout(event)" novalidate class="space-y-6 pb-40">
                 <!-- Order Summary -->
-                <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-6">
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
                     <h3 class="font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4 flex justify-between">Order Summary <button type="button" onclick="State.cart=[]; UI.navigate('customer_station')" class="text-red-500 text-sm hover:underline">Clear</button></h3>
                     <div class="space-y-3 mb-4">
         `;
@@ -1895,7 +2032,7 @@ const UI = {
                 </div>
                 
                 ${station.pending_borrowed > 0 ? `
-                <div class="bg-red-50 rounded-3xl shadow-md shadow-red-500/10 border border-red-100 p-6 mb-4">
+                <div class="bg-red-50 rounded-2xl border border-red-200 p-6 mb-4">
                     <h3 class="font-bold text-red-800 mb-2"><i class="fa-solid fa-circle-exclamation mr-2"></i> Unreturned Jugs Pending</h3>
                     <p class="text-xs text-red-600 mb-3">You have previously borrowed jugs that haven't been returned yet.</p>
                     <label class="flex items-center gap-2 cursor-pointer bg-white p-3 rounded-xl border border-red-200 hover:bg-red-50 transition">
@@ -1906,44 +2043,41 @@ const UI = {
                 ` : ''}
 
                 <!-- Loyalty Program -->
-                <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-6 flex items-start gap-4 ${canUsePoints ? 'bg-blue-50 border-2 border-blue-400 shadow-md shadow-blue-500/20' : 'opacity-60'}">
-                    <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shrink-0"><i class="fa-solid fa-gift"></i></div>
+                <div class="bg-white rounded-2xl border ${canUsePoints ? 'border-blue-300 bg-blue-50/40' : 'border-slate-200 opacity-70'} shadow-sm p-5 flex items-start gap-4">
+                    <div class="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 shrink-0"><i class="fa-solid fa-gift"></i></div>
                     <div class="flex-1">
                         <h4 class="font-bold text-slate-800">Redeem Free Refill</h4>
-                        <p class="text-xs text-slate-500 mt-1">Costs 10 points. You have ${station.user_points || 0}.</p>
+                        <p class="text-xs text-slate-500 mt-1">Costs 10 points. You have <strong class="text-blue-600 font-bold">${userPts}</strong> available.</p>
                         ${canUsePoints ? `
                             <label class="flex items-center gap-2 mt-3 cursor-pointer">
                                 <input type="checkbox" id="co-use-points" onchange="App.recalculateTotal()" class="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 shrink-0">
-                                <span class="text-sm font-bold text-blue-600">Apply discount</span>
+                                <span class="text-sm font-bold text-blue-600">Apply discount (1 Free Refill)</span>
                             </label>
                         ` : `<p class="text-xs font-bold text-slate-400 mt-2">Not enough points.</p>`}
                     </div>
                 </div>
 
-                <!-- Logistics (Delivery Schedule) -->
-                <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-6 space-y-5">
+                <!-- Logistics (Delivery Address & Schedule) -->
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">
                     <div>
                         <div class="flex items-center justify-between mb-2">
                             <label class="block text-sm font-bold text-slate-700">Delivery Address</label>
-                            <button type="button" onclick="App.openMapLocationModal({ title: 'Pin Exact Delivery Location', initialLat: document.getElementById('co-delivery-lat')?.value || State.userLocation?.lat, initialLng: document.getElementById('co-delivery-lng')?.value || State.userLocation?.lng, initialAddress: document.getElementById('co-address')?.value || State.userLocation?.address, onSave: (pos) => UI.updateCheckoutLocationPin(pos) })" class="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer">
-                                <i class="fa-solid fa-map-location-dot"></i> Pin on Mapbox
-                            </button>
                         </div>
-                        <textarea id="co-address" required rows="2" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition">${escapeHtml(coAddress)}</textarea>
+                        <textarea id="co-address" required rows="2" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition text-sm text-slate-800">${escapeHtml(coAddress)}</textarea>
                         <input type="hidden" id="co-delivery-lat" value="${coLat}">
                         <input type="hidden" id="co-delivery-lng" value="${coLng}">
                         
-                        <div id="co-pin-status-box" class="mt-2.5 p-3 rounded-2xl border ${hasPin ? 'bg-blue-50/70 border-blue-200' : 'bg-slate-50 border-slate-200'} flex items-center justify-between gap-3 text-xs">
+                        <div id="co-pin-status-box" class="mt-2.5 p-3 rounded-xl border ${hasPin ? 'bg-blue-50/70 border-blue-200' : 'bg-slate-50 border-slate-200'} flex items-center justify-between gap-3 text-xs">
                             <div class="flex items-center gap-2 min-w-0">
                                 <div class="w-7 h-7 rounded-lg ${hasPin ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-500'} flex items-center justify-center text-xs shrink-0">
                                     <i class="fa-solid fa-map-pin"></i>
                                 </div>
                                 <div class="min-w-0">
                                     <div class="font-bold text-slate-800 truncate">${hasPin ? `Pinned (${parseFloat(coLat).toFixed(4)}, ${parseFloat(coLng).toFixed(4)})${checkoutDist !== null ? ` • ${checkoutDist.toFixed(1)} km away` : ''}` : 'No exact GPS coordinates pinned'}</div>
-                                    <div class="text-[10px] text-blue-600 font-semibold truncate">Est. ETA: ${checkoutEta.text} (${checkoutEta.priorityLabel})</div>
+                                    <div class="text-[10px] text-blue-600 font-semibold truncate">Est. ETA: ${checkoutEta.text} • approx. ${checkoutEta.targetTimeStr} (${checkoutEta.priorityLabel})</div>
                                 </div>
                             </div>
-                            <button type="button" onclick="App.openMapLocationModal({ title: 'Pin Exact Delivery Location', initialLat: document.getElementById('co-delivery-lat')?.value || State.userLocation?.lat, initialLng: document.getElementById('co-delivery-lng')?.value || State.userLocation?.lng, initialAddress: document.getElementById('co-address')?.value || State.userLocation?.address, onSave: (pos) => UI.updateCheckoutLocationPin(pos) })" class="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-blue-400 text-blue-600 font-bold rounded-xl text-xs transition active:scale-95 shrink-0 cursor-pointer">
+                            <button type="button" onclick="App.openMapLocationModal({ title: 'Pin Exact Delivery Location', initialLat: document.getElementById('co-delivery-lat')?.value || State.userLocation?.lat || 15.5056, initialLng: document.getElementById('co-delivery-lng')?.value || State.userLocation?.lng || 120.4462, initialAddress: document.getElementById('co-address')?.value || State.userLocation?.address || 'Mababanaba, San Jose, Tarlac', onSave: (pos) => UI.updateCheckoutLocationPin(pos) })" class="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-blue-400 text-blue-600 font-bold rounded-xl text-xs transition active:scale-95 shrink-0 cursor-pointer">
                                 ${hasPin ? 'Change Pin' : 'Pin on Map'}
                             </button>
                         </div>
@@ -1964,7 +2098,7 @@ const UI = {
                 </div>
 
                 <!-- Payment Method -->
-                <div id="payment-section" class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-6">
+                <div id="payment-section" class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
                     <label class="block text-sm font-bold text-slate-700 mb-4">Payment Method</label>
                     <div class="grid grid-cols-3 gap-2 mb-5">
                         <label class="relative cursor-pointer">
@@ -2008,7 +2142,7 @@ const UI = {
                     </div>
                 </div>
 
-                <div class="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-slate-100 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)] z-40">
+                <div class="fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-sm border-t border-slate-200 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.06)] z-40">
                     <div class="max-w-3xl mx-auto flex items-center justify-between">
                         <div>
                             <p class="text-[10px] text-slate-500 font-bold uppercase mb-0">Total to Pay</p>
@@ -2021,7 +2155,7 @@ const UI = {
                 </div>
             </form>
         `;
-        this.html('<div class="max-w-3xl mx-auto w-full">' + html + '</div>');
+        this.html('<div class="max-w-3xl mx-auto w-full pb-12">' + html + '</div>');
         const root = document.getElementById('app-root');
         if (root) root.scrollTop = 0;
         setTimeout(() => {
@@ -2038,12 +2172,12 @@ const UI = {
         const addrInput = document.getElementById('co-address');
         if (latInput) latInput.value = pos.lat;
         if (lngInput) lngInput.value = pos.lng;
-        if (addrInput && pos.address) addrInput.value = pos.address;
+        // Do NOT overwrite addrInput with pos.address — changing the pin preserves the user's typed address
         
         State.userLocation = {
             lat: pos.lat,
             lng: pos.lng,
-            address: pos.address || State.userLocation?.address || ''
+            address: (addrInput && addrInput.value.trim()) ? addrInput.value.trim() : (State.userLocation?.address || pos.address || '')
         };
 
         const station = (State.stations || []).find(s => s.station_id == State.selectedStation);
@@ -2052,11 +2186,12 @@ const UI = {
             dist = App.calculateDistanceKm(pos.lat, pos.lng, station.latitude, station.longitude);
         }
         const pts = (station ? (station.user_lifetime_points || station.user_points) : 0) || 0;
-        const eta = App.calculateDynamicETA(dist, station?.active_queue_count || 0, pts);
+        const cartJugCount = (State.cart || []).reduce((sum, item) => sum + (parseInt(item.quantity) || 1), 0);
+        const eta = App.calculateDynamicETA(dist, station?.active_queue_count || 0, pts, cartJugCount);
 
         const statusBox = document.getElementById('co-pin-status-box');
         if (statusBox) {
-            statusBox.className = 'mt-2.5 p-3 rounded-2xl border bg-blue-50/70 border-blue-200 flex items-center justify-between gap-3 text-xs';
+            statusBox.className = 'mt-2.5 p-3 rounded-xl border bg-blue-50/70 border-blue-200 flex items-center justify-between gap-3 text-xs';
             statusBox.innerHTML = `
                 <div class="flex items-center gap-2 min-w-0">
                     <div class="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center text-xs shrink-0">
@@ -2064,10 +2199,10 @@ const UI = {
                     </div>
                     <div class="min-w-0">
                         <div class="font-bold text-slate-800 truncate">Pinned (${parseFloat(pos.lat).toFixed(4)}, ${parseFloat(pos.lng).toFixed(4)})${dist !== null ? ` • ${dist.toFixed(1)} km away` : ''}</div>
-                        <div class="text-[10px] text-blue-600 font-semibold truncate">Est. ETA: ${eta.text} (${eta.priorityLabel})</div>
+                        <div class="text-[10px] text-blue-600 font-semibold truncate">Est. ETA: ${eta.text} • approx. ${eta.targetTimeStr} (${eta.priorityLabel})</div>
                     </div>
                 </div>
-                <button type="button" onclick="App.openMapLocationModal({ title: 'Pin Exact Delivery Location', initialLat: '${pos.lat}', initialLng: '${pos.lng}', initialAddress: decodeURIComponent('${encodeURIComponent(pos.address || '')}'), onSave: (p) => UI.updateCheckoutLocationPin(p) })" class="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-blue-400 text-blue-600 font-bold rounded-xl text-xs transition active:scale-95 shrink-0 cursor-pointer">
+                <button type="button" onclick="App.openMapLocationModal({ title: 'Pin Exact Delivery Location', initialLat: '${pos.lat}', initialLng: '${pos.lng}', initialAddress: document.getElementById('co-address')?.value || State.userLocation?.address || 'Mababanaba, San Jose, Tarlac', onSave: (p) => UI.updateCheckoutLocationPin(p) })" class="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-blue-400 text-blue-600 font-bold rounded-xl text-xs transition active:scale-95 shrink-0 cursor-pointer">
                     Change Pin
                 </button>
             `;
@@ -2235,17 +2370,62 @@ const UI = {
             if(o.order_status === 'Delivered') badge = 'bg-green-100 text-green-700';
             if(o.order_status === 'Cancelled') badge = 'bg-red-100 text-red-700';
 
-            const proofItem = group.items.find(i => i.has_payment_proof && i.has_payment_proof != '0') || (o.has_payment_proof && o.has_payment_proof != '0' ? o : null);
-            const hasProof = !!proofItem;
-            const targetOrderId = proofItem ? proofItem.order_id : o.order_id;
+            // Header Live ETA for Active Orders
+            let etaPillHtml = '';
+            if (!isHistoryTab) {
+                let dist = null;
+                const userLat = parseFloat(o.delivery_latitude) || (State.user && parseFloat(State.user.data?.delivery_latitude || State.user.data?.latitude)) || (State.userLocation && parseFloat(State.userLocation.lat));
+                const userLng = parseFloat(o.delivery_longitude) || (State.user && parseFloat(State.user.data?.delivery_longitude || State.user.data?.longitude)) || (State.userLocation && parseFloat(State.userLocation.lng));
+                const stLat = parseFloat(o.station_latitude);
+                const stLng = parseFloat(o.station_longitude);
 
-            const dist = (o.delivery_latitude && o.station_latitude) ? App.calculateDistanceKm(o.delivery_latitude, o.delivery_longitude, o.station_latitude, o.station_longitude) : null;
-            const eta = App.calculateDynamicETA(dist, 1, State.user?.data?.lifetime_points || 0);
+                if (!isNaN(stLat) && !isNaN(stLng) && !isNaN(userLat) && !isNaN(userLng) && (userLat !== 0 || userLng !== 0)) {
+                    dist = App.calculateDistanceKm(userLat, userLng, stLat, stLng);
+                }
+
+                // If distance is > 15 km, coordinates are from an out-of-town test browser or IP GPS.
+                // Cap to local distance (0.5 km) so ETA is always realistic and accurate.
+                if (dist !== null && dist > 15) {
+                    dist = 0.5;
+                }
+
+                const stationLoyalty = (State.user?.data?.loyalty_ranks && o.station_id) ? State.user.data.loyalty_ranks[o.station_id] : null;
+                const userPoints = stationLoyalty ? (stationLoyalty.lifetime_points || stationLoyalty.points || 0) : (State.user?.data?.lifetime_points || State.user?.data?.total_points || 0);
+                const stationObj = (State.stations || []).find(s => String(s.station_id) === String(o.station_id));
+                const queueCount = stationObj ? (stationObj.active_queue_count || 0) : 1;
+                
+                // Total jugs in this grouped order
+                const jugCount = (group.items || []).reduce((sum, item) => sum + (parseInt(item.quantity) || 1), 0);
+                
+                const eta = App.calculateDynamicETA(dist, queueCount, userPoints, jugCount, o.order_date);
+
+                let etaText = eta.text;
+                let etaTheme = 'bg-blue-50/90 text-blue-700 border-blue-200/80';
+                let iconClass = 'fa-regular fa-clock text-blue-500';
+                let targetTimeStr = eta.targetTimeStr;
+
+                if (o.order_status === 'To Deliver') {
+                    etaText = '~5–10 mins';
+                    etaTheme = 'bg-indigo-50/90 text-indigo-700 border-indigo-200/80';
+                    iconClass = 'fa-solid fa-truck-fast text-indigo-500 animate-pulse';
+                    const targetArrival = new Date(Date.now() + 8 * 60000);
+                    targetTimeStr = targetArrival.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                }
+
+                etaPillHtml = `
+                    <div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[11px] font-bold ${etaTheme} shadow-sm whitespace-nowrap" title="Est. Arrival: ${etaText} (around ${targetTimeStr})">
+                        <i class="${iconClass} text-[10px]"></i>
+                        <span class="text-[9px] font-bold opacity-60 uppercase tracking-tight">ETA</span>
+                        <span class="font-extrabold">${etaText}</span>
+                        <span class="text-[9px] opacity-70 font-medium hidden sm:inline">• ${targetTimeStr}</span>
+                    </div>
+                `;
+            }
 
             html += `
                 <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 p-5 flex flex-col gap-3 relative">
                     <!-- Card Header -->
-                    <div class="flex items-center justify-between gap-3 pb-1">
+                    <div class="flex items-center justify-between gap-3 pb-2.5 border-b border-slate-100">
                         <div class="flex items-center gap-3 min-w-0 flex-1">
                             <div class="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 border border-blue-100 flex items-center justify-center shrink-0 shadow-xs">
                                 <i class="fa-solid fa-store"></i>
@@ -2259,39 +2439,11 @@ const UI = {
                                 </div>
                             </div>
                         </div>
-                        <div class="flex items-center gap-2 shrink-0">
-                            ${hasProof ? `<button onclick="App.viewProof('${targetOrderId}')" class="w-7 h-7 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-full flex items-center justify-center shrink-0 active:scale-95 transition" title="View Receipt"><i class="fa-solid fa-receipt text-xs"></i></button>` : ''}
-                            <span class="px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-wide shrink-0 ${badge}">${o.order_status === 'To Deliver' ? 'Out for Delivery' : o.order_status}</span>
+                        <div class="flex flex-col items-end gap-1.5 shrink-0">
+                            <span class="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide shrink-0 ${badge}">${o.order_status === 'To Deliver' ? 'Out for Delivery' : o.order_status}</span>
+                            ${etaPillHtml}
                         </div>
                     </div>
-
-                    ${!isHistoryTab ? `
-                        <!-- Active Order ETA & Live Progress -->
-                        <div class="bg-gradient-to-r from-blue-50/90 via-indigo-50/60 to-blue-50/40 border border-blue-200/80 rounded-2xl p-3 sm:p-3.5 my-0.5 flex items-center justify-between gap-3 shadow-2xs">
-                            <div class="flex items-center gap-2.5 min-w-0">
-                                <div class="w-8 h-8 rounded-xl ${o.order_status === 'To Deliver' ? 'bg-emerald-600 text-white shadow-emerald-500/20' : 'bg-blue-600 text-white shadow-blue-500/20'} flex items-center justify-center text-xs shrink-0 shadow-sm">
-                                    <i class="${o.order_status === 'To Deliver' ? 'fa-solid fa-motorcycle animate-bounce' : (o.order_status === 'Preparing' ? 'fa-solid fa-faucet-drip animate-pulse' : 'fa-solid fa-stopwatch')}"></i>
-                                </div>
-                                <div class="min-w-0">
-                                    <div class="text-[10px] font-black uppercase tracking-wider ${o.order_status === 'To Deliver' ? 'text-emerald-700' : 'text-blue-700'}">
-                                        ${o.order_status === 'To Deliver' ? 'Out for Delivery' : (o.order_status === 'Preparing' ? 'Order In Preparation' : 'Order Placed')}
-                                    </div>
-                                    <div class="text-xs font-black text-slate-800 flex items-center gap-1.5 flex-wrap mt-0.5">
-                                        <span class="text-blue-700 font-extrabold">
-                                            ${o.order_status === 'To Deliver' ? 'Arriving in ~5–10 mins' : `Est. Arrival: ${eta.text}`}
-                                        </span>
-                                        ${dist !== null && !isNaN(dist) ? `<span class="text-[10px] font-semibold text-slate-500 bg-white border border-slate-200 px-1.5 py-0.2 rounded">${dist.toFixed(1)} km</span>` : ''}
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="flex flex-col items-end gap-1 shrink-0">
-                                <span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-white text-blue-700 border border-blue-200/80 shadow-2xs">
-                                    ${o.order_status === 'To Deliver' ? '⚡ En Route' : '⏱️ In Queue'}
-                                </span>
-                                ${eta.priorityLabel ? `<span class="text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded">${eta.priorityLabel}</span>` : ''}
-                            </div>
-                        </div>
-                    ` : ''}
 
                     <!-- Items List -->
                     <div class="space-y-1 py-1">
@@ -2411,19 +2563,26 @@ const UI = {
                         if (!seenGroupKeys.has(gKey)) {
                             seenGroupKeys.add(gKey);
                             const orderNum = newOrder.station_order_number || newOrder.order_id;
+                            const notifKey = `order-${orderNum}-${newOrder.order_status}`;
+                            
+                            // Deduplicate: suppress if already notified by WebPush, broadcast or local action
+                            if (window.App && window.App.shouldNotify && !window.App.shouldNotify(notifKey, 14000)) {
+                                return;
+                            }
+
                             const notifyMsg = `Your Order #${orderNum} is now ${newOrder.order_status}!`;
                             
                             // 1. Play in-app audio chime
                             if (window.App && window.App.playNotificationChime) {
-                                window.App.playNotificationChime();
+                                window.App.playNotificationChime(notifKey);
                             }
                             // 2. Show prominent in-app toast notification
                             if (typeof CustomToast !== 'undefined') {
-                                CustomToast.show(`💧 ${notifyMsg}`, 'info', 6000);
+                                CustomToast.show(notifyMsg, 'info', 6000, null, notifKey);
                             }
                             // 3. Trigger OS notification if tab is hidden
                             if (document.hidden && window.App && window.App.sendNativeNotification) {
-                                App.sendNativeNotification('Order Update', notifyMsg, 'order-' + orderNum);
+                                App.sendNativeNotification('Order Update', notifyMsg, `order-${orderNum}`, false);
                             }
                         }
                     });
@@ -2486,7 +2645,17 @@ const UI = {
         } catch (e) {
             console.error(e);
             if (isFirstLoad && this._currentView === 'admin_dashboard') {
-                this.html('<div class="max-w-5xl mx-auto w-full p-6">' + this.emptyState('fa-triangle-exclamation', 'Network Error', 'Failed to load dashboard data. Please try again.') + '</div>');
+                const errMsg = e && e.message ? e.message : '';
+                if (errMsg.includes('Unauthorized') || errMsg.includes('session expired')) {
+                    this.html('<div class="max-w-md mx-auto w-full p-6 text-center mt-12 bg-white rounded-3xl border border-slate-200 shadow-sm p-6">' + 
+                        '<div class="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center text-xl mx-auto mb-3"><i class="fa-solid fa-lock"></i></div>' +
+                        '<h3 class="font-bold text-slate-800 text-lg mb-1">Session Expired</h3>' +
+                        '<p class="text-xs text-slate-500 mb-4">Your admin session has ended or is unauthorized. Please sign in again.</p>' +
+                        '<button onclick="State.user = null; UI.navigate(\'login\')" class="w-full py-2.5 bg-blue-600 text-white font-bold rounded-xl text-xs hover:bg-blue-700 transition">Log In Again</button>' +
+                    '</div>');
+                } else {
+                    this.html('<div class="max-w-5xl mx-auto w-full p-6">' + this.emptyState('fa-triangle-exclamation', 'Network Error', 'Failed to load dashboard data. Please try again.') + '</div>');
+                }
             }
         }
     },
@@ -3128,16 +3297,23 @@ const UI = {
                         if (!seenGroupKeys.has(gKey)) {
                             seenGroupKeys.add(gKey);
                             const orderNum = firstNew.station_order_number || firstNew.order_id;
-                            const notifyMsg = `🔔 New Order #${orderNum} received from ${firstNew.full_name || 'Customer'}!`;
+                            const notifKey = `order-${orderNum}`;
+                            
+                            // Deduplicate: suppress duplicate if already alerted by WebPush or broadcast
+                            if (window.App && window.App.shouldNotify && !window.App.shouldNotify(notifKey, 14000)) {
+                                return;
+                            }
+
+                            const notifyMsg = `New Order #${orderNum} received from ${firstNew.full_name || 'Customer'}!`;
                             
                             if (window.App && window.App.playNotificationChime) {
-                                window.App.playNotificationChime();
+                                window.App.playNotificationChime(notifKey);
                             }
                             if (typeof CustomToast !== 'undefined') {
-                                CustomToast.show(notifyMsg, 'info', 6000);
+                                CustomToast.show(notifyMsg, 'info', 6000, null, notifKey);
                             }
                             if (document.hidden && window.App && window.App.sendNativeNotification) {
-                                App.sendNativeNotification('New Order', notifyMsg, 'order-' + orderNum);
+                                App.sendNativeNotification('New Order', notifyMsg, notifKey, false);
                             }
                         }
                     });
@@ -3148,16 +3324,23 @@ const UI = {
                         if (!seenStatusKeys.has(gKey)) {
                             seenStatusKeys.add(gKey);
                             const orderNum = chgOrder.station_order_number || chgOrder.order_id;
+                            const notifKey = `order-${orderNum}-${chgOrder.order_status}`;
+                            
+                            // Deduplicate: suppress duplicate if already alerted
+                            if (window.App && window.App.shouldNotify && !window.App.shouldNotify(notifKey, 14000)) {
+                                return;
+                            }
+
                             const statusMsg = `Order #${orderNum} status is now ${chgOrder.order_status}`;
                             
                             if (window.App && window.App.playNotificationChime) {
-                                window.App.playNotificationChime();
+                                window.App.playNotificationChime(notifKey);
                             }
                             if (typeof CustomToast !== 'undefined') {
-                                CustomToast.show(`📋 ${statusMsg}`, 'info', 5000);
+                                CustomToast.show(statusMsg, 'info', 5000, null, notifKey);
                             }
                             if (document.hidden && window.App && window.App.sendNativeNotification) {
-                                App.sendNativeNotification('Order Status Update', statusMsg, 'order-' + orderNum);
+                                App.sendNativeNotification('Order Status Update', statusMsg, `order-${orderNum}`, false);
                             }
                         }
                     });
@@ -4055,12 +4238,9 @@ const UI = {
             </div>
 
             <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-6 mb-6">
-                <div class="flex items-center justify-between mb-4">
-                    <h3 class="font-bold text-slate-800 flex items-center"><i class="fa-solid fa-map-location-dot text-blue-500 mr-2"></i> Station GPS & Location Pin</h3>
-                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-100 text-blue-800">Mapbox Live</span>
-                </div>
-                <p class="text-xs text-slate-500 mb-4">Pin your station's exact coordinates so customers can find the nearest branch, view exact kilometers away, and get dynamic delivery ETAs.</p>
-                <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <h3 class="font-bold text-slate-800 mb-2 flex items-center"><i class="fa-solid fa-location-dot text-blue-500 mr-2"></i> Location</h3>
+                <p class="text-xs text-slate-500 mb-4">Set your station's exact map location so customers can easily find your branch, calculate delivery distance, and receive accurate delivery estimates.</p>
+                <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
                         <div class="text-[10px] font-black uppercase tracking-wider text-slate-400">Current Coordinates</div>
                         <div class="text-xs font-bold text-slate-800 mt-0.5 font-mono">
@@ -4068,7 +4248,7 @@ const UI = {
                         </div>
                         <div class="text-[11px] text-slate-500 mt-1">${escapeHtml(station.address || 'Central Station')}</div>
                     </div>
-                    <button type="button" onclick="App.openMapLocationModal({ title: 'Set Station Coordinates', initialLat: ${station.latitude || 14.7566}, initialLng: ${station.longitude || 120.9850}, initialAddress: decodeURIComponent('${encodeURIComponent(station.address || '')}'), onSave: (pos) => App.saveStationLocation(pos.lat, pos.lng) })" class="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition active:scale-95 shadow-md shadow-blue-500/20 shrink-0 cursor-pointer">
+                    <button type="button" onclick="App.openMapLocationModal({ title: 'Set Station Coordinates', initialLat: ${station.latitude || 15.5056}, initialLng: ${station.longitude || 120.4462}, initialAddress: decodeURIComponent('${encodeURIComponent(station.address || '')}'), onSave: (pos) => App.saveStationLocation(pos.lat, pos.lng) })" class="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition active:scale-95 shadow-md shadow-blue-500/20 shrink-0 cursor-pointer">
                         <i class="fa-solid fa-location-dot"></i> Pin Station on Map
                     </button>
                 </div>
@@ -4445,16 +4625,23 @@ const UI = {
                         if (!seenGroupKeys.has(gKey)) {
                             seenGroupKeys.add(gKey);
                             const orderNum = first.station_order_number || first.order_id;
-                            const notifyMsg = `🛵 New delivery assigned! Order #${orderNum} for ${first.full_name || 'Customer'}.`;
+                            const notifKey = `order-${orderNum}-assigned`;
+                            
+                            // Deduplicate: suppress duplicate if already alerted
+                            if (window.App && window.App.shouldNotify && !window.App.shouldNotify(notifKey, 14000)) {
+                                return;
+                            }
+
+                            const notifyMsg = `New delivery assigned! Order #${orderNum} for ${first.full_name || 'Customer'}.`;
                             
                             if (window.App && window.App.playNotificationChime) {
-                                window.App.playNotificationChime();
+                                window.App.playNotificationChime(notifKey);
                             }
                             if (typeof CustomToast !== 'undefined') {
-                                CustomToast.show(notifyMsg, 'info', 6000);
+                                CustomToast.show(notifyMsg, 'info', 6000, null, notifKey);
                             }
                             if (document.hidden && window.App && window.App.sendNativeNotification) {
-                                App.sendNativeNotification('Delivery Assignment', notifyMsg, 'order-' + orderNum);
+                                App.sendNativeNotification('Delivery Assignment', notifyMsg, `order-${orderNum}`, false);
                             }
                         }
                     });
@@ -4657,7 +4844,7 @@ const UI = {
                                         All
                                     </button>
                                     <button type="button" onclick="State.saCustomerFilter='new'; UI._filterSaUsers();" class="px-2.5 py-1 rounded-lg transition cursor-pointer ${State.saCustomerFilter === 'new' ? 'bg-white text-blue-600 shadow-xs' : 'text-slate-500 hover:text-slate-800'}">
-                                        ✨ New (${newCustomers.length})
+                                        <i class="fa-solid fa-user-plus mr-1 text-blue-600"></i>New (${newCustomers.length})
                                     </button>
                                 </div>
                             `}

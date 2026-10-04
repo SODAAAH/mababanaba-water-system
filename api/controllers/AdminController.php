@@ -76,8 +76,9 @@ class AdminController {
             SecurityContext::clearRateLimits($this->pdo, ['admin_login', 'customer_login']);
             unset($a['password'], $a['otp_code'], $a['otp_expiry'], $a['new_temp_contact'], $a['failed_otp_attempts']);
             $csrfToken = $_SESSION['csrf_token'] ?? null;
+            $authToken = SecurityContext::generateAuthToken((int)$a['admin_id'], 'admin');
             session_write_close();
-            echo json_encode(['success' => true, 'admin' => $a, 'csrf_token' => $csrfToken]);
+            echo json_encode(['success' => true, 'admin' => $a, 'auth_token' => $authToken, 'csrf_token' => $csrfToken]);
         } else { 
             echo json_encode(['error' => 'Invalid credentials']); 
         }

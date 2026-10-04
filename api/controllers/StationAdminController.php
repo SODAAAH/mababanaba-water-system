@@ -30,18 +30,57 @@ class StationAdminController {
             exit;
         }
 
-        $stmtOrders = $this->pdo->prepare("SELECT o.order_id, o.station_id, o.customer_id, o.product_id, o.station_order_number, o.order_date, o.scheduled_date, o.order_status, o.total_price, o.payment_method, o.quantity, o.delivery_address, o.delivery_latitude, o.delivery_longitude, o.receipt_viewed, o.points_used, o.return_round, o.return_slim, o.borrow_round, o.borrow_slim, o.borrow_status, o.container_option, o.returning_borrowed_flag, o.jug_type, o.shipping_fee, o.jug_fee, o.discount_amount, IF(o.payment_proof IS NOT NULL AND o.payment_proof != '', 1, 0) as has_payment_proof, c.contact_number, c.full_name, p.name as product_name, IFNULL(l.points, 0) as user_points, IFNULL(l.lifetime_points, IFNULL(l.points, 0)) as user_lifetime_points FROM ORDERS o LEFT JOIN CUSTOMER c ON o.customer_id = c.customer_id LEFT JOIN PRODUCTS p ON o.product_id = p.product_id LEFT JOIN CUSTOMER_LOYALTY l ON o.customer_id = l.customer_id AND o.station_id = l.station_id WHERE o.station_id = ? ORDER BY o.order_date DESC"); 
-        $stmtOrders->execute([$sid]);
-        $orders = $stmtOrders->fetchAll();
+        try {
+            $stmtOrders = $this->pdo->prepare("SELECT o.order_id, o.station_id, o.customer_id, o.product_id, o.station_order_number, o.order_date, o.scheduled_date, o.order_status, o.total_price, o.payment_method, o.quantity, o.delivery_address, o.delivery_latitude, o.delivery_longitude, o.receipt_viewed, o.points_used, o.return_round, o.return_slim, o.borrow_round, o.borrow_slim, o.borrow_status, o.container_option, o.returning_borrowed_flag, o.jug_type, o.shipping_fee, o.jug_fee, o.discount_amount, IF(o.payment_proof IS NOT NULL AND o.payment_proof != '', 1, 0) as has_payment_proof, c.contact_number, c.full_name, p.name as product_name, IFNULL(l.points, 0) as user_points, IFNULL(l.lifetime_points, IFNULL(l.points, 0)) as user_lifetime_points FROM ORDERS o LEFT JOIN CUSTOMER c ON o.customer_id = c.customer_id LEFT JOIN PRODUCTS p ON o.product_id = p.product_id LEFT JOIN CUSTOMER_LOYALTY l ON o.customer_id = l.customer_id AND o.station_id = l.station_id WHERE o.station_id = ? ORDER BY o.order_date DESC"); 
+            $stmtOrders->execute([$sid]);
+            $orders = $stmtOrders->fetchAll();
+        } catch (PDOException $e) {
+            error_log("Failed to fetch admin orders: " . $e->getMessage());
+            $orders = [];
+        }
 
         $inventory = null; $station = null; $products = []; $staff = []; $borrowLedger = [];
         if ($role === 'Admin') {
-            $stmtInv = $this->pdo->prepare("SELECT * FROM INVENTORY WHERE station_id = ?"); $stmtInv->execute([$sid]); $inventory = $stmtInv->fetch();
-            $stmtStation = $this->pdo->prepare("SELECT * FROM STATION WHERE station_id = ?"); $stmtStation->execute([$sid]); $station = $stmtStation->fetch();
-            $stmtProd = $this->pdo->prepare("SELECT * FROM PRODUCTS WHERE station_id = ? AND status = 'Active'"); $stmtProd->execute([$sid]); $products = $stmtProd->fetchAll();
-            $stmtStaff = $this->pdo->prepare("SELECT admin_id, username, status FROM ADMIN WHERE station_id = ? AND role = 'Delivery Staff'"); $stmtStaff->execute([$sid]); $staff = $stmtStaff->fetchAll();
-            $stmtB = $this->pdo->prepare("SELECT o.order_id, o.station_order_number, o.borrow_round, o.borrow_slim, o.order_date, c.full_name, c.contact_number FROM ORDERS o LEFT JOIN CUSTOMER c ON o.customer_id = c.customer_id WHERE o.station_id = ? AND o.borrow_status = 'Pending' AND (o.borrow_round > 0 OR o.borrow_slim > 0) GROUP BY o.customer_id, o.station_order_number ORDER BY o.order_date ASC");
-            $stmtB->execute([$sid]); $borrowLedger = $stmtB->fetchAll();
+            try {
+                $stmtInv = $this->pdo->prepare("SELECT * FROM INVENTORY WHERE station_id = ?"); 
+                $stmtInv->execute([$sid]); 
+                $inventory = $stmtInv->fetch() ?: null;
+            } catch (PDOException $e) {
+                error_log("Failed to fetch inventory: " . $e->getMessage());
+            }
+
+            try {
+                $stmtStation = $this->pdo->prepare("SELECT * FROM STATION WHERE station_id = ?"); 
+                $stmtStation->execute([$sid]); 
+                $station = $stmtStation->fetch() ?: null;
+            } catch (PDOException $e) {
+                error_log("Failed to fetch station: " . $e->getMessage());
+            }
+
+            try {
+                $stmtProd = $this->pdo->prepare("SELECT * FROM PRODUCTS WHERE station_id = ? AND status = 'Active'"); 
+                $stmtProd->execute([$sid]); 
+                $products = $stmtProd->fetchAll() ?: [];
+            } catch (PDOException $e) {
+                error_log("Failed to fetch products: " . $e->getMessage());
+            }
+
+            try {
+                $stmtStaff = $this->pdo->prepare("SELECT admin_id, username, status FROM ADMIN WHERE station_id = ? AND role = 'Delivery Staff'"); 
+                $stmtStaff->execute([$sid]); 
+                $staff = $stmtStaff->fetchAll() ?: [];
+            } catch (PDOException $e) {
+                error_log("Failed to fetch staff: " . $e->getMessage());
+            }
+
+            try {
+                $stmtB = $this->pdo->prepare("SELECT MIN(o.order_id) as order_id, o.station_order_number, o.customer_id, SUM(o.borrow_round) as borrow_round, SUM(o.borrow_slim) as borrow_slim, MIN(o.order_date) as order_date, MAX(c.full_name) as full_name, MAX(c.contact_number) as contact_number FROM ORDERS o LEFT JOIN CUSTOMER c ON o.customer_id = c.customer_id WHERE o.station_id = ? AND o.borrow_status = 'Pending' AND (o.borrow_round > 0 OR o.borrow_slim > 0) GROUP BY o.customer_id, o.station_order_number ORDER BY order_date ASC");
+                $stmtB->execute([$sid]); 
+                $borrowLedger = $stmtB->fetchAll() ?: [];
+            } catch (PDOException $e) {
+                error_log("Failed to fetch borrow ledger: " . $e->getMessage());
+                $borrowLedger = [];
+            }
         }
         echo json_encode(['orders' => $orders, 'inventory' => $inventory, 'station' => $station, 'products' => $products, 'staff' => $staff, 'borrow_ledger' => $borrowLedger]);
         exit;
@@ -201,10 +240,42 @@ class StationAdminController {
 
         $validateQr = function($qr) {
             if (empty($qr)) return null;
-            if (!preg_match('/^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+\/=\s]+$/', $qr) || strlen($qr) > 7 * 1024 * 1024) {
+            if (!preg_match('/^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+\/=\s]+$/', $qr) || strlen($qr) > 1.5 * 1024 * 1024) {
                 return false;
             }
             return $qr;
+        };
+
+        $saveQrFile = function(?string $dataUrl, string $prefix, int $stationId): ?string {
+            if (empty($dataUrl)) return null;
+            if (!preg_match('/^data:image\/(jpeg|jpg|png|webp);base64,([A-Za-z0-9+\/=\s]+)$/', $dataUrl, $matches)) {
+                return $dataUrl;
+            }
+            $ext = ($matches[1] === 'jpeg' || $matches[1] === 'jpg') ? 'jpg' : ($matches[1] === 'png' ? 'png' : 'webp');
+            $decoded = base64_decode(preg_replace('/\s+/', '', $matches[2]));
+            if ($decoded === false) {
+                return $dataUrl;
+            }
+
+            $uploadDir = dirname(__DIR__, 2) . '/public/uploads/qr';
+            if (!is_dir($uploadDir)) {
+                @mkdir($uploadDir, 0755, true);
+            }
+
+            if (is_dir($uploadDir) && is_writable($uploadDir)) {
+                $oldFiles = glob($uploadDir . '/' . $prefix . '_' . $stationId . '_*.*');
+                if ($oldFiles) {
+                    foreach ($oldFiles as $oldFile) {
+                        @unlink($oldFile);
+                    }
+                }
+                $filename = $prefix . '_' . $stationId . '_' . time() . '.' . $ext;
+                $filePath = $uploadDir . '/' . $filename;
+                if (@file_put_contents($filePath, $decoded) !== false) {
+                    return '/uploads/qr/' . $filename;
+                }
+            }
+            return $dataUrl;
         };
 
         $sql = "UPDATE STATION SET gcash_name=?, gcash_number=?, maya_name=?, maya_number=? ";
@@ -212,12 +283,14 @@ class StationAdminController {
         if ($g_qr) {
             $checked = $validateQr($g_qr);
             if ($checked === false) { echo json_encode(['error' => 'Invalid GCash QR image format.']); exit; }
-            $sql .= ", gcash_qr=? "; $params[] = $checked;
+            $storedGcashQr = $saveQrFile($checked, 'gcash', (int)$admin['station_id']);
+            $sql .= ", gcash_qr=? "; $params[] = $storedGcashQr;
         }
         if ($m_qr) {
             $checked = $validateQr($m_qr);
             if ($checked === false) { echo json_encode(['error' => 'Invalid Maya QR image format.']); exit; }
-            $sql .= ", maya_qr=? "; $params[] = $checked;
+            $storedMayaQr = $saveQrFile($checked, 'maya', (int)$admin['station_id']);
+            $sql .= ", maya_qr=? "; $params[] = $storedMayaQr;
         }
         $sql .= " WHERE station_id=?"; $params[] = $admin['station_id'];
         $this->pdo->prepare($sql)->execute($params); 
@@ -315,10 +388,22 @@ class StationAdminController {
             echo json_encode(['error' => 'Username is required and password must be at least 6 characters.']);
             exit;
         }
-        $this->pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role) VALUES (?, ?, ?, 'Delivery Staff')")
-            ->execute([$admin['station_id'], $user, password_hash($pass, PASSWORD_DEFAULT)]); 
-        echo json_encode(['success' => true]); 
-        exit;
+        try {
+            $this->pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role) VALUES (?, ?, ?, 'Delivery Staff')")
+                ->execute([$admin['station_id'], $user, password_hash($pass, PASSWORD_DEFAULT)]); 
+            echo json_encode(['success' => true]); 
+            exit;
+        } catch (PDOException $e) {
+            if ($e->getCode() === '23000' || (isset($e->errorInfo[1]) && $e->errorInfo[1] === 1062)) {
+                http_response_code(409);
+                echo json_encode(['error' => 'A staff member with this username already exists. Please choose a different username.']);
+                exit;
+            }
+            error_log("addStaff error: " . $e->getMessage());
+            http_response_code(500);
+            echo json_encode(['error' => 'Database error while creating staff account.']);
+            exit;
+        }
     }
 
     public function toggleStaff() {

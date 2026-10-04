@@ -226,4 +226,65 @@ function run_migrations($pdo) {
         }
         @file_put_contents($migrationLockFileV7, date('c'));
     }
+
+    $migrationLockFileV8 = __DIR__ . '/.migrated_v8';
+    if (!file_exists($migrationLockFileV8)) {
+        try {
+            // Update Station 1 coordinates to Mababanaba, San Jose, Tarlac (15.5056, 120.4462)
+            $pdo->exec("UPDATE STATION SET latitude = 15.5056, longitude = 120.4462 WHERE station_id = 1");
+
+            // Ensure loyalty points are populated from delivered orders
+            $pdo->exec("
+                INSERT INTO CUSTOMER_LOYALTY (customer_id, station_id, points, lifetime_points)
+                SELECT customer_id, 
+                       station_id, 
+                       GREATEST(0, (SUM(quantity) * 2) - IFNULL(SUM(points_used), 0)) as points,
+                       (SUM(quantity) * 3) as lifetime_points
+                FROM ORDERS 
+                WHERE order_status = 'Delivered'
+                GROUP BY customer_id, station_id
+                ON DUPLICATE KEY UPDATE 
+                    lifetime_points = GREATEST(CUSTOMER_LOYALTY.lifetime_points, VALUES(lifetime_points)),
+                    points = GREATEST(CUSTOMER_LOYALTY.points, VALUES(points))
+            ");
+
+            if (class_exists('CustomerController')) {
+                CustomerController::clearStationsCache();
+            }
+        } catch (Exception $e) {
+            error_log("Migration v8 error: " . $e->getMessage());
+        }
+        @file_put_contents($migrationLockFileV8, date('c'));
+    }
+
+    $migrationLockFileV9 = __DIR__ . '/.migrated_v9';
+    if (!file_exists($migrationLockFileV9)) {
+        try {
+            // 1. Normalize any 0 or NULL station_id in ORDERS and CUSTOMER_LOYALTY to 1
+            $pdo->exec("UPDATE ORDERS SET station_id = 1 WHERE station_id IS NULL OR station_id = 0");
+            $pdo->exec("UPDATE CUSTOMER_LOYALTY SET station_id = 1 WHERE station_id IS NULL OR station_id = 0");
+
+            // 2. Ensure loyalty points and lifetime rank points are synced per station from delivered orders
+            $pdo->exec("
+                INSERT INTO CUSTOMER_LOYALTY (customer_id, station_id, points, lifetime_points)
+                SELECT customer_id, 
+                       COALESCE(NULLIF(station_id, 0), 1) as station_id, 
+                       GREATEST(0, (SUM(quantity) * 2) - IFNULL(SUM(points_used), 0)) as points,
+                       (SUM(quantity) * 3) as lifetime_points
+                FROM ORDERS 
+                WHERE order_status = 'Delivered'
+                GROUP BY customer_id, COALESCE(NULLIF(station_id, 0), 1)
+                ON DUPLICATE KEY UPDATE 
+                    lifetime_points = GREATEST(CUSTOMER_LOYALTY.lifetime_points, VALUES(lifetime_points)),
+                    points = GREATEST(CUSTOMER_LOYALTY.points, VALUES(points))
+            ");
+
+            if (class_exists('CustomerController')) {
+                CustomerController::clearStationsCache();
+            }
+        } catch (Exception $e) {
+            error_log("Migration v9 error: " . $e->getMessage());
+        }
+        @file_put_contents($migrationLockFileV9, date('c'));
+    }
 }

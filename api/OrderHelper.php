@@ -56,23 +56,43 @@ class OrderHelper {
                 $pdo->beginTransaction();
                 try {
                     $inPlaceholders = implode(',', array_fill(0, count($grp['order_ids']), '?'));
-                    $stmtCancel = $pdo->prepare("UPDATE ORDERS SET order_status = 'Cancelled' WHERE order_id IN ($inPlaceholders) AND order_status = 'Pending'");
-                    $stmtCancel->execute($grp['order_ids']);
-                    $affected = $stmtCancel->rowCount();
+                    $selStmt = $pdo->prepare("SELECT order_id, quantity, jug_type, points_used FROM ORDERS WHERE order_id IN ($inPlaceholders) AND order_status = 'Pending' FOR UPDATE");
+                    $selStmt->execute($grp['order_ids']);
+                    $pendingOrders = $selStmt->fetchAll(PDO::FETCH_ASSOC);
 
-                    if ($affected > 0) {
+                    if (!empty($pendingOrders)) {
+                        $pendingIds = array_column($pendingOrders, 'order_id');
+                        $cancelPlaceholders = implode(',', array_fill(0, count($pendingIds), '?'));
+                        $stmtCancel = $pdo->prepare("UPDATE ORDERS SET order_status = 'Cancelled' WHERE order_id IN ($cancelPlaceholders)");
+                        $stmtCancel->execute($pendingIds);
+
+                        $actualQty = 0;
+                        $actualRound = 0;
+                        $actualSlim = 0;
+                        $actualPts = 0;
+                        foreach ($pendingOrders as $po) {
+                            $q = (int)$po['quantity'];
+                            $actualQty += $q;
+                            if (($po['jug_type'] ?? 'Round') === 'Round') {
+                                $actualRound += $q;
+                            } else {
+                                $actualSlim += $q;
+                            }
+                            $actualPts += (int)($po['points_used'] ?? 0);
+                        }
+
                         $pdo->prepare("UPDATE INVENTORY SET stock_level = stock_level + ?, round_jugs = round_jugs + ?, slim_jugs = slim_jugs + ? WHERE station_id = ?")
-                            ->execute([$grp['tot_qty'], $grp['tot_round'], $grp['tot_slim'], $grp['station_id']]);
+                            ->execute([$actualQty, $actualRound, $actualSlim, $grp['station_id']]);
 
-                        if ($grp['tot_pts'] > 0) {
+                        if ($actualPts > 0) {
                             $pdo->prepare("UPDATE CUSTOMER_LOYALTY SET points = points + ? WHERE customer_id = ? AND station_id = ?")
-                                ->execute([$grp['tot_pts'], $grp['customer_id'], $grp['station_id']]);
+                                ->execute([$actualPts, $grp['customer_id'], $grp['station_id']]);
                         }
 
                         $pdo->commit();
                         $cancelledCount++;
 
-                        $son = !empty($grp['station_order_number']) ? $grp['station_order_number'] : $grp['order_ids'][0];
+                        $son = !empty($grp['station_order_number']) ? $grp['station_order_number'] : $pendingIds[0];
                         $cancelReason = !empty($grp['is_scheduled'])
                             ? "Your scheduled order was automatically cancelled because the station did not accept it within the scheduled delivery window."
                             : "Your order was automatically cancelled because the station did not accept it within 5 minutes.";
@@ -80,7 +100,7 @@ class OrderHelper {
                             WebPush::sendToCustomer(
                                 $pdo,
                                 $grp['customer_id'],
-                                "⚠️ Order #{$son} Cancelled",
+                                "Order #{$son} Cancelled",
                                 $cancelReason,
                                 '/#customer_orders'
                             );
