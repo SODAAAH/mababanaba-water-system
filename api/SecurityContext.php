@@ -82,21 +82,21 @@ class SecurityContext {
     }
 
     public static function requireCustomer(PDO $pdo): array {
-        $cid = $_SESSION['customer_id'] ?? null;
+        $cid = null;
+        $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['HTTP_X_AUTH_TOKEN'] ?? $_POST['auth_token'] ?? '';
+        if (str_starts_with($authHeader, 'Bearer ')) {
+            $authHeader = substr($authHeader, 7);
+        }
+        if (!empty($authHeader)) {
+            $tokenData = self::verifyAuthToken($authHeader);
+            if ($tokenData && ($tokenData['type'] ?? '') === 'customer' && !empty($tokenData['id'])) {
+                $cid = (int)$tokenData['id'];
+                $_SESSION['customer_id'] = $cid;
+            }
+        }
 
-        // Auto-heal session if customer_id was dropped but valid signed token is present
         if (!$cid) {
-            $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['HTTP_X_AUTH_TOKEN'] ?? $_POST['auth_token'] ?? '';
-            if (str_starts_with($authHeader, 'Bearer ')) {
-                $authHeader = substr($authHeader, 7);
-            }
-            if (!empty($authHeader)) {
-                $tokenData = self::verifyAuthToken($authHeader);
-                if ($tokenData && ($tokenData['type'] ?? '') === 'customer' && !empty($tokenData['id'])) {
-                    $cid = (int)$tokenData['id'];
-                    $_SESSION['customer_id'] = $cid;
-                }
-            }
+            $cid = $_SESSION['customer_id'] ?? null;
         }
 
         if (!$cid) {
@@ -116,21 +116,21 @@ class SecurityContext {
     }
 
     public static function getAuthAdmin(PDO $pdo): ?array {
-        $aid = $_SESSION['admin_id'] ?? null;
+        $aid = null;
+        $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['HTTP_X_AUTH_TOKEN'] ?? $_POST['auth_token'] ?? '';
+        if (str_starts_with($authHeader, 'Bearer ')) {
+            $authHeader = substr($authHeader, 7);
+        }
+        if (!empty($authHeader)) {
+            $tokenData = self::verifyAuthToken($authHeader);
+            if ($tokenData && ($tokenData['type'] ?? '') === 'admin' && !empty($tokenData['id'])) {
+                $aid = (int)$tokenData['id'];
+                $_SESSION['admin_id'] = $aid;
+            }
+        }
 
-        // Auto-heal admin session if admin_id was dropped but valid signed token is present
         if (!$aid) {
-            $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['HTTP_X_AUTH_TOKEN'] ?? $_POST['auth_token'] ?? '';
-            if (str_starts_with($authHeader, 'Bearer ')) {
-                $authHeader = substr($authHeader, 7);
-            }
-            if (!empty($authHeader)) {
-                $tokenData = self::verifyAuthToken($authHeader);
-                if ($tokenData && ($tokenData['type'] ?? '') === 'admin' && !empty($tokenData['id'])) {
-                    $aid = (int)$tokenData['id'];
-                    $_SESSION['admin_id'] = $aid;
-                }
-            }
+            $aid = $_SESSION['admin_id'] ?? null;
         }
 
         if (!$aid) {
