@@ -213,7 +213,7 @@ try {
         $pdo->exec("SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY',''))");
     } catch (PDOException $ignoreSqlMode) {}
 
-    if (!file_exists(__DIR__ . '/.migrated_v9')) {
+    if (!file_exists(__DIR__ . '/.migrated_v11')) {
         require_once __DIR__ . '/migrations.php';
         run_migrations($pdo);
     }

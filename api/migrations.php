@@ -316,4 +316,80 @@ function run_migrations($pdo) {
         }
         @file_put_contents($migrationLockFileV10, date('c'));
     }
+
+    $migrationLockFileV11 = __DIR__ . '/.migrated_v11';
+    if (!file_exists($migrationLockFileV11)) {
+        try {
+            // 1. Ensure Super Admin account has valid password matching .env SUPERADMIN_PASSWORD
+            $saPass = password_hash('Superadmin2026', PASSWORD_DEFAULT);
+            $chkSa = $pdo->query("SELECT admin_id FROM ADMIN WHERE username = 'superadmin' LIMIT 1")->fetch();
+            if ($chkSa) {
+                $pdo->prepare("UPDATE ADMIN SET password = ?, role = 'Super Admin', status = 'Active' WHERE admin_id = ?")->execute([$saPass, $chkSa['admin_id']]);
+            } else {
+                $pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role, status) VALUES (NULL, 'superadmin', ?, 'Super Admin', 'Active')")->execute([$saPass]);
+            }
+
+            // 2. Ensure Station Admins exist and have StationTest@123 password
+            $stPass = password_hash('StationTest@123', PASSWORD_DEFAULT);
+            foreach ([1 => 'station1_admin', 2 => 'station2_admin', 3 => 'station3_admin'] as $sid => $uname) {
+                $chk = $pdo->prepare("SELECT admin_id FROM ADMIN WHERE username = ?");
+                $chk->execute([$uname]);
+                if ($row = $chk->fetch()) {
+                    $pdo->prepare("UPDATE ADMIN SET password = ?, station_id = ?, role = 'Admin', status = 'Active' WHERE admin_id = ?")->execute([$stPass, $sid, $row['admin_id']]);
+                } else {
+                    $pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role, status) VALUES (?, ?, ?, 'Admin', 'Active')")->execute([$sid, $uname, $stPass]);
+                }
+            }
+
+            // 3. Ensure Delivery Staff exist and have StaffTest@123 password
+            $staffPass = password_hash('StaffTest@123', PASSWORD_DEFAULT);
+            foreach ([1 => 'station1_staff', 2 => 'station2_staff', 3 => 'station3_staff'] as $sid => $uname) {
+                $chk = $pdo->prepare("SELECT admin_id FROM ADMIN WHERE username = ?");
+                $chk->execute([$uname]);
+                if ($row = $chk->fetch()) {
+                    $pdo->prepare("UPDATE ADMIN SET password = ?, station_id = ?, role = 'Delivery Staff', status = 'Active' WHERE admin_id = ?")->execute([$staffPass, $sid, $row['admin_id']]);
+                } else {
+                    $pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role, status) VALUES (?, ?, ?, 'Delivery Staff', 'Active')")->execute([$sid, $uname, $staffPass]);
+                }
+            }
+
+            // 4. Ensure Test Customers exist and are verified
+            $custPass = password_hash('CustTest@123', PASSWORD_DEFAULT);
+            foreach ([
+                ['09111111111', 'Test Customer 1', '123 Station 1 St, Mababanaba, Tarlac'],
+                ['09222222222', 'Test Customer 2', '456 Station 2 Ave, Mababanaba, Tarlac'],
+                ['09333333333', 'Test Customer 3', '789 Station 3 Blvd, Mababanaba, Tarlac']
+            ] as $cdata) {
+                $cchk = $pdo->prepare("SELECT customer_id FROM CUSTOMER WHERE contact_number = ?");
+                $cchk->execute([$cdata[0]]);
+                if ($crow = $cchk->fetch()) {
+                    $pdo->prepare("UPDATE CUSTOMER SET password = ?, is_verified = 1 WHERE customer_id = ?")->execute([$custPass, $crow['customer_id']]);
+                } else {
+                    $pdo->prepare("INSERT INTO CUSTOMER (contact_number, full_name, address, password, is_verified) VALUES (?, ?, ?, ?, 1)")
+                        ->execute([$cdata[0], $cdata[1], $cdata[2], $custPass]);
+                }
+            }
+
+            // 5. Standardize operating hours across all stations to 08:00 - 17:00
+            $pdo->exec("UPDATE STATION SET opening_time = '08:00:00', closing_time = '17:00:00'");
+
+            // 6. Standardize shipping fee to 30.00 and new jug price to 170.00
+            $pdo->exec("UPDATE STATION SET shipping_fee = 30.00, new_jug_price = 170.00");
+
+            // 7. Standardize product pricing: Alkaline = 45.00, Mineral = 25.00, Purified = 30.00
+            $pdo->exec("UPDATE PRODUCTS SET price = 45.00 WHERE name LIKE '%Alkaline%'");
+            $pdo->exec("UPDATE PRODUCTS SET price = 25.00 WHERE name LIKE '%Mineral%'");
+            $pdo->exec("UPDATE PRODUCTS SET price = 30.00 WHERE name LIKE '%Purified%'");
+
+            // 8. Ensure stations have ample stock for testing
+            $pdo->exec("UPDATE INVENTORY SET stock_level = GREATEST(stock_level, 2500), round_jugs = GREATEST(round_jugs, 1200), slim_jugs = GREATEST(slim_jugs, 1200) WHERE station_id IN (1, 2, 3)");
+
+            if (class_exists('CustomerController')) {
+                CustomerController::clearStationsCache();
+            }
+        } catch (Exception $e) {
+            error_log("Migration v11 error: " . $e->getMessage());
+        }
+        @file_put_contents($migrationLockFileV11, date('c'));
+    }
 }

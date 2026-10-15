@@ -17,22 +17,45 @@ class DeliveryStaffController {
         $admin = $this->requireStationStaff();
         $sid = $admin['station_id'];
         $oid = (int)($_POST['order_id'] ?? 0);
-        $bRound = (int)($_POST['borrow_round'] ?? 0);
-        $bSlim = (int)($_POST['borrow_slim'] ?? 0);
         
-        $stmtOrder = $this->pdo->prepare("SELECT customer_id, station_order_number FROM ORDERS WHERE order_id = ? AND station_id = ?");
-        $stmtOrder->execute([$oid, $sid]);
-        $oInfo = $stmtOrder->fetch();
-        if (!$oInfo) {
-            SecurityContext::jsonResponse(404, ['error' => 'Order not found for your station.']);
+        $this->pdo->beginTransaction();
+        try {
+            $stmtOrder = $this->pdo->prepare("SELECT customer_id, station_order_number, borrow_status, borrow_round, borrow_slim FROM ORDERS WHERE order_id = ? AND station_id = ? FOR UPDATE");
+            $stmtOrder->execute([$oid, $sid]);
+            $oInfo = $stmtOrder->fetch();
+            if (!$oInfo) {
+                $this->pdo->rollBack();
+                SecurityContext::jsonResponse(404, ['error' => 'Order not found for your station.']);
+            }
+
+            if ($oInfo['borrow_status'] === 'Returned') {
+                $this->pdo->rollBack();
+                echo json_encode(['success' => true, 'message' => 'Containers have already been marked as returned.']);
+                exit;
+            }
+
+            $bRound = (int)$oInfo['borrow_round'];
+            $bSlim = (int)$oInfo['borrow_slim'];
+            $bTotal = $bRound + $bSlim;
+            
+            $this->pdo->prepare("UPDATE ORDERS SET borrow_status = 'Returned' WHERE station_order_number = ? AND customer_id = ? AND station_id = ?")
+                 ->execute([$oInfo['station_order_number'], $oInfo['customer_id'], $sid]);
+
+            if ($bTotal > 0) {
+                $this->pdo->prepare("UPDATE INVENTORY SET stock_level = stock_level + ?, round_jugs = round_jugs + ?, slim_jugs = slim_jugs + ? WHERE station_id = ?")
+                    ->execute([$bTotal, $bRound, $bSlim, $sid]);
+            }
+
+            $this->pdo->commit();
+            echo json_encode(['success' => true]); 
+            exit;
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            error_log("markReturned error: " . $e->getMessage());
+            SecurityContext::jsonResponse(500, ['error' => 'Failed to process return.']);
         }
-        
-        $this->pdo->prepare("UPDATE ORDERS SET borrow_status = 'Returned' WHERE station_order_number = ? AND customer_id = ? AND station_id = ?")
-             ->execute([$oInfo['station_order_number'], $oInfo['customer_id'], $sid]);
-        $this->pdo->prepare("UPDATE INVENTORY SET stock_level = stock_level + ?, round_jugs = round_jugs + ?, slim_jugs = slim_jugs + ? WHERE station_id = ?")
-            ->execute([$bRound + $bSlim, $bRound, $bSlim, $sid]);
-        echo json_encode(['success' => true]); 
-        exit;
     }
 
     public function updateOrderStatus() {

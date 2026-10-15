@@ -637,7 +637,7 @@ class CustomerController {
             $allowedOptions = ['owned', 'borrow', 'buy'];
             $allowedJugTypes = ['Round', 'Slim'];
             $totalQty = 0; $cartHash = 0; $totRound = 0; $totSlim = 0;
-            $pIds = [];
+            $hasBorrow = false;
             foreach($cart as $item) { 
                 $qty = (int)($item['quantity'] ?? 0);
                 if (empty($item['product_id']) || $qty <= 0 || $qty > 500) {
@@ -646,6 +646,9 @@ class CustomerController {
                 $c_opt = $item['container_option'] ?? 'owned';
                 if (!in_array($c_opt, $allowedOptions, true)) {
                     throw new Exception("Invalid container option selected.");
+                }
+                if ($c_opt === 'borrow') {
+                    $hasBorrow = true;
                 }
                 $j_type = $item['jug_type'] ?? 'Round';
                 if (!in_array($j_type, $allowedJugTypes, true)) {
@@ -656,6 +659,14 @@ class CustomerController {
                 $pIds[] = (int)$item['product_id'];
                 if ($j_type === 'Round') $totRound += $qty;
                 else $totSlim += $qty;
+            }
+
+            if ($hasBorrow) {
+                $stmtDebt = $this->pdo->prepare("SELECT COUNT(*) FROM ORDERS WHERE customer_id = ? AND station_id = ? AND borrow_status = 'Pending' AND (borrow_round > 0 OR borrow_slim > 0)");
+                $stmtDebt->execute([$cid, $sid]);
+                if ((int)$stmtDebt->fetchColumn() > 0) {
+                    throw new Exception("You have unreturned borrowed containers from this station. Please return them before borrowing additional containers.");
+                }
             }
             
             $stmt = $this->pdo->prepare("SELECT stock_level FROM INVENTORY WHERE station_id = ? FOR UPDATE"); $stmt->execute([$sid]);
