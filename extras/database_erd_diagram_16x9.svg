@@ -1,0 +1,614 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" style="background:#ffffff; font-family:'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <defs>
+    <!-- Card Drop Shadow -->
+    <filter id="shadow" x="-3%" y="-3%" width="106%" height="108%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.06"/>
+    </filter>
+
+    <!-- Crow's Foot Cardinality Markers for Diagram Lines -->
+    <!-- Zero or Many (o<) -->
+    <marker id="crowZeroMany" markerWidth="18" markerHeight="14" refX="16" refY="7" orient="auto">
+      <circle cx="4" cy="7" r="3" fill="#ffffff" stroke="#475569" stroke-width="1.5"/>
+      <path d="M 8,7 L 16,7 M 16,1 L 9,7 L 16,13" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+
+    <!-- One and Only One (||) -->
+    <marker id="oneOnly" markerWidth="12" markerHeight="14" refX="2" refY="7" orient="auto">
+      <line x1="4" y1="1" x2="4" y2="13" stroke="#475569" stroke-width="1.6" stroke-linecap="round"/>
+      <line x1="9" y1="1" x2="9" y2="13" stroke="#475569" stroke-width="1.6" stroke-linecap="round"/>
+    </marker>
+
+    <!-- One or Many (|<) -->
+    <marker id="crowOneMany" markerWidth="18" markerHeight="14" refX="16" refY="7" orient="auto">
+      <line x1="3" y1="1" x2="3" y2="13" stroke="#475569" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M 4,7 L 16,7 M 16,1 L 8,7 L 16,13" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+
+    <!-- Zero or One (o|) -->
+    <marker id="zeroOne" markerWidth="14" markerHeight="14" refX="2" refY="7" orient="auto">
+      <circle cx="4" cy="7" r="3" fill="#ffffff" stroke="#475569" stroke-width="1.5"/>
+      <line x1="10" y1="1" x2="10" y2="13" stroke="#475569" stroke-width="1.6" stroke-linecap="round"/>
+    </marker>
+
+    <style>
+      .entity-title { font-size: 15px; font-weight: 700; fill: #ffffff; letter-spacing: 0.04em; }
+      .field-name { font-size: 12px; font-weight: 600; fill: #1e293b; }
+      .field-type { font-size: 11px; font-weight: 500; fill: #64748b; font-family: 'JetBrains Mono', Consolas, monospace; }
+      .pk-badge { fill: #fef3c7; stroke: #d97706; stroke-width: 1; }
+      .pk-text { font-size: 9px; font-weight: 800; fill: #92400e; font-family: monospace; }
+      .fk-badge { fill: #e0f2fe; stroke: #0284c7; stroke-width: 1; }
+      .fk-text { font-size: 9px; font-weight: 800; fill: #0369a1; font-family: monospace; }
+      .comp-badge { fill: #f3e8ff; stroke: #9333ea; stroke-width: 1; }
+      .comp-text { font-size: 8.5px; font-weight: 800; fill: #6b21a8; font-family: monospace; }
+      .line { fill: none; stroke: #475569; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+
+  <!-- Clean Background -->
+  <rect x="0" y="0" width="1920" height="1080" fill="#f8fafc"/>
+
+  <!-- ================= RELATIONSHIP CONNECTOR LINES ================= -->
+  <!-- 1. STATION to ADMIN -->
+  <path d="M 470 130 L 410 130" class="line" marker-start="url(#oneOnly)" marker-end="url(#crowZeroMany)"/>
+
+  <!-- 2. ADMIN to DELIVERIES -->
+  <path d="M 240 320 L 240 430" class="line" marker-start="url(#oneOnly)" marker-end="url(#crowZeroMany)"/>
+
+  <!-- 3. STATION to PRODUCTS -->
+  <path d="M 660 420 L 660 490" class="line" marker-start="url(#oneOnly)" marker-end="url(#crowZeroMany)"/>
+
+  <!-- 4. PRODUCTS to INVENTORY -->
+  <path d="M 660 720 L 660 780" class="line" marker-start="url(#oneOnly)" marker-end="url(#oneOnly)"/>
+
+  <!-- 5. STATION to ORDERS -->
+  <path d="M 850 130 L 910 130" class="line" marker-start="url(#oneOnly)" marker-end="url(#crowZeroMany)"/>
+
+  <!-- 6. CUSTOMER to ORDERS -->
+  <path d="M 1420 150 L 1360 150" class="line" marker-start="url(#oneOnly)" marker-end="url(#crowZeroMany)"/>
+
+  <!-- 7. PRODUCTS to ORDERS -->
+  <path d="M 850 560 L 880 560 L 880 360 L 910 360" class="line" marker-start="url(#oneOnly)" marker-end="url(#crowZeroMany)"/>
+
+  <!-- 8. ORDERS to DELIVERIES -->
+  <path d="M 910 460 L 410 460" class="line" marker-start="url(#oneOnly)" marker-end="url(#zeroOne)"/>
+
+  <!-- 9. ORDERS to REVIEWS -->
+  <path d="M 1135 570 L 1135 660" class="line" marker-start="url(#oneOnly)" marker-end="url(#zeroOne)"/>
+
+  <!-- 10. CUSTOMER to CUSTOMER_LOYALTY -->
+  <path d="M 1635 380 L 1635 460" class="line" marker-start="url(#oneOnly)" marker-end="url(#crowZeroMany)"/>
+
+  <!-- 11. STATION to CUSTOMER_LOYALTY -->
+  <path d="M 850 70 L 885 70 L 885 20 L 1390 20 L 1390 520 L 1420 520" class="line" marker-start="url(#oneOnly)" marker-end="url(#crowZeroMany)"/>
+
+  <!-- 12. CUSTOMER to PUSH_SUBSCRIPTIONS -->
+  <path d="M 1635 680 L 1635 760" class="line" marker-start="url(#oneOnly)" marker-end="url(#crowZeroMany)"/>
+
+
+  <!-- ================= ENTITY TABLES ================= -->
+
+  <!-- 1. ADMIN -->
+  <g transform="translate(70, 40)" filter="url(#shadow)">
+    <rect width="340" height="280" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+    <rect width="340" height="40" rx="8" fill="#4338ca"/>
+    <rect y="32" width="340" height="8" fill="#4338ca"/>
+    <text x="16" y="26" class="entity-title">ADMIN</text>
+    <g transform="translate(16, 62)">
+      <rect x="0" y="-11" width="22" height="14" rx="2" class="pk-badge"/>
+      <text x="11" y="0" class="pk-text" text-anchor="middle">PK</text>
+      <text x="28" y="0" class="field-name">admin_id</text>
+      <text x="308" y="0" class="field-type" text-anchor="end">INT</text>
+      
+      <g transform="translate(0, 30)">
+        <rect x="0" y="-11" width="22" height="14" rx="2" class="fk-badge"/>
+        <text x="11" y="0" class="fk-text" text-anchor="middle">FK</text>
+        <text x="28" y="0" class="field-name">station_id</text>
+        <text x="308" y="0" class="field-type" text-anchor="end">INT (NULL)</text>
+      </g>
+      <g transform="translate(0, 60)">
+        <text x="28" y="0" class="field-name">username</text>
+        <text x="308" y="0" class="field-type" text-anchor="end">VARCHAR(50)</text>
+      </g>
+      <g transform="translate(0, 90)">
+        <text x="28" y="0" class="field-name">role</text>
+        <text x="308" y="0" class="field-type" text-anchor="end">ENUM</text>
+      </g>
+      <g transform="translate(0, 120)">
+        <text x="28" y="0" class="field-name">status</text>
+        <text x="308" y="0" class="field-type" text-anchor="end">ENUM</text>
+      </g>
+      <g transform="translate(0, 150)">
+        <text x="28" y="0" class="field-name">contact_number</text>
+        <text x="308" y="0" class="field-type" text-anchor="end">VARCHAR(20)</text>
+      </g>
+      <g transform="translate(0, 180)">
+        <text x="28" y="0" class="field-name">failed_otp_attempts</text>
+        <text x="308" y="0" class="field-type" text-anchor="end">INT</text>
+      </g>
+    </g>
+  </g>
+
+
+  <!-- 2. DELIVERIES -->
+  <g transform="translate(70, 430)" filter="url(#shadow)">
+    <rect width="340" height="260" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+    <rect width="340" height="40" rx="8" fill="#4338ca"/>
+    <rect y="32" width="340" height="8" fill="#4338ca"/>
+    <text x="16" y="26" class="entity-title">DELIVERIES</text>
+    <g transform="translate(16, 62)">
+      <rect x="0" y="-11" width="22" height="14" rx="2" class="pk-badge"/>
+      <text x="11" y="0" class="pk-text" text-anchor="middle">PK</text>
+      <text x="28" y="0" class="field-name">delivery_id</text>
+      <text x="308" y="0" class="field-type" text-anchor="end">INT</text>
+      
+      <g transform="translate(0, 30)">
+        <rect x="0" y="-11" width="22" height="14" rx="2" class="fk-badge"/>
+        <text x="11" y="0" class="fk-text" text-anchor="middle">FK</text>
+        <text x="28" y="0" class="field-name">order_id</text>
+        <text x="308" y="0" class="field-type" text-anchor="end">INT</text>
+      </g>
+      <g transform="translate(0, 60)">
+        <rect x="0" y="-11" width="22" height="14" rx="2" class="fk-badge"/>
+        <text x="11" y="0" class="fk-text" text-anchor="middle">FK</text>
+        <text x="28" y="0" class="field-name">admin_id</text>
+        <text x="308" y="0" class="field-type" text-anchor="end">INT</text>
+      </g>
+      <g transform="translate(0, 90)">
+        <text x="28" y="0" class="field-name">quantity</text>
+        <text x="308" y="0" class="field-type" text-anchor="end">INT</text>
+      </g>
+      <g transform="translate(0, 120)">
+        <text x="28" y="0" class="field-name">delivery_status</text>
+        <text x="308" y="0" class="field-type" text-anchor="end">ENUM</text>
+      </g>
+      <g transform="translate(0, 150)">
+        <text x="28" y="0" class="field-name">delivery_date</text>
+        <text x="308" y="0" class="field-type" text-anchor="end">TIMESTAMP</text>
+      </g>
+    </g>
+  </g>
+
+
+  <!-- 3. STATION -->
+  <g transform="translate(470, 40)" filter="url(#shadow)">
+    <rect width="380" height="380" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+    <rect width="380" height="40" rx="8" fill="#0f766e"/>
+    <rect y="32" width="380" height="8" fill="#0f766e"/>
+    <text x="16" y="26" class="entity-title">STATION</text>
+    <g transform="translate(16, 62)">
+      <rect x="0" y="-11" width="22" height="14" rx="2" class="pk-badge"/>
+      <text x="11" y="0" class="pk-text" text-anchor="middle">PK</text>
+      <text x="28" y="0" class="field-name">station_id</text>
+      <text x="348" y="0" class="field-type" text-anchor="end">INT</text>
+      
+      <g transform="translate(0, 28)">
+        <text x="28" y="0" class="field-name">station_name</text>
+        <text x="348" y="0" class="field-type" text-anchor="end">VARCHAR(100)</text>
+      </g>
+      <g transform="translate(0, 56)">
+        <text x="28" y="0" class="field-name">address</text>
+        <text x="348" y="0" class="field-type" text-anchor="end">TEXT</text>
+      </g>
+      <g transform="translate(0, 84)">
+        <text x="28" y="0" class="field-name">contact_number</text>
+        <text x="348" y="0" class="field-type" text-anchor="end">VARCHAR(20)</text>
+      </g>
+      <g transform="translate(0, 112)">
+        <text x="28" y="0" class="field-name">status</text>
+        <text x="348" y="0" class="field-type" text-anchor="end">ENUM</text>
+      </g>
+      <g transform="translate(0, 140)">
+        <text x="28" y="0" class="field-name">opening_time / closing_time</text>
+        <text x="348" y="0" class="field-type" text-anchor="end">TIME</text>
+      </g>
+      <g transform="translate(0, 168)">
+        <text x="28" y="0" class="field-name">shipping_fee</text>
+        <text x="348" y="0" class="field-type" text-anchor="end">DECIMAL(10,2)</text>
+      </g>
+      <g transform="translate(0, 196)">
+        <text x="28" y="0" class="field-name">jug_discount / new_jug_price</text>
+        <text x="348" y="0" class="field-type" text-anchor="end">DECIMAL(10,2)</text>
+      </g>
+      <g transform="translate(0, 224)">
+        <text x="28" y="0" class="field-name">latitude / longitude</text>
+        <text x="348" y="0" class="field-type" text-anchor="end">DECIMAL</text>
+      </g>
+      <g transform="translate(0, 252)">
+        <text x="28" y="0" class="field-name">gcash_number / maya_number</text>
+        <text x="348" y="0" class="field-type" text-anchor="end">VARCHAR(20)</text>
+      </g>
+      <g transform="translate(0, 280)">
+        <text x="28" y="0" class="field-name">is_manually_closed</text>
+        <text x="348" y="0" class="field-type" text-anchor="end">TINYINT(1)</text>
+      </g>
+    </g>
+  </g>
+
+
+  <!-- 4. PRODUCTS -->
+  <g transform="translate(470, 490)" filter="url(#shadow)">
+    <rect width="380" height="230" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+    <rect width="380" height="40" rx="8" fill="#0f766e"/>
+    <rect y="32" width="380" height="8" fill="#0f766e"/>
+    <text x="16" y="26" class="entity-title">PRODUCTS</text>
+    <g transform="translate(16, 62)">
+      <rect x="0" y="-11" width="22" height="14" rx="2" class="pk-badge"/>
+      <text x="11" y="0" class="pk-text" text-anchor="middle">PK</text>
+      <text x="28" y="0" class="field-name">product_id</text>
+      <text x="348" y="0" class="field-type" text-anchor="end">INT</text>
+      
+      <g transform="translate(0, 28)">
+        <rect x="0" y="-11" width="22" height="14" rx="2" class="fk-badge"/>
+        <text x="11" y="0" class="fk-text" text-anchor="middle">FK</text>
+        <text x="28" y="0" class="field-name">station_id</text>
+        <text x="348" y="0" class="field-type" text-anchor="end">INT</text>
+      </g>
+      <g transform="translate(0, 56)">
+        <text x="28" y="0" class="field-name">name</text>
+        <text x="348" y="0" class="field-type" text-anchor="end">VARCHAR(100)</text>
+      </g>
+      <g transform="translate(0, 84)">
+        <text x="28" y="0" class="field-name">price</text>
+        <text x="348" y="0" class="field-type" text-anchor="end">DECIMAL(10,2)</text>
+      </g>
+      <g transform="translate(0, 112)">
+        <text x="28" y="0" class="field-name">capacity_gallons / liters</text>
+        <text x="348" y="0" class="field-type" text-anchor="end">DECIMAL</text>
+      </g>
+      <g transform="translate(0, 140)">
+        <text x="28" y="0" class="field-name">status</text>
+        <text x="348" y="0" class="field-type" text-anchor="end">ENUM</text>
+      </g>
+    </g>
+  </g>
+
+
+  <!-- 5. INVENTORY -->
+  <g transform="translate(470, 780)" filter="url(#shadow)">
+    <rect width="380" height="200" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+    <rect width="380" height="40" rx="8" fill="#0f766e"/>
+    <rect y="32" width="380" height="8" fill="#0f766e"/>
+    <text x="16" y="26" class="entity-title">INVENTORY</text>
+    <g transform="translate(16, 62)">
+      <rect x="0" y="-11" width="22" height="14" rx="2" class="pk-badge"/>
+      <text x="11" y="0" class="pk-text" text-anchor="middle">PK</text>
+      <text x="28" y="0" class="field-name">inventory_id</text>
+      <text x="348" y="0" class="field-type" text-anchor="end">INT</text>
+      
+      <g transform="translate(0, 28)">
+        <rect x="0" y="-11" width="22" height="14" rx="2" class="fk-badge"/>
+        <text x="11" y="0" class="fk-text" text-anchor="middle">FK</text>
+        <text x="28" y="0" class="field-name">station_id</text>
+        <text x="348" y="0" class="field-type" text-anchor="end">INT</text>
+      </g>
+      <g transform="translate(0, 56)">
+        <text x="28" y="0" class="field-name">stock_level</text>
+        <text x="348" y="0" class="field-type" text-anchor="end">INT</text>
+      </g>
+      <g transform="translate(0, 84)">
+        <text x="28" y="0" class="field-name">round_jugs / slim_jugs</text>
+        <text x="348" y="0" class="field-type" text-anchor="end">INT / INT</text>
+      </g>
+      <g transform="translate(0, 112)">
+        <text x="28" y="0" class="field-name">last_updated_datetime</text>
+        <text x="348" y="0" class="field-type" text-anchor="end">TIMESTAMP</text>
+      </g>
+    </g>
+  </g>
+
+
+  <!-- 6. ORDERS -->
+  <g transform="translate(910, 40)" filter="url(#shadow)">
+    <rect width="450" height="530" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+    <rect width="450" height="40" rx="8" fill="#1d4ed8"/>
+    <rect y="32" width="450" height="8" fill="#1d4ed8"/>
+    <text x="16" y="26" class="entity-title">ORDERS</text>
+    <g transform="translate(16, 62)">
+      <rect x="0" y="-11" width="22" height="14" rx="2" class="pk-badge"/>
+      <text x="11" y="0" class="pk-text" text-anchor="middle">PK</text>
+      <text x="28" y="0" class="field-name">order_id</text>
+      <text x="418" y="0" class="field-type" text-anchor="end">INT</text>
+      
+      <g transform="translate(0, 26)">
+        <rect x="0" y="-11" width="22" height="14" rx="2" class="fk-badge"/>
+        <text x="11" y="0" class="fk-text" text-anchor="middle">FK</text>
+        <text x="28" y="0" class="field-name">station_id</text>
+        <text x="418" y="0" class="field-type" text-anchor="end">INT</text>
+      </g>
+      <g transform="translate(0, 52)">
+        <rect x="0" y="-11" width="22" height="14" rx="2" class="fk-badge"/>
+        <text x="11" y="0" class="fk-text" text-anchor="middle">FK</text>
+        <text x="28" y="0" class="field-name">customer_id</text>
+        <text x="418" y="0" class="field-type" text-anchor="end">INT</text>
+      </g>
+      <g transform="translate(0, 78)">
+        <rect x="0" y="-11" width="22" height="14" rx="2" class="fk-badge"/>
+        <text x="11" y="0" class="fk-text" text-anchor="middle">FK</text>
+        <text x="28" y="0" class="field-name">product_id</text>
+        <text x="418" y="0" class="field-type" text-anchor="end">INT</text>
+      </g>
+      <g transform="translate(0, 104)">
+        <text x="28" y="0" class="field-name">station_order_number</text>
+        <text x="418" y="0" class="field-type" text-anchor="end">INT</text>
+      </g>
+      <g transform="translate(0, 130)">
+        <text x="28" y="0" class="field-name">order_status</text>
+        <text x="418" y="0" class="field-type" text-anchor="end">ENUM</text>
+      </g>
+      <g transform="translate(0, 156)">
+        <text x="28" y="0" class="field-name">quantity</text>
+        <text x="418" y="0" class="field-type" text-anchor="end">INT</text>
+      </g>
+      <g transform="translate(0, 182)">
+        <text x="28" y="0" class="field-name">total_price</text>
+        <text x="418" y="0" class="field-type" text-anchor="end">DECIMAL(10,2)</text>
+      </g>
+      <g transform="translate(0, 208)">
+        <text x="28" y="0" class="field-name">payment_method</text>
+        <text x="418" y="0" class="field-type" text-anchor="end">ENUM</text>
+      </g>
+      <g transform="translate(0, 234)">
+        <text x="28" y="0" class="field-name">container_option</text>
+        <text x="418" y="0" class="field-type" text-anchor="end">VARCHAR(20)</text>
+      </g>
+      <g transform="translate(0, 260)">
+        <text x="28" y="0" class="field-name">jug_type</text>
+        <text x="418" y="0" class="field-type" text-anchor="end">VARCHAR(20)</text>
+      </g>
+      <g transform="translate(0, 286)">
+        <text x="28" y="0" class="field-name">borrow_round / borrow_slim</text>
+        <text x="418" y="0" class="field-type" text-anchor="end">INT / INT</text>
+      </g>
+      <g transform="translate(0, 312)">
+        <text x="28" y="0" class="field-name">return_round / return_slim</text>
+        <text x="418" y="0" class="field-type" text-anchor="end">INT / INT</text>
+      </g>
+      <g transform="translate(0, 338)">
+        <text x="28" y="0" class="field-name">borrow_status</text>
+        <text x="418" y="0" class="field-type" text-anchor="end">ENUM</text>
+      </g>
+      <g transform="translate(0, 364)">
+        <text x="28" y="0" class="field-name">delivery_address</text>
+        <text x="418" y="0" class="field-type" text-anchor="end">TEXT</text>
+      </g>
+      <g transform="translate(0, 390)">
+        <text x="28" y="0" class="field-name">delivery_latitude / longitude</text>
+        <text x="418" y="0" class="field-type" text-anchor="end">DECIMAL</text>
+      </g>
+      <g transform="translate(0, 416)">
+        <text x="28" y="0" class="field-name">order_date / scheduled_date</text>
+        <text x="418" y="0" class="field-type" text-anchor="end">TIMESTAMP / DATETIME</text>
+      </g>
+    </g>
+  </g>
+
+
+  <!-- 7. REVIEWS -->
+  <g transform="translate(910, 660)" filter="url(#shadow)">
+    <rect width="450" height="230" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+    <rect width="450" height="40" rx="8" fill="#0284c7"/>
+    <rect y="32" width="450" height="8" fill="#0284c7"/>
+    <text x="16" y="26" class="entity-title">REVIEWS</text>
+    <g transform="translate(16, 62)">
+      <rect x="0" y="-11" width="22" height="14" rx="2" class="pk-badge"/>
+      <text x="11" y="0" class="pk-text" text-anchor="middle">PK</text>
+      <text x="28" y="0" class="field-name">review_id</text>
+      <text x="418" y="0" class="field-type" text-anchor="end">INT</text>
+      
+      <g transform="translate(0, 26)">
+        <rect x="0" y="-11" width="22" height="14" rx="2" class="fk-badge"/>
+        <text x="11" y="0" class="fk-text" text-anchor="middle">FK</text>
+        <text x="28" y="0" class="field-name">order_id</text>
+        <text x="418" y="0" class="field-type" text-anchor="end">INT</text>
+      </g>
+      <g transform="translate(0, 52)">
+        <rect x="0" y="-11" width="22" height="14" rx="2" class="fk-badge"/>
+        <text x="11" y="0" class="fk-text" text-anchor="middle">FK</text>
+        <text x="28" y="0" class="field-name">station_id</text>
+        <text x="418" y="0" class="field-type" text-anchor="end">INT</text>
+      </g>
+      <g transform="translate(0, 78)">
+        <rect x="0" y="-11" width="22" height="14" rx="2" class="fk-badge"/>
+        <text x="11" y="0" class="fk-text" text-anchor="middle">FK</text>
+        <text x="28" y="0" class="field-name">customer_id</text>
+        <text x="418" y="0" class="field-type" text-anchor="end">INT</text>
+      </g>
+      <g transform="translate(0, 104)">
+        <text x="28" y="0" class="field-name">rating</text>
+        <text x="418" y="0" class="field-type" text-anchor="end">INT (1-5)</text>
+      </g>
+      <g transform="translate(0, 130)">
+        <text x="28" y="0" class="field-name">created_at</text>
+        <text x="418" y="0" class="field-type" text-anchor="end">TIMESTAMP</text>
+      </g>
+    </g>
+  </g>
+
+
+  <!-- 8. CUSTOMER -->
+  <g transform="translate(1420, 40)" filter="url(#shadow)">
+    <rect width="430" height="340" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+    <rect width="430" height="40" rx="8" fill="#b45309"/>
+    <rect y="32" width="430" height="8" fill="#b45309"/>
+    <text x="16" y="26" class="entity-title">CUSTOMER</text>
+    <g transform="translate(16, 62)">
+      <rect x="0" y="-11" width="22" height="14" rx="2" class="pk-badge"/>
+      <text x="11" y="0" class="pk-text" text-anchor="middle">PK</text>
+      <text x="28" y="0" class="field-name">customer_id</text>
+      <text x="398" y="0" class="field-type" text-anchor="end">INT</text>
+      
+      <g transform="translate(0, 28)">
+        <text x="28" y="0" class="field-name">full_name</text>
+        <text x="398" y="0" class="field-type" text-anchor="end">VARCHAR(100)</text>
+      </g>
+      <g transform="translate(0, 56)">
+        <text x="28" y="0" class="field-name">contact_number</text>
+        <text x="398" y="0" class="field-type" text-anchor="end">VARCHAR(20)</text>
+      </g>
+      <g transform="translate(0, 84)">
+        <text x="28" y="0" class="field-name">address</text>
+        <text x="398" y="0" class="field-type" text-anchor="end">TEXT</text>
+      </g>
+      <g transform="translate(0, 112)">
+        <text x="28" y="0" class="field-name">password</text>
+        <text x="398" y="0" class="field-type" text-anchor="end">VARCHAR(255)</text>
+      </g>
+      <g transform="translate(0, 140)">
+        <text x="28" y="0" class="field-name">is_verified</text>
+        <text x="398" y="0" class="field-type" text-anchor="end">TINYINT(1)</text>
+      </g>
+      <g transform="translate(0, 168)">
+        <text x="28" y="0" class="field-name">latitude / longitude</text>
+        <text x="398" y="0" class="field-type" text-anchor="end">DECIMAL</text>
+      </g>
+      <g transform="translate(0, 196)">
+        <text x="28" y="0" class="field-name">created_at</text>
+        <text x="398" y="0" class="field-type" text-anchor="end">TIMESTAMP</text>
+      </g>
+      <g transform="translate(0, 224)">
+        <text x="28" y="0" class="field-name">last_active</text>
+        <text x="398" y="0" class="field-type" text-anchor="end">TIMESTAMP</text>
+      </g>
+    </g>
+  </g>
+
+
+  <!-- 9. CUSTOMER_LOYALTY -->
+  <g transform="translate(1420, 460)" filter="url(#shadow)">
+    <rect width="430" height="220" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+    <rect width="430" height="40" rx="8" fill="#b45309"/>
+    <rect y="32" width="430" height="8" fill="#b45309"/>
+    <text x="16" y="26" class="entity-title">CUSTOMER_LOYALTY</text>
+    <g transform="translate(16, 62)">
+      <rect x="0" y="-11" width="38" height="14" rx="2" class="comp-badge"/>
+      <text x="19" y="0" class="comp-text" text-anchor="middle">PK, FK</text>
+      <text x="44" y="0" class="field-name">customer_id</text>
+      <text x="398" y="0" class="field-type" text-anchor="end">INT</text>
+      
+      <g transform="translate(0, 30)">
+        <rect x="0" y="-11" width="38" height="14" rx="2" class="comp-badge"/>
+        <text x="19" y="0" class="comp-text" text-anchor="middle">PK, FK</text>
+        <text x="44" y="0" class="field-name">station_id</text>
+        <text x="398" y="0" class="field-type" text-anchor="end">INT</text>
+      </g>
+      <g transform="translate(0, 60)">
+        <text x="44" y="0" class="field-name">points</text>
+        <text x="398" y="0" class="field-type" text-anchor="end">INT</text>
+      </g>
+      <g transform="translate(0, 90)">
+        <text x="44" y="0" class="field-name">lifetime_points</text>
+        <text x="398" y="0" class="field-type" text-anchor="end">INT</text>
+      </g>
+      <g transform="translate(0, 120)">
+        <text x="44" y="0" font-size="10.5" fill="#92400e" font-style="italic">Composite PK: (customer_id, station_id)</text>
+      </g>
+    </g>
+  </g>
+
+
+  <!-- 10. PUSH_SUBSCRIPTIONS -->
+  <g transform="translate(1420, 760)" filter="url(#shadow)">
+    <rect width="430" height="220" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+    <rect width="430" height="40" rx="8" fill="#0369a1"/>
+    <rect y="32" width="430" height="8" fill="#0369a1"/>
+    <text x="16" y="26" class="entity-title">PUSH_SUBSCRIPTIONS</text>
+    <g transform="translate(16, 62)">
+      <rect x="0" y="-11" width="22" height="14" rx="2" class="pk-badge"/>
+      <text x="11" y="0" class="pk-text" text-anchor="middle">PK</text>
+      <text x="28" y="0" class="field-name">id</text>
+      <text x="398" y="0" class="field-type" text-anchor="end">INT</text>
+      
+      <g transform="translate(0, 26)">
+        <rect x="0" y="-11" width="22" height="14" rx="2" class="fk-badge"/>
+        <text x="11" y="0" class="fk-text" text-anchor="middle">FK</text>
+        <text x="28" y="0" class="field-name">customer_id</text>
+        <text x="398" y="0" class="field-type" text-anchor="end">INT (NULL)</text>
+      </g>
+      <g transform="translate(0, 52)">
+        <rect x="0" y="-11" width="22" height="14" rx="2" class="fk-badge"/>
+        <text x="11" y="0" class="fk-text" text-anchor="middle">FK</text>
+        <text x="28" y="0" class="field-name">user_id</text>
+        <text x="398" y="0" class="field-type" text-anchor="end">INT (NULL)</text>
+      </g>
+      <g transform="translate(0, 78)">
+        <text x="28" y="0" class="field-name">endpoint</text>
+        <text x="398" y="0" class="field-type" text-anchor="end">TEXT</text>
+      </g>
+      <g transform="translate(0, 104)">
+        <text x="28" y="0" class="field-name">created_at</text>
+        <text x="398" y="0" class="field-type" text-anchor="end">TIMESTAMP</text>
+      </g>
+    </g>
+  </g>
+
+
+  <!-- ================= CLEAN LEGEND (ONLY USED SYMBOLS) ================= -->
+  <g transform="translate(60, 1006)">
+    <rect width="1800" height="54" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2" filter="url(#shadow)"/>
+    
+    <g transform="translate(0, 27)">
+      <!-- Primary Key -->
+      <g transform="translate(340, 0)">
+        <rect x="0" y="-9" width="24" height="16" rx="2" class="pk-badge"/>
+        <text x="12" y="2" class="pk-text" text-anchor="middle">PK</text>
+        <text x="32" y="4" font-size="12" font-weight="600" fill="#334155">Primary Key</text>
+      </g>
+
+      <!-- Foreign Key -->
+      <g transform="translate(500, 0)">
+        <rect x="0" y="-9" width="24" height="16" rx="2" class="fk-badge"/>
+        <text x="12" y="2" class="fk-text" text-anchor="middle">FK</text>
+        <text x="32" y="4" font-size="12" font-weight="600" fill="#334155">Foreign Key</text>
+      </g>
+
+      <!-- Composite Key -->
+      <g transform="translate(660, 0)">
+        <rect x="0" y="-9" width="42" height="16" rx="2" class="comp-badge"/>
+        <text x="21" y="2" class="comp-text" text-anchor="middle">PK, FK</text>
+        <text x="50" y="4" font-size="12" font-weight="600" fill="#334155">Composite Key</text>
+      </g>
+
+      <!-- Divider -->
+      <line x1="860" y1="-14" x2="860" y2="14" stroke="#e2e8f0" stroke-width="1.4"/>
+
+      <!-- 1 to Many (1 : N) -->
+      <g transform="translate(910, 0)">
+        <!-- One side: || -->
+        <line x1="2" y1="-7" x2="2" y2="7" stroke="#334155" stroke-width="1.8" stroke-linecap="round"/>
+        <line x1="7" y1="-7" x2="7" y2="7" stroke="#334155" stroke-width="1.8" stroke-linecap="round"/>
+        <!-- Line -->
+        <line x1="7" y1="0" x2="34" y2="0" stroke="#334155" stroke-width="1.8"/>
+        <!-- Zero or Many side: o< -->
+        <circle cx="34" cy="0" r="3.5" fill="#ffffff" stroke="#334155" stroke-width="1.6"/>
+        <path d="M 48,-7 L 38,0 L 48,7 M 38,0 L 48,0" fill="none" stroke="#334155" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="56" y="4" font-size="12" font-weight="600" fill="#334155">1 to Many (1 : N)</text>
+      </g>
+
+      <!-- 1 to 1 -->
+      <g transform="translate(1135, 0)">
+        <!-- One side: || -->
+        <line x1="2" y1="-7" x2="2" y2="7" stroke="#334155" stroke-width="1.8" stroke-linecap="round"/>
+        <line x1="7" y1="-7" x2="7" y2="7" stroke="#334155" stroke-width="1.8" stroke-linecap="round"/>
+        <!-- Line -->
+        <line x1="7" y1="0" x2="41" y2="0" stroke="#334155" stroke-width="1.8"/>
+        <!-- Exactly One side: || -->
+        <line x1="41" y1="-7" x2="41" y2="7" stroke="#334155" stroke-width="1.8" stroke-linecap="round"/>
+        <line x1="46" y1="-7" x2="46" y2="7" stroke="#334155" stroke-width="1.8" stroke-linecap="round"/>
+        <text x="56" y="4" font-size="12" font-weight="600" fill="#334155">1 to 1</text>
+      </g>
+
+      <!-- Zero or 1 (Optional) -->
+      <g transform="translate(1280, 0)">
+        <!-- One side: || -->
+        <line x1="2" y1="-7" x2="2" y2="7" stroke="#334155" stroke-width="1.8" stroke-linecap="round"/>
+        <line x1="7" y1="-7" x2="7" y2="7" stroke="#334155" stroke-width="1.8" stroke-linecap="round"/>
+        <!-- Line -->
+        <line x1="7" y1="0" x2="36" y2="0" stroke="#334155" stroke-width="1.8"/>
+        <!-- Optional side: o| -->
+        <circle cx="36" cy="0" r="3.5" fill="#ffffff" stroke="#334155" stroke-width="1.6"/>
+        <line x1="45" y1="-7" x2="45" y2="7" stroke="#334155" stroke-width="1.8" stroke-linecap="round"/>
+        <text x="56" y="4" font-size="12" font-weight="600" fill="#334155">Zero or 1 (Optional)</text>
+      </g>
+    </g>
+  </g>
+</svg>

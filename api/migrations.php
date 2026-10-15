@@ -3,11 +3,11 @@ function run_migrations($pdo) {
     $isDev = (($_ENV['APP_ENV'] ?? 'production') === 'development');
     $migrationLockFile = __DIR__ . '/.migrated_v2';
     if (!file_exists($migrationLockFile)) {
-        try { $pdo->query("SELECT shipping_fee FROM STATION LIMIT 1"); } catch (Exception $e) { $pdo->exec("ALTER TABLE STATION ADD COLUMN shipping_fee DECIMAL(10,2) DEFAULT 0.00"); }
+        try { $pdo->query("SELECT shipping_fee FROM STATION LIMIT 1"); } catch (Exception $e) { $pdo->exec("ALTER TABLE STATION ADD COLUMN shipping_fee DECIMAL(10,2) DEFAULT 30.00"); }
         try { $pdo->query("SELECT jug_discount FROM STATION LIMIT 1"); } catch (Exception $e) { $pdo->exec("ALTER TABLE STATION ADD COLUMN jug_discount DECIMAL(10,2) DEFAULT 0.00"); }
         try { $pdo->query("SELECT round_jugs FROM INVENTORY LIMIT 1"); } catch (Exception $e) { $pdo->exec("ALTER TABLE INVENTORY ADD COLUMN round_jugs INT DEFAULT 0, ADD COLUMN slim_jugs INT DEFAULT 0"); }
         try { $pdo->query("SELECT return_round FROM ORDERS LIMIT 1"); } catch (Exception $e) { $pdo->exec("ALTER TABLE ORDERS ADD COLUMN return_round INT DEFAULT 0, ADD COLUMN return_slim INT DEFAULT 0, ADD COLUMN borrow_round INT DEFAULT 0, ADD COLUMN borrow_slim INT DEFAULT 0, ADD COLUMN borrow_status ENUM('Pending', 'Returned') DEFAULT 'Pending'"); }
-        try { $pdo->query("SELECT new_jug_price FROM STATION LIMIT 1"); } catch (Exception $e) { $pdo->exec("ALTER TABLE STATION ADD COLUMN new_jug_price DECIMAL(10,2) DEFAULT 150.00"); }
+        try { $pdo->query("SELECT new_jug_price FROM STATION LIMIT 1"); } catch (Exception $e) { $pdo->exec("ALTER TABLE STATION ADD COLUMN new_jug_price DECIMAL(10,2) DEFAULT 170.00"); }
         try { $pdo->query("SELECT container_option FROM ORDERS LIMIT 1"); } catch (Exception $e) { $pdo->exec("ALTER TABLE ORDERS ADD COLUMN container_option VARCHAR(20) DEFAULT 'borrow'"); }
         try { $pdo->query("SELECT returning_borrowed_flag FROM ORDERS LIMIT 1"); } catch (Exception $e) { $pdo->exec("ALTER TABLE ORDERS ADD COLUMN returning_borrowed_flag TINYINT(1) DEFAULT 0"); }
         try { $pdo->query("SELECT otp_code FROM CUSTOMER LIMIT 1"); } catch (Exception $e) { $pdo->exec("ALTER TABLE CUSTOMER ADD COLUMN otp_code VARCHAR(10) DEFAULT NULL, ADD COLUMN otp_expiry DATETIME DEFAULT NULL, ADD COLUMN is_verified TINYINT(1) DEFAULT 0"); }
@@ -70,16 +70,16 @@ function run_migrations($pdo) {
             $st2 = (int)$pdo->query("SELECT COUNT(*) FROM PRODUCTS WHERE station_id = 2 AND status = 'Active'")->fetchColumn();
             if ($st2 === 0) {
                 $pdo->exec("INSERT INTO PRODUCTS (station_id, name, price, status, capacity_gallons, capacity_liters) VALUES 
-                    (2, 'Purified Water', 45.00, 'Active', 5.00, 20.00),
-                    (2, 'Mineral Water', 35.00, 'Active', 5.00, 20.00),
-                    (2, 'Alkaline Water', 50.00, 'Active', 5.00, 20.00)");
+                    (2, 'Purified Water', 30.00, 'Active', 5.00, 20.00),
+                    (2, 'Mineral Water', 25.00, 'Active', 5.00, 20.00),
+                    (2, 'Alkaline Water', 45.00, 'Active', 5.00, 20.00)");
             }
             $st3 = (int)$pdo->query("SELECT COUNT(*) FROM PRODUCTS WHERE station_id = 3 AND status = 'Active'")->fetchColumn();
             if ($st3 === 0) {
                 $pdo->exec("INSERT INTO PRODUCTS (station_id, name, price, status, capacity_gallons, capacity_liters) VALUES 
-                    (3, 'Purified Water', 40.00, 'Active', 5.00, 20.00),
-                    (3, 'Mineral Water', 30.00, 'Active', 5.00, 20.00),
-                    (3, 'Alkaline Water', 55.00, 'Active', 5.00, 20.00)");
+                    (3, 'Purified Water', 30.00, 'Active', 5.00, 20.00),
+                    (3, 'Mineral Water', 25.00, 'Active', 5.00, 20.00),
+                    (3, 'Alkaline Water', 45.00, 'Active', 5.00, 20.00)");
             }
             foreach ([1, 2, 3] as $sid) {
                 $inv = $pdo->prepare("SELECT COUNT(*) FROM INVENTORY WHERE station_id = ?");
@@ -286,5 +286,34 @@ function run_migrations($pdo) {
             error_log("Migration v9 error: " . $e->getMessage());
         }
         @file_put_contents($migrationLockFileV9, date('c'));
+    }
+
+    $migrationLockFileV10 = __DIR__ . '/.migrated_v10';
+    if (!file_exists($migrationLockFileV10)) {
+        try {
+            // Update station shipping_fee to 30.00 and new_jug_price to 170.00
+            $pdo->exec("UPDATE STATION SET shipping_fee = 30.00, new_jug_price = 170.00");
+
+            // Ensure Station 1 default products exist if empty
+            $st1 = (int)$pdo->query("SELECT COUNT(*) FROM PRODUCTS WHERE station_id = 1 AND status = 'Active'")->fetchColumn();
+            if ($st1 === 0) {
+                $pdo->exec("INSERT INTO PRODUCTS (station_id, name, price, status, capacity_gallons, capacity_liters) VALUES 
+                    (1, 'Purified Water', 30.00, 'Active', 5.00, 20.00),
+                    (1, 'Mineral Water', 25.00, 'Active', 5.00, 20.00),
+                    (1, 'Alkaline Water', 45.00, 'Active', 5.00, 20.00)");
+            }
+
+            // Standardize prices across all stations: Alkaline = 45, Mineral = 25, Purified = 30
+            $pdo->exec("UPDATE PRODUCTS SET price = 45.00 WHERE name LIKE '%Alkaline%'");
+            $pdo->exec("UPDATE PRODUCTS SET price = 25.00 WHERE name LIKE '%Mineral%'");
+            $pdo->exec("UPDATE PRODUCTS SET price = 30.00 WHERE name LIKE '%Purified%'");
+
+            if (class_exists('CustomerController')) {
+                CustomerController::clearStationsCache();
+            }
+        } catch (Exception $e) {
+            error_log("Migration v10 error: " . $e->getMessage());
+        }
+        @file_put_contents($migrationLockFileV10, date('c'));
     }
 }
