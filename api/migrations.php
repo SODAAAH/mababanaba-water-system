@@ -392,4 +392,21 @@ function run_migrations($pdo) {
         }
         @file_put_contents($migrationLockFileV11, date('c'));
     }
+
+    $migrationLockFileV12 = __DIR__ . '/.migrated_v12';
+    if (!file_exists($migrationLockFileV12)) {
+        try {
+            try { 
+                $pdo->query("SELECT allow_pour FROM STATION LIMIT 1"); 
+            } catch (Exception $e) { 
+                $pdo->exec("ALTER TABLE STATION ADD COLUMN allow_pour TINYINT(1) NOT NULL DEFAULT 1, ADD COLUMN allow_swap TINYINT(1) NOT NULL DEFAULT 1, ADD COLUMN allow_borrow TINYINT(1) NOT NULL DEFAULT 1, ADD COLUMN allow_buy TINYINT(1) NOT NULL DEFAULT 1"); 
+            }
+            if (class_exists('CustomerController')) {
+                CustomerController::clearStationsCache();
+            }
+        } catch (Exception $e) {
+            error_log("Migration v12 error: " . $e->getMessage());
+        }
+        @file_put_contents($migrationLockFileV12, date('c'));
+    }
 }

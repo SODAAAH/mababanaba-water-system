@@ -36,6 +36,7 @@ class CustomerController {
             }
 
             session_regenerate_id(true);
+            unset($_SESSION['admin_id'], $_SESSION['station_id'], $_SESSION['role']);
             $_SESSION['customer_id'] = $u['customer_id'];
             $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
             SecurityContext::clearRateLimits($this->pdo, ['customer_login', 'admin_login']);
@@ -254,6 +255,10 @@ class CustomerController {
             $st['pending_borrowed'] = (int)($st['pending_borrowed'] ?? 0);
             $st['active_queue_count'] = (int)($st['active_queue_count'] ?? 0);
             $st['avg_rating'] = (float)($st['avg_rating'] ?? 0);
+            $st['allow_pour'] = isset($st['allow_pour']) ? (int)$st['allow_pour'] : 1;
+            $st['allow_swap'] = $st['allow_pour'];
+            $st['allow_borrow'] = isset($st['allow_borrow']) ? (int)$st['allow_borrow'] : 1;
+            $st['allow_buy'] = isset($st['allow_buy']) ? (int)$st['allow_buy'] : 1;
 
             if ($cid === null) {
                 $st['gcash_number'] = null;
@@ -616,7 +621,7 @@ class CustomerController {
 
         try {
             $this->pdo->beginTransaction();
-            $stmtSt = $this->pdo->prepare("SELECT opening_time, closing_time, shipping_fee, jug_discount, new_jug_price, is_manually_closed, closure_message, status FROM STATION WHERE station_id = ? FOR UPDATE"); 
+            $stmtSt = $this->pdo->prepare("SELECT opening_time, closing_time, shipping_fee, jug_discount, new_jug_price, is_manually_closed, closure_message, status, allow_pour, allow_swap, allow_borrow, allow_buy FROM STATION WHERE station_id = ? FOR UPDATE"); 
             $stmtSt->execute([$sid]);
             $st = $stmtSt->fetch();
             
@@ -634,7 +639,16 @@ class CustomerController {
                 }
             }
 
-            $allowedOptions = ['owned', 'borrow', 'buy'];
+            $allowedOptions = ['pour', 'borrow', 'buy', 'owned'];
+            $stationAllowed = [];
+            if (!isset($st['allow_pour']) || (int)$st['allow_pour'] === 1) {
+                $stationAllowed[] = 'pour';
+                $stationAllowed[] = 'owned';
+            }
+            if (!isset($st['allow_borrow']) || (int)$st['allow_borrow'] === 1) $stationAllowed[] = 'borrow';
+            if (!isset($st['allow_buy']) || (int)$st['allow_buy'] === 1) $stationAllowed[] = 'buy';
+            if (empty($stationAllowed)) $stationAllowed = ['pour'];
+
             $allowedJugTypes = ['Round', 'Slim'];
             $totalQty = 0; $cartHash = 0; $totRound = 0; $totSlim = 0;
             $hasBorrow = false;
@@ -643,9 +657,12 @@ class CustomerController {
                 if (empty($item['product_id']) || $qty <= 0 || $qty > 500) {
                     throw new Exception("Invalid item or quantity in your cart (maximum 500 units per item).");
                 }
-                $c_opt = $item['container_option'] ?? 'owned';
+                $c_opt = $item['container_option'] ?? ($stationAllowed[0] ?? 'owned');
                 if (!in_array($c_opt, $allowedOptions, true)) {
                     throw new Exception("Invalid container option selected.");
+                }
+                if (!in_array($c_opt, $stationAllowed, true)) {
+                    throw new Exception("The selected container option ({$c_opt}) is not offered by this station.");
                 }
                 if ($c_opt === 'borrow') {
                     $hasBorrow = true;
@@ -737,12 +754,13 @@ class CustomerController {
                 $cQty = (int)$c['quantity'];
                 $item_total = ($cQty * $pricePerItem);
                 
-                $c_opt = in_array($c['container_option'] ?? '', $allowedOptions, true) ? $c['container_option'] : 'owned';
+                $c_opt = in_array($c['container_option'] ?? '', $stationAllowed, true) ? $c['container_option'] : ($stationAllowed[0] ?? 'pour');
+                if ($c_opt === 'owned') $c_opt = 'pour';
                 $isRound = (($c['jug_type'] ?? 'Round') === 'Round');
                 $jType = $isRound ? 'Round' : 'Slim';
                 
-                $curr_rr = ($c_opt === 'owned' && $isRound) ? $cQty : 0;
-                $curr_rs = ($c_opt === 'owned' && !$isRound) ? $cQty : 0;
+                $curr_rr = ($c_opt === 'pour' && $isRound) ? $cQty : 0;
+                $curr_rs = ($c_opt === 'pour' && !$isRound) ? $cQty : 0;
                 $curr_br = ($c_opt === 'borrow' && $isRound) ? $cQty : 0;
                 $curr_bs = ($c_opt === 'borrow' && !$isRound) ? $cQty : 0;
                 $curr_jug_buy = ($c_opt === 'buy') ? ($cQty * (float)$st['new_jug_price']) : 0;

@@ -18,7 +18,11 @@ CREATE TABLE IF NOT EXISTS STATION (
     gcash_number VARCHAR(20) NULL,
     maya_qr LONGTEXT NULL,
     maya_name VARCHAR(100) NULL,
-    maya_number VARCHAR(20) NULL
+    maya_number VARCHAR(20) NULL,
+    allow_pour TINYINT(1) NOT NULL DEFAULT 1,
+    allow_swap TINYINT(1) NOT NULL DEFAULT 1,
+    allow_borrow TINYINT(1) NOT NULL DEFAULT 1,
+    allow_buy TINYINT(1) NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS ADMIN (

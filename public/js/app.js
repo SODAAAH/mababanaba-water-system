@@ -2537,17 +2537,127 @@ const App = {
     
     async updateLogistics(e) {
         e.preventDefault();
+        const allowPour = document.getElementById('set_allow_pour')?.checked ? 1 : 0;
+        const allowBorrow = document.getElementById('set_allow_borrow')?.checked ? 1 : 0;
+        const allowBuy = document.getElementById('set_allow_buy')?.checked ? 1 : 0;
+
+        if (allowPour === 0 && allowBorrow === 0 && allowBuy === 0) {
+            return CustomToast.show('Please enable at least one container option (Pour, Borrow, or Buy).', 'error');
+        }
+
         const btn = e.target.querySelector('button[type="submit"]');
         this.setLoading(btn, true);
         const data = new FormData();
         data.append('shipping_fee', document.getElementById('set_shipping').value);
         data.append('jug_discount', '0.00');
         data.append('new_jug_price', document.getElementById('set_jug_price').value);
+        data.append('allow_pour', allowPour);
+        data.append('allow_swap', allowPour);
+        data.append('allow_borrow', allowBorrow);
+        data.append('allow_buy', allowBuy);
+
         try {
-            await API.request('admin_update_logistics', 'POST', data);
-            CustomToast.show('Logistics configuration updated.', 'success');
-        } catch(e) {}
+            const res = await API.request('admin_update_logistics', 'POST', data);
+            if (res && res.error) {
+                CustomToast.show(res.error, 'error');
+            } else {
+                if (State.adminData?.station) {
+                    State.adminData.station.shipping_fee = document.getElementById('set_shipping').value;
+                    State.adminData.station.new_jug_price = document.getElementById('set_jug_price').value;
+                    State.adminData.station.allow_pour = allowPour;
+                    State.adminData.station.allow_swap = allowPour;
+                    State.adminData.station.allow_borrow = allowBorrow;
+                    State.adminData.station.allow_buy = allowBuy;
+                }
+                if (State.stations && Array.isArray(State.stations)) {
+                    const currSid = State.adminData?.station?.station_id;
+                    const stMatch = State.stations.find(s => s.station_id == currSid);
+                    if (stMatch) {
+                        stMatch.shipping_fee = document.getElementById('set_shipping').value;
+                        stMatch.new_jug_price = document.getElementById('set_jug_price').value;
+                        stMatch.allow_pour = allowPour;
+                        stMatch.allow_swap = allowPour;
+                        stMatch.allow_borrow = allowBorrow;
+                        stMatch.allow_buy = allowBuy;
+                    }
+                }
+                CustomToast.show('Logistics & container options configuration updated.', 'success');
+            }
+        } catch(err) {
+            CustomToast.show(err.message || 'Failed to update configuration.', 'error');
+        }
         this.setLoading(btn, false);
+    },
+
+    applyContainerPreset(preset) {
+        const pourEl = document.getElementById('set_allow_pour');
+        const borrowEl = document.getElementById('set_allow_borrow');
+        const buyEl = document.getElementById('set_allow_buy');
+        if (!pourEl || !borrowEl) return;
+
+        if (preset === 'pour_only') {
+            pourEl.checked = true;
+            borrowEl.checked = false;
+            if (buyEl) buyEl.checked = false;
+            CustomToast.show('Preset applied: Pour Only (Customer Jugs/Refill)', 'info');
+        } else if (preset === 'borrow_only') {
+            pourEl.checked = false;
+            borrowEl.checked = true;
+            if (buyEl) buyEl.checked = false;
+            CustomToast.show('Preset applied: Borrow Jugs Only', 'info');
+        } else if (preset === 'all') {
+            pourEl.checked = true;
+            borrowEl.checked = true;
+            if (buyEl) buyEl.checked = true;
+            CustomToast.show('Preset applied: All Container Options Enabled', 'info');
+        }
+        this.handleContainerOptionToggle();
+    },
+
+    handleContainerOptionToggle() {
+        const pourEl = document.getElementById('set_allow_pour');
+        const borrowEl = document.getElementById('set_allow_borrow');
+        const buyEl = document.getElementById('set_allow_buy');
+        const badge = document.getElementById('services_summary_badge');
+        
+        const isPour = pourEl?.checked;
+        const isBorrow = borrowEl?.checked;
+        const isBuy = buyEl?.checked;
+
+        const cardPour = document.getElementById('card_allow_pour');
+        const cardBorrow = document.getElementById('card_allow_borrow');
+        const cardBuy = document.getElementById('card_allow_buy');
+
+        if (cardPour) {
+            cardPour.className = `flex items-start justify-between p-4 rounded-2xl border transition-all cursor-pointer select-none ${isPour ? 'bg-sky-50/50 border-sky-300 ring-1 ring-sky-300/50' : 'bg-slate-50/70 hover:bg-slate-50 border-slate-200'}`;
+        }
+        if (cardBorrow) {
+            cardBorrow.className = `flex items-start justify-between p-4 rounded-2xl border transition-all cursor-pointer select-none ${isBorrow ? 'bg-amber-50/50 border-amber-300 ring-1 ring-amber-300/50' : 'bg-slate-50/70 hover:bg-slate-50 border-slate-200'}`;
+        }
+        if (cardBuy) {
+            cardBuy.className = `flex items-start justify-between p-4 rounded-2xl border transition-all cursor-pointer select-none ${isBuy ? 'bg-purple-50/50 border-purple-300 ring-1 ring-purple-300/50' : 'bg-slate-50/70 hover:bg-slate-50 border-slate-200'}`;
+        }
+
+        if (badge) {
+            const active = [];
+            if (isPour) active.push('Pour');
+            if (isBorrow) active.push('Borrow');
+            if (isBuy) active.push('Buy');
+
+            if (active.length === 0) {
+                badge.innerText = 'None (Invalid)';
+                badge.className = 'text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200';
+            } else if (active.length === 3) {
+                badge.innerText = 'All Options Enabled';
+                badge.className = 'text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200';
+            } else if (active.length === 1) {
+                badge.innerText = `${active[0]} Only`;
+                badge.className = 'text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200';
+            } else {
+                badge.innerText = active.join(' + ');
+                badge.className = 'text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200';
+            }
+        }
     },
     
     async updateSecurity(e) {
@@ -3493,6 +3603,8 @@ App.Customer = {
 App.Admin = {
     updateOrderStatus: (...args) => App.updateOrderStatus(...args),
     updateLogistics: (...args) => App.updateLogistics(...args),
+    applyContainerPreset: (...args) => App.applyContainerPreset(...args),
+    handleContainerOptionToggle: (...args) => App.handleContainerOptionToggle(...args),
     updateAdvancedInventory: (...args) => App.updateAdvancedInventory(...args),
     updateHours: (...args) => App.updateHours(...args),
     updateClosure: (...args) => App.updateClosure(...args),

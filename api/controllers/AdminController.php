@@ -69,6 +69,7 @@ class AdminController {
                 exit; 
             }
             session_regenerate_id(true);
+            unset($_SESSION['customer_id']);
             $_SESSION['admin_id'] = $a['admin_id']; 
             $_SESSION['station_id'] = $a['station_id']; 
             $_SESSION['role'] = $a['role'];

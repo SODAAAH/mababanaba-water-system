@@ -213,7 +213,7 @@ try {
         $pdo->exec("SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY',''))");
     } catch (PDOException $ignoreSqlMode) {}
 
-    if (!file_exists(__DIR__ . '/.migrated_v11')) {
+    if (!file_exists(__DIR__ . '/.migrated_v12')) {
         require_once __DIR__ . '/migrations.php';
         run_migrations($pdo);
     }
@@ -272,7 +272,42 @@ function getAdminController($pdo) {
 switch ($action) {
     case 'check_session':
         try {
-            if (isset($_SESSION['customer_id'])) {
+            $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['HTTP_X_AUTH_TOKEN'] ?? '';
+            if (str_starts_with($authHeader, 'Bearer ')) {
+                $authHeader = substr($authHeader, 7);
+            }
+            if (!empty($authHeader)) {
+                $tokenData = SecurityContext::verifyAuthToken($authHeader);
+                if ($tokenData && !empty($tokenData['id'])) {
+                    if (($tokenData['type'] ?? '') === 'admin') {
+                        $_SESSION['admin_id'] = (int)$tokenData['id'];
+                        unset($_SESSION['customer_id']);
+                    } elseif (($tokenData['type'] ?? '') === 'customer') {
+                        $_SESSION['customer_id'] = (int)$tokenData['id'];
+                        unset($_SESSION['admin_id'], $_SESSION['station_id'], $_SESSION['role']);
+                    }
+                }
+            }
+
+            if (isset($_SESSION['admin_id'])) {
+                $stmt = $pdo->prepare("SELECT a.*, s.station_name, s.latitude as station_latitude, s.longitude as station_longitude FROM ADMIN a LEFT JOIN STATION s ON a.station_id = s.station_id WHERE a.admin_id = ?");
+                $stmt->execute([$_SESSION['admin_id']]);
+                if ($a = $stmt->fetch()) { 
+                    $_SESSION['station_id'] = $a['station_id'];
+                    $_SESSION['role'] = $a['role'];
+                    unset($a['password'], $a['otp_code'], $a['otp_expiry'], $a['new_temp_contact'], $a['failed_otp_attempts']);
+                    $authToken = SecurityContext::generateAuthToken((int)$_SESSION['admin_id'], 'admin');
+                    echo json_encode([
+                        'logged_in' => true, 
+                        'type' => 'admin', 
+                        'data' => $a, 
+                        'auth_token' => $authToken, 
+                        'csrf_token' => $_SESSION['csrf_token'], 
+                        'mapbox_token' => MAPBOX_ACCESS_TOKEN
+                    ]); 
+                    exit; 
+                }
+            } elseif (isset($_SESSION['customer_id'])) {
                 $stmt = $pdo->prepare("SELECT customer_id, full_name, contact_number, address, is_verified, latitude, longitude, created_at FROM CUSTOMER WHERE customer_id = ?");
                 $stmt->execute([$_SESSION['customer_id']]);
                 if ($c = $stmt->fetch()) { 

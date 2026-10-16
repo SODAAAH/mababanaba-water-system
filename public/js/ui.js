@@ -1282,10 +1282,15 @@ const UI = {
                                     <i class="fa-solid ${stRank.icon} mr-1"></i>${stRank.name}
                                 </span>
                             </div>
-                            <p class="text-xs text-slate-500 font-medium truncate mb-1.5 flex items-center gap-1">
+                            <p class="text-xs text-slate-500 font-medium truncate mb-1 flex items-center gap-1">
                                 <i class="fa-solid fa-location-dot text-slate-400 text-[10px] shrink-0"></i>
                                 <span class="truncate">${escapeHtml(s.address)}</span>
                             </p>
+                            <div class="flex items-center gap-1 flex-wrap mb-1.5">
+                                ${s.allow_pour !== 0 && s.allow_pour !== '0' ? '<span class="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200/60"><i class="fa-solid fa-faucet-drip text-[8px]"></i> Pour</span>' : ''}
+                                ${s.allow_borrow !== 0 && s.allow_borrow !== '0' ? '<span class="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200/60"><i class="fa-solid fa-hand-holding-droplet text-[8px]"></i> Borrow</span>' : ''}
+                                ${s.allow_buy !== 0 && s.allow_buy !== '0' ? '<span class="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200/60"><i class="fa-solid fa-cart-shopping text-[8px]"></i> Buy</span>' : ''}
+                            </div>
                             <div class="flex items-center justify-between gap-2 text-xs pt-1.5 border-t border-slate-100">
                                 <div class="flex items-center gap-2 text-xs text-slate-600 min-w-0">
                                     ${ratingHtml}
@@ -1741,6 +1746,19 @@ const UI = {
             </div>
             ` : ''}
             
+            <div class="bg-white rounded-2xl border border-slate-200/80 p-3.5 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-xs">
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                        <i class="fa-solid fa-boxes-stacked text-blue-500"></i> Container Services:
+                    </span>
+                </div>
+                <div class="flex items-center gap-1.5 flex-wrap">
+                    ${station.allow_pour !== 0 && station.allow_pour !== '0' ? '<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold bg-sky-50 text-sky-700 border border-sky-200"><i class="fa-solid fa-faucet-drip text-[10px]"></i> Direct Pour</span>' : ''}
+                    ${station.allow_borrow !== 0 && station.allow_borrow !== '0' ? '<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200"><i class="fa-solid fa-hand-holding-droplet text-[10px]"></i> Borrow Jugs</span>' : ''}
+                    ${station.allow_buy !== 0 && station.allow_buy !== '0' ? '<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200"><i class="fa-solid fa-cart-shopping text-[10px]"></i> Buy New Jug</span>' : ''}
+                </div>
+            </div>
+
             <div class="flex items-center gap-2 mb-4">
                 <span class="w-1.5 h-5 bg-blue-600 rounded-full inline-block"></span>
                 <h3 class="text-lg font-black text-slate-800">Available Products</h3>
@@ -1966,8 +1984,35 @@ const UI = {
         let totalItems = 0;
         State.cart.forEach((item, index) => {
             totalItems += item.quantity;
-            if (!item.container_option) item.container_option = 'owned';
-            if (station.pending_borrowed > 0 && item.container_option === 'borrow') item.container_option = 'owned';
+            const allowPour = (station.allow_pour !== 0 && station.allow_pour !== '0') || (station.allow_swap !== 0 && station.allow_swap !== '0');
+            const allowBorrow = station.allow_borrow !== 0 && station.allow_borrow !== '0';
+            const allowBuy = station.allow_buy !== 0 && station.allow_buy !== '0';
+
+            const validOpts = [];
+            if (allowPour) validOpts.push('pour');
+            if (allowBorrow) validOpts.push('borrow');
+            if (allowBuy) validOpts.push('buy');
+            if (validOpts.length === 0) validOpts.push('pour');
+
+            const defaultOpt = validOpts[0];
+            if (item.container_option === 'owned' && allowPour) {
+                item.container_option = 'pour';
+            }
+            if (!item.container_option || !validOpts.includes(item.container_option)) {
+                item.container_option = defaultOpt;
+            }
+            if (station.pending_borrowed > 0 && item.container_option === 'borrow') {
+                item.container_option = validOpts.find(o => o !== 'borrow') || defaultOpt;
+            }
+
+            const getOptLabel = (opt) => {
+                if (opt === 'borrow') return '<i class="fa-solid fa-hand-holding-droplet mr-1 text-amber-500"></i> Borrow Jug';
+                if (opt === 'buy') return '<i class="fa-solid fa-cart-shopping mr-1 text-purple-500"></i> Buy New Jug';
+                return '<i class="fa-solid fa-faucet-drip mr-1 text-sky-500"></i> Direct Pour';
+            };
+
+            const isSingle = validOpts.length === 1;
+            const gridClass = validOpts.length === 2 ? 'grid-cols-2' : (validOpts.length === 3 ? 'grid-cols-3' : 'grid-cols-1');
             
             html += `
                 <div class="flex flex-col gap-2 py-3 border-b border-slate-50 last:border-0">
@@ -1976,31 +2021,42 @@ const UI = {
                         <span class="font-bold text-slate-800">₱${(item.price * item.quantity).toFixed(2)}</span>
                     </div>
                     <div class="mt-1">
-                        <button type="button" onclick="document.getElementById('c-opts-${index}').classList.toggle('hidden')" class="text-[10px] font-bold text-slate-600 bg-slate-100/80 px-2.5 py-1.5 rounded-lg hover:bg-slate-200 transition-colors flex items-center justify-between w-full border border-slate-200/60 shadow-sm">
-                            <span class="flex items-center gap-1.5"><span class="text-slate-400 uppercase text-[9px]">Container:</span> <span class="text-blue-600">${item.container_option === 'owned' ? '<i class="fa-solid fa-rotate mr-1"></i> Swap Empties' : (item.container_option === 'borrow' ? '<i class="fa-solid fa-hand-holding mr-1"></i> Borrow Jug' : '<i class="fa-solid fa-cart-shopping mr-1"></i> Buy New Jug')}</span></span>
+                        ${isSingle ? `
+                        <div class="text-[10px] font-bold text-slate-700 bg-slate-100/80 px-2.5 py-1.5 rounded-lg flex items-center justify-between w-full border border-slate-200/60 shadow-xs">
+                            <span class="flex items-center gap-1.5"><span class="text-slate-400 uppercase text-[9px]">Container:</span> <span class="text-blue-600">${getOptLabel(item.container_option)}</span></span>
+                            <span class="text-[9px] font-bold text-slate-400 bg-white px-2 py-0.5 rounded-md border border-slate-200 shadow-2xs">Station Default</span>
+                        </div>
+                        ` : `
+                        <button type="button" onclick="document.getElementById('c-opts-${index}').classList.toggle('hidden')" class="text-[10px] font-bold text-slate-600 bg-slate-100/80 px-2.5 py-1.5 rounded-lg hover:bg-slate-200 transition-colors flex items-center justify-between w-full border border-slate-200/60 shadow-sm cursor-pointer">
+                            <span class="flex items-center gap-1.5"><span class="text-slate-400 uppercase text-[9px]">Container:</span> <span class="text-blue-600">${getOptLabel(item.container_option)}</span></span>
                             <i class="fa-solid fa-chevron-down text-slate-400"></i>
                         </button>
-                        <div id="c-opts-${index}" class="hidden mt-1.5 grid grid-cols-3 gap-1 bg-slate-100/80 p-1 rounded-xl transition-all">
-                            <button type="button" onclick="App.updateCartContainer(${index}, 'owned')" class="py-2 px-1 rounded-lg text-[9px] font-bold transition-all text-center flex flex-col items-center justify-center gap-1 ${item.container_option === 'owned' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:bg-slate-200/50'}">
-                                <i class="fa-solid fa-rotate text-sm"></i> 
-                                <span>Swap Empties</span>
+                        <div id="c-opts-${index}" class="hidden mt-1.5 grid ${gridClass} gap-1 bg-slate-100/80 p-1 rounded-xl transition-all">
+                            ${allowPour ? `
+                            <button type="button" onclick="App.updateCartContainer(${index}, 'pour')" class="py-2 px-1 rounded-lg text-[9px] font-bold transition-all text-center flex flex-col items-center justify-center gap-1 ${item.container_option === 'pour' ? 'bg-white text-sky-600 shadow-sm ring-1 ring-sky-200' : 'text-slate-500 hover:bg-slate-200/50'}">
+                                <i class="fa-solid fa-faucet-drip text-sm"></i> 
+                                <span>Direct Pour</span>
                             </button>
-                            ${station.pending_borrowed > 0 ? `
+                            ` : ''}
+                            ${allowBorrow ? (station.pending_borrowed > 0 ? `
                             <button type="button" class="py-2 px-1 rounded-lg text-[9px] font-bold transition-all text-center flex flex-col items-center justify-center gap-1 text-slate-400 bg-slate-200/30 cursor-not-allowed" title="Return pending jugs first">
                                 <i class="fa-solid fa-lock text-sm"></i> 
                                 <span>Borrow Locked</span>
                             </button>
                             ` : `
-                            <button type="button" onclick="App.updateCartContainer(${index}, 'borrow')" class="py-2 px-1 rounded-lg text-[9px] font-bold transition-all text-center flex flex-col items-center justify-center gap-1 ${item.container_option === 'borrow' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:bg-slate-200/50'}">
+                            <button type="button" onclick="App.updateCartContainer(${index}, 'borrow')" class="py-2 px-1 rounded-lg text-[9px] font-bold transition-all text-center flex flex-col items-center justify-center gap-1 ${item.container_option === 'borrow' ? 'bg-white text-amber-600 shadow-sm ring-1 ring-amber-200' : 'text-slate-500 hover:bg-slate-200/50'}">
                                 <i class="fa-solid fa-hand-holding-droplet text-sm"></i> 
                                 <span>Borrow Jug</span>
                             </button>
-                            `}
-                            <button type="button" onclick="App.updateCartContainer(${index}, 'buy')" class="py-2 px-1 rounded-lg text-[9px] font-bold transition-all text-center flex flex-col items-center justify-center gap-1 ${item.container_option === 'buy' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:bg-slate-200/50'}">
+                            `) : ''}
+                            ${allowBuy ? `
+                            <button type="button" onclick="App.updateCartContainer(${index}, 'buy')" class="py-2 px-1 rounded-lg text-[9px] font-bold transition-all text-center flex flex-col items-center justify-center gap-1 ${item.container_option === 'buy' ? 'bg-white text-purple-600 shadow-sm ring-1 ring-purple-200' : 'text-slate-500 hover:bg-slate-200/50'}">
                                 <i class="fa-solid fa-cart-shopping text-sm"></i> 
                                 <span>Buy (+₱${parseFloat(station.new_jug_price || 0).toFixed(0)})</span>
                             </button>
+                            ` : ''}
                         </div>
+                        `}
                     </div>
                 </div>
             `;
@@ -3145,10 +3201,10 @@ const UI = {
                 containerHtml += `<p class="font-black text-red-600 mb-1 pb-1 border-b border-red-100"><i class="fa-solid fa-triangle-exclamation mr-1"></i> COLLECT PREVIOUSLY BORROWED JUGS!</p>`;
             }
 
-            if (o.container_option === 'borrow') {
+            if (o.container_option === 'pour' || o.container_option === 'owned') {
+                containerHtml += `<p class="font-bold text-sky-600"><i class="fa-solid fa-faucet-drip mr-1"></i> Direct Pour / Refill customer container.</p>`;
+            } else if (o.container_option === 'borrow') {
                 containerHtml += `<p class="font-bold text-amber-600"><i class="fa-solid fa-hand-holding-droplet mr-1"></i> Customer is borrowing jugs (${o.borrow_round} Round, ${o.borrow_slim} Slim).</p>`;
-            } else if (o.container_option === 'owned') {
-                containerHtml += `<p class="font-bold text-emerald-600"><i class="fa-solid fa-rotate mr-1"></i> Customer brings empty jugs (Swap).</p>`;
             } else if (o.container_option === 'buy') {
                 containerHtml += `<p class="font-bold text-blue-600"><i class="fa-solid fa-cart-shopping mr-1"></i> Customer bought new jugs.</p>`;
             }
@@ -4176,6 +4232,31 @@ const UI = {
         }
 
         if (State.adminSettingsTab === 'Logistics') {
+            const initPour = (station.allow_pour !== 0 && station.allow_pour !== '0') || (station.allow_swap !== 0 && station.allow_swap !== '0');
+            const initBorrow = station.allow_borrow !== 0 && station.allow_borrow !== '0';
+            const initBuy = station.allow_buy !== 0 && station.allow_buy !== '0';
+
+            const activeServices = [];
+            if (initPour) activeServices.push('Pour');
+            if (initBorrow) activeServices.push('Borrow');
+            if (initBuy) activeServices.push('Buy');
+
+            let summaryBadgeText = 'All Options Enabled';
+            let summaryBadgeClass = 'bg-blue-50 text-blue-700 border-blue-200';
+            if (activeServices.length === 0) {
+                summaryBadgeText = 'None (Invalid)';
+                summaryBadgeClass = 'bg-red-50 text-red-700 border-red-200';
+            } else if (activeServices.length === 1) {
+                summaryBadgeText = `${activeServices[0]} Only`;
+                summaryBadgeClass = 'bg-amber-50 text-amber-700 border-amber-200';
+            } else if (activeServices.length === 3) {
+                summaryBadgeText = 'All Options Enabled';
+                summaryBadgeClass = 'bg-blue-50 text-blue-700 border-blue-200';
+            } else {
+                summaryBadgeText = activeServices.join(' + ');
+                summaryBadgeClass = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+            }
+
             html += `
             <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-6 mb-6">
                 <h3 class="font-bold text-slate-800 mb-4 flex items-center"><i class="fa-solid fa-power-off text-red-500 mr-2"></i> Station Status</h3>
@@ -4221,19 +4302,139 @@ const UI = {
             </div>
 
             <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-6 mb-6">
-                <h3 class="font-bold text-slate-800 mb-4 flex items-center"><i class="fa-solid fa-truck-fast text-blue-500 mr-2"></i> Fees</h3>
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="font-bold text-slate-800 flex items-center">
+                        <i class="fa-solid fa-boxes-stacked text-blue-500 mr-2"></i> Container & Refill Options
+                    </h3>
+                    <span class="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border transition-all ${summaryBadgeClass}" id="services_summary_badge">
+                        ${summaryBadgeText}
+                    </span>
+                </div>
+                <p class="text-xs text-slate-500 mb-4">
+                    Choose which container options your station provides to customers. You can offer <strong>Pour Only</strong>, <strong>Borrow Only</strong>, or <strong>any combination</strong>.
+                </p>
+
+                <!-- Quick Presets -->
+                <div class="mb-5 p-3.5 bg-slate-50/80 rounded-2xl border border-slate-200/80">
+                    <div class="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2 flex items-center justify-between">
+                        <span><i class="fa-solid fa-wand-magic-sparkles mr-1 text-blue-500"></i> Quick Presets</span>
+                        <span class="text-[9px] text-slate-400 font-normal">Click to apply preset</span>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2">
+                        <button type="button" onclick="App.applyContainerPreset('pour_only')" class="px-2.5 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-white hover:bg-sky-50 hover:border-sky-300 hover:text-sky-700 transition flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer">
+                            <i class="fa-solid fa-faucet-drip text-sky-500"></i> Pour Only
+                        </button>
+                        <button type="button" onclick="App.applyContainerPreset('borrow_only')" class="px-2.5 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-white hover:bg-amber-50 hover:border-amber-300 hover:text-amber-700 transition flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer">
+                            <i class="fa-solid fa-hand-holding-droplet text-amber-500"></i> Borrow Only
+                        </button>
+                        <button type="button" onclick="App.applyContainerPreset('all')" class="px-2.5 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-white hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer">
+                            <i class="fa-solid fa-check-double text-blue-600"></i> All Options
+                        </button>
+                    </div>
+                </div>
+
                 <form onsubmit="App.updateLogistics(event)" class="space-y-4">
-                    <div>
-                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Standard Delivery Fee (₱)</label>
-                        <input type="number" step="0.01" id="set_shipping" required value="${station.shipping_fee || '0.00'}" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold">
+                    <!-- Service Toggles List -->
+                    <div class="space-y-2.5">
+                        <!-- Direct Pour -->
+                        <label class="flex items-start justify-between p-3.5 rounded-2xl border transition-all cursor-pointer select-none ${initPour ? 'bg-sky-50/50 border-sky-300 ring-1 ring-sky-300/50' : 'bg-slate-50/70 hover:bg-slate-50 border-slate-200'}" id="card_allow_pour">
+                            <div class="flex items-start gap-3 min-w-0 pr-3">
+                                <div class="w-9 h-9 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center text-sm shrink-0 mt-0.5 shadow-xs">
+                                    <i class="fa-solid fa-faucet-drip"></i>
+                                </div>
+                                <div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-sm font-bold text-slate-800">Direct Pour / Refill</span>
+                                        <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-sky-100 text-sky-700">Pour</span>
+                                    </div>
+                                    <p class="text-xs text-slate-500 mt-0.5 leading-snug">
+                                        Customer supplies or swaps own container. Water is refilled/poured directly with no container debt or jug fees.
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="relative shrink-0 mt-1">
+                                <input type="checkbox" id="set_allow_pour" class="sr-only" ${initPour ? 'checked' : ''} onchange="App.handleContainerOptionToggle()">
+                                <div class="block bg-slate-200 w-12 h-7 rounded-full transition-colors duration-300" id="toggle_bg_pour"></div>
+                                <div class="dot absolute left-1 top-1 bg-white w-5 h-5 rounded-full transition-transform duration-300 shadow"></div>
+                            </div>
+                        </label>
+
+                        <!-- Borrow Jug -->
+                        <label class="flex items-start justify-between p-3.5 rounded-2xl border transition-all cursor-pointer select-none ${initBorrow ? 'bg-amber-50/50 border-amber-300 ring-1 ring-amber-300/50' : 'bg-slate-50/70 hover:bg-slate-50 border-slate-200'}" id="card_allow_borrow">
+                            <div class="flex items-start gap-3 min-w-0 pr-3">
+                                <div class="w-9 h-9 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center text-sm shrink-0 mt-0.5 shadow-xs">
+                                    <i class="fa-solid fa-hand-holding-droplet"></i>
+                                </div>
+                                <div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-sm font-bold text-slate-800">Borrow Jug (Container Debt)</span>
+                                        <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-700">Borrow</span>
+                                    </div>
+                                    <p class="text-xs text-slate-500 mt-0.5 leading-snug">
+                                        Customers without empty jugs can borrow station jugs on debt. Tracked in your Borrowed Jugs Ledger until returned.
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="relative shrink-0 mt-1">
+                                <input type="checkbox" id="set_allow_borrow" class="sr-only" ${initBorrow ? 'checked' : ''} onchange="App.handleContainerOptionToggle()">
+                                <div class="block bg-slate-200 w-12 h-7 rounded-full transition-colors duration-300" id="toggle_bg_borrow"></div>
+                                <div class="dot absolute left-1 top-1 bg-white w-5 h-5 rounded-full transition-transform duration-300 shadow"></div>
+                            </div>
+                        </label>
+
+                        <!-- Buy New Jug -->
+                        <label class="flex items-start justify-between p-3.5 rounded-2xl border transition-all cursor-pointer select-none ${initBuy ? 'bg-purple-50/50 border-purple-300 ring-1 ring-purple-300/50' : 'bg-slate-50/70 hover:bg-slate-50 border-slate-200'}" id="card_allow_buy">
+                            <div class="flex items-start gap-3 min-w-0 pr-3">
+                                <div class="w-9 h-9 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center text-sm shrink-0 mt-0.5 shadow-xs">
+                                    <i class="fa-solid fa-cart-shopping"></i>
+                                </div>
+                                <div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-sm font-bold text-slate-800">Buy New Jug (Permanent Purchase)</span>
+                                        <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-purple-100 text-purple-700">Buy</span>
+                                    </div>
+                                    <p class="text-xs text-slate-500 mt-0.5 leading-snug">
+                                        Allow customers to purchase brand new containers outright at the set jug price below.
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="relative shrink-0 mt-1">
+                                <input type="checkbox" id="set_allow_buy" class="sr-only" ${initBuy ? 'checked' : ''} onchange="App.handleContainerOptionToggle()">
+                                <div class="block bg-slate-200 w-12 h-7 rounded-full transition-colors duration-300" id="toggle_bg_buy"></div>
+                                <div class="dot absolute left-1 top-1 bg-white w-5 h-5 rounded-full transition-transform duration-300 shadow"></div>
+                            </div>
+                        </label>
                     </div>
 
-                    <div>
-                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Price per New Jug (₱)</label>
-                        <p class="text-[10px] text-slate-400 mb-2 leading-tight">Additional cost when customers choose to buy containers permanently.</p>
-                        <input type="number" step="0.01" id="set_jug_price" required value="${station.new_jug_price || '0.00'}" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-blue-600">
+                    <style>
+                        #set_allow_pour:checked ~ #toggle_bg_pour { background-color: #0284c7; }
+                        #set_allow_pour:checked ~ .dot { transform: translateX(20px); }
+                        #set_allow_borrow:checked ~ #toggle_bg_borrow { background-color: #d97706; }
+                        #set_allow_borrow:checked ~ .dot { transform: translateX(20px); }
+                        #set_allow_buy:checked ~ #toggle_bg_buy { background-color: #7c3aed; }
+                        #set_allow_buy:checked ~ .dot { transform: translateX(20px); }
+                    </style>
+
+                    <!-- Logistics Pricing Fields -->
+                    <div class="pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1.5">
+                                <i class="fa-solid fa-truck text-blue-500"></i> Standard Delivery Fee (₱)
+                            </label>
+                            <input type="number" step="0.01" min="0" id="set_shipping" required value="${station.shipping_fee || '0.00'}" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800">
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1.5">
+                                <i class="fa-solid fa-tag text-purple-500"></i> Price per New Jug (₱)
+                            </label>
+                            <input type="number" step="0.01" min="0" id="set_jug_price" required value="${station.new_jug_price || '0.00'}" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-purple-700">
+                        </div>
                     </div>
-                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-md transition flex justify-center items-center">Save Logistics Config</button>
+
+                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-md transition flex justify-center items-center gap-2 cursor-pointer active:scale-[0.99]">
+                        <i class="fa-solid fa-floppy-disk"></i> Save Container & Logistics Configuration
+                    </button>
                 </form>
             </div>
 
@@ -4563,17 +4764,17 @@ const UI = {
             }
             
             group.items.forEach(item => {
-                if (item.container_option === 'owned') {
+                if (item.container_option === 'pour' || item.container_option === 'owned') {
                     requiresCollection = true;
                 }
             });
 
-            if (o.container_option === 'borrow') {
+            if (o.container_option === 'pour' || o.container_option === 'owned') {
+                containerHtml += `<p class="font-bold text-sky-600"><i class="fa-solid fa-faucet-drip mr-1"></i> Direct Pour / Refill Customer Jug</p>`;
+            } else if (o.container_option === 'borrow') {
                 containerHtml += `<p class="font-bold text-amber-600"><i class="fa-solid fa-hand-holding-droplet mr-1"></i> Leave: Borrowed jugs (${o.borrow_round} Round, ${o.borrow_slim} Slim)</p>`;
-            } else if (o.container_option === 'owned') {
-                containerHtml += `<p class="font-bold text-emerald-600"><i class="fa-solid fa-rotate mr-1"></i> Retrieve: Empty jugs (Swap)</p>`;
             } else if (o.container_option === 'buy') {
-                containerHtml += `<p class="font-bold text-blue-600"><i class="fa-solid fa-cart-shopping mr-1"></i> Leave: Bought jugs</p>`;
+                containerHtml += `<p class="font-bold text-purple-600"><i class="fa-solid fa-cart-shopping mr-1"></i> Leave: Bought jugs</p>`;
             }
             
             if (containerHtml) {

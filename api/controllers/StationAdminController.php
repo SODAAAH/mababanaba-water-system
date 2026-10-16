@@ -174,7 +174,24 @@ class StationAdminController {
         $shipping = max(0, (float)($_POST['shipping_fee'] ?? 0));
         $discount = max(0, (float)($_POST['jug_discount'] ?? 0));
         $newPrice = max(0, (float)($_POST['new_jug_price'] ?? 0));
-        $this->pdo->prepare("UPDATE STATION SET shipping_fee = ?, jug_discount = ?, new_jug_price = ? WHERE station_id = ?")->execute([$shipping, $discount, $newPrice, $admin['station_id']]);
+
+        $allowPour = isset($_POST['allow_pour']) ? (int)$_POST['allow_pour'] : 1;
+        $allowBorrow = isset($_POST['allow_borrow']) ? (int)$_POST['allow_borrow'] : 1;
+        $allowBuy = isset($_POST['allow_buy']) ? (int)$_POST['allow_buy'] : 1;
+        $allowSwap = $allowPour; // Pour and swap are the same: sync allow_swap with allow_pour
+
+        if ($allowPour === 0 && $allowBorrow === 0 && $allowBuy === 0) {
+            echo json_encode(['error' => 'You must enable at least one container service option (Pour, Borrow, or Buy).']);
+            exit;
+        }
+
+        $this->pdo->prepare("UPDATE STATION SET shipping_fee = ?, jug_discount = ?, new_jug_price = ?, allow_pour = ?, allow_swap = ?, allow_borrow = ?, allow_buy = ? WHERE station_id = ?")
+            ->execute([$shipping, $discount, $newPrice, $allowPour, $allowSwap, $allowBorrow, $allowBuy, $admin['station_id']]);
+
+        if (class_exists('CustomerController')) {
+            CustomerController::clearStationsCache();
+        }
+
         echo json_encode(['success' => true]); 
         exit;
     }
