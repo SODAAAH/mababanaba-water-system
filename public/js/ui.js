@@ -1282,15 +1282,10 @@ const UI = {
                                     <i class="fa-solid ${stRank.icon} mr-1"></i>${stRank.name}
                                 </span>
                             </div>
-                            <p class="text-xs text-slate-500 font-medium truncate mb-1 flex items-center gap-1">
+                            <p class="text-xs text-slate-500 font-medium truncate mb-2 flex items-center gap-1">
                                 <i class="fa-solid fa-location-dot text-slate-400 text-[10px] shrink-0"></i>
                                 <span class="truncate">${escapeHtml(s.address)}</span>
                             </p>
-                            <div class="flex items-center gap-1 flex-wrap mb-1.5">
-                                ${s.allow_pour !== 0 && s.allow_pour !== '0' ? '<span class="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200/60"><i class="fa-solid fa-faucet-drip text-[8px]"></i> Pour</span>' : ''}
-                                ${s.allow_borrow !== 0 && s.allow_borrow !== '0' ? '<span class="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200/60"><i class="fa-solid fa-hand-holding-droplet text-[8px]"></i> Borrow</span>' : ''}
-                                ${s.allow_buy !== 0 && s.allow_buy !== '0' ? '<span class="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200/60"><i class="fa-solid fa-cart-shopping text-[8px]"></i> Buy</span>' : ''}
-                            </div>
                             <div class="flex items-center justify-between gap-2 text-xs pt-1.5 border-t border-slate-100">
                                 <div class="flex items-center gap-2 text-xs text-slate-600 min-w-0">
                                     ${ratingHtml}
@@ -1745,20 +1740,6 @@ const UI = {
                 </div>
             </div>
             ` : ''}
-            
-            <div class="bg-white rounded-2xl border border-slate-200/80 p-3.5 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-xs">
-                <div class="flex items-center gap-2">
-                    <span class="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                        <i class="fa-solid fa-boxes-stacked text-blue-500"></i> Container Services:
-                    </span>
-                </div>
-                <div class="flex items-center gap-1.5 flex-wrap">
-                    ${station.allow_pour !== 0 && station.allow_pour !== '0' ? '<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold bg-sky-50 text-sky-700 border border-sky-200"><i class="fa-solid fa-faucet-drip text-[10px]"></i> Direct Pour</span>' : ''}
-                    ${station.allow_borrow !== 0 && station.allow_borrow !== '0' ? '<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200"><i class="fa-solid fa-hand-holding-droplet text-[10px]"></i> Borrow Jugs</span>' : ''}
-                    ${station.allow_buy !== 0 && station.allow_buy !== '0' ? '<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200"><i class="fa-solid fa-cart-shopping text-[10px]"></i> Buy New Jug</span>' : ''}
-                </div>
-            </div>
-
             <div class="flex items-center gap-2 mb-4">
                 <span class="w-1.5 h-5 bg-blue-600 rounded-full inline-block"></span>
                 <h3 class="text-lg font-black text-slate-800">Available Products</h3>
@@ -2129,8 +2110,8 @@ const UI = {
                                     <i class="fa-solid fa-map-pin"></i>
                                 </div>
                                 <div class="min-w-0">
-                                    <div class="font-bold text-slate-800 truncate">${hasPin ? `Pinned (${parseFloat(coLat).toFixed(4)}, ${parseFloat(coLng).toFixed(4)})${checkoutDist !== null ? ` • ${checkoutDist.toFixed(1)} km away` : ''}` : 'No exact GPS coordinates pinned'}</div>
-                                    <div class="text-[10px] text-blue-600 font-semibold truncate">Est. ETA: ${checkoutEta.text} • approx. ${checkoutEta.targetTimeStr} (${checkoutEta.priorityLabel})</div>
+                                    <div class="font-bold text-slate-800 text-xs truncate">${hasPin ? 'Location Pinned' : 'No Location Pinned'}</div>
+                                    ${hasPin ? `<div class="text-xs text-blue-600 font-bold mt-0.5 truncate"><i class="fa-regular fa-clock mr-1"></i>Est. ETA: ${checkoutEta.text}</div>` : `<div class="text-[11px] text-slate-400 mt-0.5">Pin location on map for delivery</div>`}
                                 </div>
                             </div>
                             <button type="button" onclick="App.openMapLocationModal({ title: 'Pin Exact Delivery Location', initialLat: document.getElementById('co-delivery-lat')?.value || State.userLocation?.lat || 15.5056, initialLng: document.getElementById('co-delivery-lng')?.value || State.userLocation?.lng || 120.4462, initialAddress: document.getElementById('co-address')?.value || State.userLocation?.address || 'Mababanaba, San Jose, Tarlac', onSave: (pos) => UI.updateCheckoutLocationPin(pos) })" class="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-blue-400 text-blue-600 font-bold rounded-xl text-xs transition active:scale-95 shrink-0 cursor-pointer">
@@ -2254,8 +2235,8 @@ const UI = {
                         <i class="fa-solid fa-map-pin"></i>
                     </div>
                     <div class="min-w-0">
-                        <div class="font-bold text-slate-800 truncate">Pinned (${parseFloat(pos.lat).toFixed(4)}, ${parseFloat(pos.lng).toFixed(4)})${dist !== null ? ` • ${dist.toFixed(1)} km away` : ''}</div>
-                        <div class="text-[10px] text-blue-600 font-semibold truncate">Est. ETA: ${eta.text} • approx. ${eta.targetTimeStr} (${eta.priorityLabel})</div>
+                        <div class="font-bold text-slate-800 text-xs truncate">Location Pinned</div>
+                        <div class="text-xs text-blue-600 font-bold mt-0.5 truncate"><i class="fa-regular fa-clock mr-1"></i>Est. ETA: ${eta.text}</div>
                     </div>
                 </div>
                 <button type="button" onclick="App.openMapLocationModal({ title: 'Pin Exact Delivery Location', initialLat: '${pos.lat}', initialLng: '${pos.lng}', initialAddress: document.getElementById('co-address')?.value || State.userLocation?.address || 'Mababanaba, San Jose, Tarlac', onSave: (p) => UI.updateCheckoutLocationPin(p) })" class="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-blue-400 text-blue-600 font-bold rounded-xl text-xs transition active:scale-95 shrink-0 cursor-pointer">
