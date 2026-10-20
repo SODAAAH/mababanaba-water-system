@@ -4296,27 +4296,8 @@ const UI = {
                     </span>
                 </div>
                 <p class="text-xs text-slate-500 mb-4">
-                    Choose which container options your station provides to customers. You can offer <strong>Pour Only</strong>, <strong>Borrow Only</strong>, or <strong>any combination</strong>.
+                    Choose which container options your station provides to customers.
                 </p>
-
-                <!-- Quick Presets -->
-                <div class="mb-5 p-3.5 bg-slate-50/80 rounded-2xl border border-slate-200/80">
-                    <div class="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2 flex items-center justify-between">
-                        <span><i class="fa-solid fa-wand-magic-sparkles mr-1 text-blue-500"></i> Quick Presets</span>
-                        <span class="text-[9px] text-slate-400 font-normal">Click to apply preset</span>
-                    </div>
-                    <div class="grid grid-cols-3 gap-2">
-                        <button type="button" onclick="App.applyContainerPreset('pour_only')" class="px-2.5 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-white hover:bg-sky-50 hover:border-sky-300 hover:text-sky-700 transition flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer">
-                            <i class="fa-solid fa-faucet-drip text-sky-500"></i> Pour Only
-                        </button>
-                        <button type="button" onclick="App.applyContainerPreset('borrow_only')" class="px-2.5 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-white hover:bg-amber-50 hover:border-amber-300 hover:text-amber-700 transition flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer">
-                            <i class="fa-solid fa-hand-holding-droplet text-amber-500"></i> Borrow Only
-                        </button>
-                        <button type="button" onclick="App.applyContainerPreset('all')" class="px-2.5 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-white hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer">
-                            <i class="fa-solid fa-check-double text-blue-600"></i> All Options
-                        </button>
-                    </div>
-                </div>
 
                 <form onsubmit="App.updateLogistics(event)" class="space-y-4">
                     <!-- Service Toggles List -->
@@ -4333,7 +4314,7 @@ const UI = {
                                         <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-sky-100 text-sky-700">Pour</span>
                                     </div>
                                     <p class="text-xs text-slate-500 mt-0.5 leading-snug">
-                                        Customer supplies or swaps own container. Water is refilled/poured directly with no container debt or jug fees.
+                                        Customer brings or swaps their own container.
                                     </p>
                                 </div>
                             </div>
@@ -4356,7 +4337,7 @@ const UI = {
                                         <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-700">Borrow</span>
                                     </div>
                                     <p class="text-xs text-slate-500 mt-0.5 leading-snug">
-                                        Customers without empty jugs can borrow station jugs on debt. Tracked in your Borrowed Jugs Ledger until returned.
+                                        Customer borrows a station container to return later.
                                     </p>
                                 </div>
                             </div>
@@ -4379,7 +4360,7 @@ const UI = {
                                         <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-purple-100 text-purple-700">Buy</span>
                                     </div>
                                     <p class="text-xs text-slate-500 mt-0.5 leading-snug">
-                                        Allow customers to purchase brand new containers outright at the set jug price below.
+                                        Customer buys a brand new container.
                                     </p>
                                 </div>
                             </div>
