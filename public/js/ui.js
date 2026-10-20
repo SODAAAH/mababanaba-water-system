@@ -4405,20 +4405,84 @@ const UI = {
             </div>
 
             <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-6 mb-6">
-                <h3 class="font-bold text-slate-800 mb-2 flex items-center"><i class="fa-solid fa-location-dot text-blue-500 mr-2"></i> Location</h3>
-                <p class="text-xs text-slate-500 mb-4">Set your station's exact map location so customers can easily find your branch, calculate delivery distance, and receive accurate delivery estimates.</p>
-                <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div>
-                        <div class="text-[10px] font-black uppercase tracking-wider text-slate-400">Current Coordinates</div>
-                        <div class="text-xs font-bold text-slate-800 mt-0.5 font-mono">
-                            ${station.latitude && station.longitude ? `Lat: ${parseFloat(station.latitude).toFixed(5)}, Lng: ${parseFloat(station.longitude).toFixed(5)}` : 'Default center (not pinned yet)'}
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="font-bold text-slate-800 flex items-center">
+                        <i class="fa-solid fa-location-dot text-blue-500 mr-2"></i> Station Location & Coordinates
+                    </h3>
+                    <span class="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${station.latitude && station.longitude ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}">
+                        ${station.latitude && station.longitude ? 'Coordinates Configured' : 'Needs Coordinates'}
+                    </span>
+                </div>
+                <p class="text-xs text-slate-500 mb-4">
+                    Set your station's exact map coordinates so customers can find your branch, calculate delivery distance, and receive accurate delivery estimates. You can manually enter coordinates or pick on the interactive map.
+                </p>
+
+                <!-- Current Status Banner -->
+                <div class="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div class="min-w-0">
+                        <div class="text-[10px] font-black uppercase tracking-wider text-slate-400">Current Pinned Position</div>
+                        <div class="text-xs font-bold text-slate-800 mt-0.5 font-mono flex items-center gap-2 flex-wrap">
+                            ${station.latitude && station.longitude ? `
+                                <span class="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-md border border-blue-100">Lat: ${parseFloat(station.latitude).toFixed(6)}</span>
+                                <span class="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-md border border-blue-100">Lng: ${parseFloat(station.longitude).toFixed(6)}</span>
+                            ` : '<span class="text-amber-600 font-sans">Default center (not pinned yet)</span>'}
                         </div>
-                        <div class="text-[11px] text-slate-500 mt-1">${escapeHtml(station.address || 'Central Station')}</div>
+                        <div class="text-[11px] text-slate-500 mt-1 truncate">${escapeHtml(station.address || 'Central Station')}</div>
                     </div>
-                    <button type="button" onclick="App.openMapLocationModal({ title: 'Set Station Coordinates', initialLat: ${station.latitude || 15.5056}, initialLng: ${station.longitude || 120.4462}, initialAddress: decodeURIComponent('${encodeURIComponent(station.address || '')}'), onSave: (pos) => App.saveStationLocation(pos.lat, pos.lng) })" class="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition active:scale-95 shadow-md shadow-blue-500/20 shrink-0 cursor-pointer">
-                        <i class="fa-solid fa-location-dot"></i> Pin Station on Map
+                    <button type="button" onclick="App.openStationMapPicker()" class="px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-700 font-bold rounded-xl text-xs flex items-center gap-2 transition active:scale-95 border border-slate-200 shadow-xs shrink-0 cursor-pointer">
+                        <i class="fa-solid fa-map text-blue-500"></i> Open Map Picker
                     </button>
                 </div>
+
+                <!-- Manual Coordinate Form -->
+                <form onsubmit="App.handleManualStationLocation(event)" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
+                            <span class="flex items-center gap-1.5">
+                                <i class="fa-solid fa-paste text-blue-500"></i> Quick Paste Coordinates
+                            </span>
+                            <span class="text-[10px] font-normal text-slate-400">e.g. (15.500619, 120.455028)</span>
+                        </label>
+                        <div class="relative">
+                            <input type="text" id="set_station_coord_paste" 
+                                placeholder="Paste e.g. (15.500619, 120.455028) from Google Maps" 
+                                oninput="App.onCoordinatePasteInput(this.value)"
+                                class="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                            <i class="fa-solid fa-crosshairs absolute left-3 top-3 text-slate-400 text-xs"></i>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">
+                                Latitude
+                            </label>
+                            <input type="text" id="set_station_lat" required 
+                                value="${station.latitude || ''}" 
+                                placeholder="e.g. 15.500619" 
+                                oninput="App.onLatInput(this)"
+                                class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs font-bold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">
+                                Longitude
+                            </label>
+                            <input type="text" id="set_station_lng" required 
+                                value="${station.longitude || ''}" 
+                                placeholder="e.g. 120.455028" 
+                                class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xs font-bold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-3 pt-1">
+                        <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-md transition flex justify-center items-center gap-2 cursor-pointer active:scale-[0.99] text-xs">
+                            <i class="fa-solid fa-floppy-disk"></i> Save Coordinates
+                        </button>
+                        <button type="button" onclick="App.openStationMapPicker()" class="px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs flex items-center gap-2 transition active:scale-95 cursor-pointer shrink-0">
+                            <i class="fa-solid fa-location-dot text-blue-600"></i> Pin on Map
+                        </button>
+                    </div>
+                </form>
             </div>
             `;
         }

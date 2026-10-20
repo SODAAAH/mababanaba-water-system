@@ -297,7 +297,7 @@ const App = {
                 <div class="p-3 bg-slate-50 border-b border-slate-200 flex gap-2 relative z-10">
                     <div class="relative flex-1">
                         <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-slate-400 text-xs"></i>
-                        <input type="text" id="map-search-input" placeholder="Search address or street name in Philippines..." class="w-full pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none shadow-xs">
+                        <input type="text" id="map-search-input" placeholder="Search address or paste coordinates e.g. (15.500619, 120.455028)..." class="w-full pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none shadow-xs">
                         <button type="button" id="map-search-clear" class="hidden absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 text-xs"><i class="fa-solid fa-circle-xmark"></i></button>
                         <div id="map-search-results" class="hidden absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden max-h-48 overflow-y-auto z-50"></div>
                     </div>
@@ -308,8 +308,9 @@ const App = {
 
                 <div class="relative w-full h-[320px] sm:h-[380px] bg-slate-100">
                     <div id="mapbox-map-canvas" class="w-full h-full"></div>
-                    <div class="absolute bottom-2 left-2 bg-white/90 backdrop-blur-xs px-2.5 py-1 rounded-lg text-[10px] font-bold text-slate-600 border border-slate-200 shadow-xs pointer-events-none">
-                        Lat: <span id="map-display-lat">${curLat.toFixed(5)}</span> • Lng: <span id="map-display-lng">${curLng.toFixed(5)}</span>
+                    <div class="absolute bottom-2 left-2 bg-white/95 backdrop-blur-xs px-2.5 py-1.5 rounded-xl text-[10px] font-bold text-slate-700 border border-slate-200 shadow-sm flex items-center gap-2 z-10">
+                        <span>Lat: <span id="map-display-lat" class="font-mono">${curLat.toFixed(6)}</span> • Lng: <span id="map-display-lng" class="font-mono">${curLng.toFixed(6)}</span></span>
+                        <button type="button" id="map-manual-edit-btn" class="text-blue-600 hover:text-blue-800 text-[10px] font-black underline cursor-pointer" title="Manually type or paste coordinates">Edit</button>
                     </div>
                 </div>
 
@@ -370,8 +371,8 @@ const App = {
                 curLng = lng;
                 const latEl = document.getElementById('map-display-lat');
                 const lngEl = document.getElementById('map-display-lng');
-                if (latEl) latEl.textContent = lat.toFixed(5);
-                if (lngEl) lngEl.textContent = lng.toFixed(5);
+                if (latEl) latEl.textContent = lat.toFixed(6);
+                if (lngEl) lngEl.textContent = lng.toFixed(6);
                 if (doReverse) reverseGeocode(lng, lat);
             };
 
@@ -392,7 +393,42 @@ const App = {
             const searchClear = document.getElementById('map-search-clear');
             let searchTimeout = null;
 
+            const applyManualCoordinates = (coords) => {
+                if (!coords) return;
+                marker.setLngLat([coords.lng, coords.lat]);
+                map.flyTo({ center: [coords.lng, coords.lat], zoom: 16 });
+                updateCoords(coords.lng, coords.lat, true);
+                searchResults.classList.add('hidden');
+                if (searchInput) searchInput.value = `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`;
+                CustomToast.show(`Pinned to (${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)})`, 'info');
+            };
+
+            const manualEditBtn = document.getElementById('map-manual-edit-btn');
+            if (manualEditBtn) {
+                manualEditBtn.onclick = () => {
+                    const promptVal = prompt("Enter coordinates (e.g. 15.500619, 120.455028):", `${curLat.toFixed(6)}, ${curLng.toFixed(6)}`);
+                    if (promptVal) {
+                        const parsed = App.parseCoordinates(promptVal);
+                        if (parsed) {
+                            applyManualCoordinates(parsed);
+                        } else {
+                            CustomToast.show("Invalid coordinates format. Please use e.g. 15.500619, 120.455028", "error");
+                        }
+                    }
+                };
+            }
+
             if (searchInput) {
+                searchInput.onkeydown = (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const parsed = App.parseCoordinates(searchInput.value.trim());
+                        if (parsed) {
+                            applyManualCoordinates(parsed);
+                        }
+                    }
+                };
+
                 searchInput.oninput = () => {
                     const q = searchInput.value.trim();
                     searchClear.classList.toggle('hidden', !q);
@@ -402,6 +438,34 @@ const App = {
                         searchResults.innerHTML = '';
                         return;
                     }
+
+                    // Check if input is coordinates like (15.500619, 120.455028)
+                    const parsedCoords = App.parseCoordinates(q);
+                    if (parsedCoords) {
+                        searchResults.innerHTML = `
+                            <div class="p-3 bg-blue-50/90 hover:bg-blue-100 cursor-pointer border-b border-blue-200 flex items-center justify-between text-xs transition" id="map-coord-jump">
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <div class="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center text-xs shrink-0 shadow-xs">
+                                        <i class="fa-solid fa-crosshairs"></i>
+                                    </div>
+                                    <div class="truncate">
+                                        <div class="font-bold text-blue-900 flex items-center gap-1.5">
+                                            <span>Jump to Coordinates</span>
+                                            <span class="text-[9px] bg-blue-200 text-blue-800 px-1.5 py-0.2 rounded font-black uppercase">GPS</span>
+                                        </div>
+                                        <div class="font-mono text-[11px] text-blue-700 font-bold">${parsedCoords.lat.toFixed(6)}, ${parsedCoords.lng.toFixed(6)}</div>
+                                    </div>
+                                </div>
+                                <span class="text-[10px] font-bold bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg shrink-0 shadow-xs">Go to Pin</span>
+                            </div>
+                        `;
+                        searchResults.classList.remove('hidden');
+                        document.getElementById('map-coord-jump').onclick = () => {
+                            applyManualCoordinates(parsedCoords);
+                        };
+                        return;
+                    }
+
                     searchTimeout = setTimeout(async () => {
                         try {
                             const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${token}&country=ph&limit=5`);
@@ -495,6 +559,128 @@ const App = {
             modal.querySelector('.scale-95')?.classList.add('scale-95');
             setTimeout(() => modal.remove(), 250);
         }
+    },
+
+    parseCoordinates(str) {
+        if (!str || typeof str !== 'string') return null;
+        // Clean outer formatting like parentheses, brackets, @ from Google Maps URLs
+        const clean = str.replace(/[()\[\]@]/g, ' ').trim();
+        // Match two floating numbers separated by comma, slash, or whitespace
+        const match = clean.match(/([-+]?[0-9]*\.?[0-9]+)\s*[,/ ]\s*([-+]?[0-9]*\.?[0-9]+)/);
+        if (match) {
+            let n1 = parseFloat(match[1]);
+            let n2 = parseFloat(match[2]);
+            if (!isNaN(n1) && !isNaN(n2)) {
+                // If coordinates were entered as [lng, lat] (e.g. from GeoJSON or swapped)
+                if ((n1 > 90 || Math.abs(n1) > Math.abs(n2)) && Math.abs(n2) <= 90 && Math.abs(n1) <= 180) {
+                    return { lat: n2, lng: n1 };
+                }
+                if (Math.abs(n1) <= 90 && Math.abs(n2) <= 180) {
+                    return { lat: n1, lng: n2 };
+                }
+            }
+        }
+        return null;
+    },
+
+    onCoordinatePasteInput(val) {
+        if (!val) return;
+        const parsed = this.parseCoordinates(val);
+        if (parsed) {
+            const latInput = document.getElementById('set_station_lat');
+            const lngInput = document.getElementById('set_station_lng');
+            if (latInput) latInput.value = parsed.lat;
+            if (lngInput) lngInput.value = parsed.lng;
+            CustomToast.show(`Coordinates parsed: Lat ${parsed.lat.toFixed(6)}, Lng ${parsed.lng.toFixed(6)}`, 'info');
+        }
+    },
+
+    onLatInput(inputEl) {
+        if (!inputEl || !inputEl.value) return;
+        const parsed = this.parseCoordinates(inputEl.value);
+        if (parsed) {
+            inputEl.value = parsed.lat;
+            const lngInput = document.getElementById('set_station_lng');
+            if (lngInput) lngInput.value = parsed.lng;
+            CustomToast.show(`Coordinates parsed: Lat ${parsed.lat.toFixed(6)}, Lng ${parsed.lng.toFixed(6)}`, 'info');
+        }
+    },
+
+    async handleManualStationLocation(event) {
+        if (event) event.preventDefault();
+        const latInput = document.getElementById('set_station_lat');
+        const lngInput = document.getElementById('set_station_lng');
+        const pasteInput = document.getElementById('set_station_coord_paste');
+
+        let lat = null;
+        let lng = null;
+
+        if (pasteInput && pasteInput.value.trim()) {
+            const parsed = this.parseCoordinates(pasteInput.value.trim());
+            if (parsed) {
+                lat = parsed.lat;
+                lng = parsed.lng;
+                if (latInput) latInput.value = lat;
+                if (lngInput) lngInput.value = lng;
+            }
+        }
+
+        if (lat === null || lng === null) {
+            const rawLat = latInput ? latInput.value.trim() : '';
+            const rawLng = lngInput ? lngInput.value.trim() : '';
+
+            const parsedFromLat = this.parseCoordinates(rawLat);
+            if (parsedFromLat) {
+                lat = parsedFromLat.lat;
+                lng = parsedFromLat.lng;
+                if (latInput) latInput.value = lat;
+                if (lngInput) lngInput.value = lng;
+            } else {
+                lat = parseFloat(rawLat);
+                lng = parseFloat(rawLng);
+            }
+        }
+
+        if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+            CustomToast.show("Please enter valid coordinates like (15.500619, 120.455028)", "error");
+            return;
+        }
+
+        await this.saveStationLocation(lat, lng);
+    },
+
+    openStationMapPicker() {
+        const latInput = document.getElementById('set_station_lat');
+        const lngInput = document.getElementById('set_station_lng');
+        const pasteInput = document.getElementById('set_station_coord_paste');
+
+        let initLat = parseFloat(latInput?.value);
+        let initLng = parseFloat(lngInput?.value);
+
+        if (pasteInput && pasteInput.value.trim()) {
+            const parsed = this.parseCoordinates(pasteInput.value.trim());
+            if (parsed) {
+                initLat = parsed.lat;
+                initLng = parsed.lng;
+            }
+        }
+
+        const station = State.adminData?.station || {};
+        if (isNaN(initLat)) initLat = parseFloat(station.latitude) || 15.5056;
+        if (isNaN(initLng)) initLng = parseFloat(station.longitude) || 120.4462;
+
+        this.openMapLocationModal({
+            title: 'Set Station Coordinates',
+            initialLat: initLat,
+            initialLng: initLng,
+            initialAddress: station.address || 'Central Station',
+            onSave: (pos) => {
+                if (latInput) latInput.value = pos.lat.toFixed(6);
+                if (lngInput) lngInput.value = pos.lng.toFixed(6);
+                if (pasteInput) pasteInput.value = `${pos.lat.toFixed(6)}, ${pos.lng.toFixed(6)}`;
+                this.saveStationLocation(pos.lat, pos.lng);
+            }
+        });
     },
 
     async saveStationLocation(lat, lng) {
