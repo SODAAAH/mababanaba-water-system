@@ -45,6 +45,7 @@ Thumbs.db
 .vscode/
 .idea/
 .agents/
+docs/
 *.docx
 *.pdf
 
