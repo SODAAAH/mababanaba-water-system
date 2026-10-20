@@ -16,7 +16,7 @@ require_once __DIR__ . '/OrderHelper.php';
 $lifetime = 60 * 60 * 24 * 30; // 30 days
 ini_set('session.cookie_lifetime', (string)$lifetime);
 ini_set('session.gc_maxlifetime', (string)$lifetime);
-ini_set('session.use_strict_mode', '0');
+ini_set('session.use_strict_mode', '1');
 
 $session_dir = __DIR__ . '/sessions';
 if (!is_dir($session_dir)) {
@@ -90,6 +90,8 @@ if (empty($_SESSION['customer_id']) && empty($_SESSION['admin_id'])) {
 
 header("Content-Type: application/json; charset=utf-8");
 header("X-Content-Type-Options: nosniff");
+header("X-Frame-Options: SAMEORIGIN");
+header("Referrer-Policy: strict-origin-when-cross-origin");
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
 
@@ -105,7 +107,7 @@ if (!empty($origin)) {
         header("Access-Control-Allow-Origin: $origin");
         header("Access-Control-Allow-Credentials: true");
         header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-        header("Access-Control-Allow-Headers: Content-Type, X-CSRF-TOKEN, Authorization");
+        header("Access-Control-Allow-Headers: Content-Type, X-CSRF-TOKEN, Authorization, X-Auth-Token");
         if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
             http_response_code(200);
             exit;
@@ -168,7 +170,7 @@ $csrfExempt = [
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !in_array($action, $csrfExempt, true)) {
-    $clientToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? $_POST['csrf_token'] ?? $_GET['csrf_token'] ?? '';
+    $clientToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? $_POST['csrf_token'] ?? '';
 
     $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
     $referer = $_SERVER['HTTP_REFERER'] ?? '';
@@ -290,9 +292,14 @@ switch ($action) {
             }
 
             if (isset($_SESSION['admin_id'])) {
-                $stmt = $pdo->prepare("SELECT a.*, s.station_name, s.latitude as station_latitude, s.longitude as station_longitude FROM ADMIN a LEFT JOIN STATION s ON a.station_id = s.station_id WHERE a.admin_id = ?");
+                $stmt = $pdo->prepare("SELECT a.*, s.station_name, s.status as station_status, s.latitude as station_latitude, s.longitude as station_longitude FROM ADMIN a LEFT JOIN STATION s ON a.station_id = s.station_id WHERE a.admin_id = ?");
                 $stmt->execute([$_SESSION['admin_id']]);
                 if ($a = $stmt->fetch()) { 
+                    if ($a['status'] === 'Revoked' || (!empty($a['station_id']) && ($a['station_status'] ?? '') === 'Suspended')) {
+                        unset($_SESSION['admin_id'], $_SESSION['station_id'], $_SESSION['role']);
+                        echo json_encode(['logged_in' => false, 'error' => 'Account revoked or station suspended.', 'csrf_token' => $_SESSION['csrf_token'], 'mapbox_token' => MAPBOX_ACCESS_TOKEN]);
+                        exit;
+                    }
                     $_SESSION['station_id'] = $a['station_id'];
                     $_SESSION['role'] = $a['role'];
                     unset($a['password'], $a['otp_code'], $a['otp_expiry'], $a['new_temp_contact'], $a['failed_otp_attempts']);
@@ -306,12 +313,14 @@ switch ($action) {
                         'mapbox_token' => MAPBOX_ACCESS_TOKEN
                     ]); 
                     exit; 
+                } else {
+                    unset($_SESSION['admin_id'], $_SESSION['station_id'], $_SESSION['role']);
                 }
             } elseif (isset($_SESSION['customer_id'])) {
                 $stmt = $pdo->prepare("SELECT customer_id, full_name, contact_number, address, is_verified, latitude, longitude, created_at FROM CUSTOMER WHERE customer_id = ?");
                 $stmt->execute([$_SESSION['customer_id']]);
                 if ($c = $stmt->fetch()) { 
-                    if ($c['is_verified'] == 0) {
+                    if ((int)$c['is_verified'] === 0) {
                         unset($_SESSION['customer_id']);
                         echo json_encode(['logged_in' => false, 'csrf_token' => $_SESSION['csrf_token'], 'mapbox_token' => MAPBOX_ACCESS_TOKEN]);
                         exit;
@@ -345,24 +354,8 @@ switch ($action) {
                         'mapbox_token' => MAPBOX_ACCESS_TOKEN
                     ]); 
                     exit;
-                }
-            } elseif (isset($_SESSION['admin_id'])) {
-                $stmt = $pdo->prepare("SELECT a.*, s.station_name, s.latitude as station_latitude, s.longitude as station_longitude FROM ADMIN a LEFT JOIN STATION s ON a.station_id = s.station_id WHERE a.admin_id = ?");
-                $stmt->execute([$_SESSION['admin_id']]);
-                if ($a = $stmt->fetch()) { 
-                    $_SESSION['station_id'] = $a['station_id'];
-                    $_SESSION['role'] = $a['role'];
-                    unset($a['password'], $a['otp_code'], $a['otp_expiry'], $a['new_temp_contact'], $a['failed_otp_attempts']);
-                    $authToken = SecurityContext::generateAuthToken((int)$_SESSION['admin_id'], 'admin');
-                    echo json_encode([
-                        'logged_in' => true, 
-                        'type' => 'admin', 
-                        'data' => $a, 
-                        'auth_token' => $authToken,
-                        'csrf_token' => $_SESSION['csrf_token'], 
-                        'mapbox_token' => MAPBOX_ACCESS_TOKEN
-                    ]); 
-                    exit; 
+                } else {
+                    unset($_SESSION['customer_id']);
                 }
             }
         } catch(PDOException $e) { error_log($e->getMessage()); }
@@ -370,10 +363,25 @@ switch ($action) {
         echo json_encode(['logged_in' => false, 'csrf_token' => $_SESSION['csrf_token'], 'mapbox_token' => MAPBOX_ACCESS_TOKEN]);
         exit;
     case 'get_payment_proof':
+        $authAdmin = SecurityContext::getAuthAdmin($pdo);
+        $aid = $authAdmin ? (int)$authAdmin['admin_id'] : ($_SESSION['admin_id'] ?? null);
+        $sid = $authAdmin ? (int)$authAdmin['station_id'] : ($_SESSION['station_id'] ?? null);
+        $role = $authAdmin ? $authAdmin['role'] : ($_SESSION['role'] ?? '');
+
         $cid = $_SESSION['customer_id'] ?? null;
-        $aid = $_SESSION['admin_id'] ?? null;
-        $sid = $_SESSION['station_id'] ?? null;
-        $role = $_SESSION['role'] ?? '';
+        if (!$cid && !$aid) {
+            $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['HTTP_X_AUTH_TOKEN'] ?? $_POST['auth_token'] ?? '';
+            if (str_starts_with($authHeader, 'Bearer ')) {
+                $authHeader = substr($authHeader, 7);
+            }
+            if (!empty($authHeader)) {
+                $tData = SecurityContext::verifyAuthToken($authHeader);
+                if ($tData && ($tData['type'] ?? '') === 'customer') {
+                    $cid = (int)$tData['id'];
+                }
+            }
+        }
+
         $oid = $_POST['order_id'] ?? $_GET['order_id'] ?? null;
 
         if (!$oid || (!$cid && !$aid)) {
@@ -443,6 +451,14 @@ switch ($action) {
         if (!empty($endpoint)) {
             $pdo->prepare("DELETE FROM PUSH_SUBSCRIPTIONS WHERE endpoint = ?")->execute([$endpoint]);
         }
+        $_SESSION = [];
+        if (ini_get("session.use_cookies")) {
+            $params = session_get_cookie_params();
+            setcookie(session_name(), '', time() - 42000,
+                $params["path"], $params["domain"],
+                $params["secure"], $params["httponly"]
+            );
+        }
         session_destroy(); 
         echo json_encode(['success' => true]); 
         exit;
@@ -467,6 +483,7 @@ switch ($action) {
     case 'admin_login': getAdminController($pdo)->login(); break;
     case 'sa_get_stations': getAdminController($pdo)->saGetStations(); break;
     case 'sa_add_station': getAdminController($pdo)->saAddStation(); break;
+    case 'sa_save_station': getAdminController($pdo)->saSaveStation(); break;
     case 'sa_toggle_station': getAdminController($pdo)->saToggleStation(); break;
     case 'sa_delete_station': getAdminController($pdo)->saDeleteStation(); break;
     case 'sa_get_users': getAdminController($pdo)->saGetUsers(); break;

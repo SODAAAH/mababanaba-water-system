@@ -2927,6 +2927,63 @@ const App = {
             } catch(e) {}
         }
     },
+
+    openEditStationModal(station) {
+        if (!station) return;
+        const modal = document.getElementById('sa-station-modal');
+        if (!modal) return;
+        document.getElementById('sa-modal-station-id').value = station.station_id || '';
+        document.getElementById('sa-modal-station-name').value = station.station_name || '';
+        document.getElementById('sa-modal-station-addr').value = station.address || '';
+        document.getElementById('sa-modal-station-contact').value = station.contact_number || '';
+        modal.classList.remove('hidden');
+    },
+
+    closeEditStationModal() {
+        const modal = document.getElementById('sa-station-modal');
+        if (modal) modal.classList.add('hidden');
+    },
+
+    async submitEditStation(e) {
+        e.preventDefault();
+        const btn = e.target.querySelector('button[type="submit"]');
+        this.setLoading(btn, true);
+        const stId = document.getElementById('sa-modal-station-id').value;
+        const stName = document.getElementById('sa-modal-station-name').value.trim();
+        const stAddr = document.getElementById('sa-modal-station-addr').value.trim();
+        const stContact = document.getElementById('sa-modal-station-contact').value.trim();
+
+        if (!stName) {
+            CustomToast.show('Station name cannot be empty', 'error');
+            this.setLoading(btn, false);
+            return;
+        }
+
+        const data = new FormData();
+        data.append('station_id', stId);
+        data.append('station_name', stName);
+        data.append('address', stAddr);
+        data.append('contact_number', stContact);
+
+        try {
+            const res = await API.request('sa_save_station', 'POST', data);
+            if (res.success) {
+                CustomToast.show('Station details updated successfully!', 'success');
+                this.closeEditStationModal();
+                State.stations = null;
+                State.saUsersData = null;
+                try {
+                    localStorage.removeItem('cache_get_stations');
+                    localStorage.removeItem('cache_sa_get_stations');
+                    localStorage.removeItem('cache_sa_get_users');
+                } catch(err) {}
+                UI.renderSuperAdminDashboard();
+            }
+        } catch(e) {
+            console.error('Failed to update station:', e);
+        }
+        this.setLoading(btn, false);
+    },
     
     async submitNewStation(e) {
         e.preventDefault();
@@ -3587,7 +3644,7 @@ App.Auth = {
     handleOTPVerify: (...args) => App.handleOTPVerify(...args),
     handleForgotPassword: (...args) => App.handleForgotPassword(...args),
     handleResetPassword: (...args) => App.handleResetPassword(...args),
-    logout: (...args) => App.logout(...args)
+    logout: (...args) => UI.logout(...args)
 };
 
 App.Customer = {

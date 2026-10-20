@@ -96,6 +96,16 @@ class DeliveryStaffController {
                 ]);
             }
 
+            if ($admin['role'] === 'Delivery Staff' && $oInfo['order_status'] === 'To Deliver') {
+                $stmtDel = $this->pdo->prepare("SELECT admin_id FROM DELIVERIES WHERE order_id = ? ORDER BY delivery_id DESC LIMIT 1");
+                $stmtDel->execute([$oid]);
+                $assignedStaff = $stmtDel->fetchColumn();
+                if ($assignedStaff && (int)$assignedStaff !== (int)$aid) {
+                    $this->pdo->rollBack();
+                    SecurityContext::jsonResponse(403, ['error' => 'Forbidden: This order is assigned to another delivery staff member.']);
+                }
+            }
+
             if ($oInfo['order_status'] === 'Pending' && $status !== 'Preparing') {
                 $this->pdo->rollBack();
                 SecurityContext::jsonResponse(400, [

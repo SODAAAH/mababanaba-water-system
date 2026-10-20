@@ -16,6 +16,7 @@ api/sessions/*
 # User uploads
 public/uploads/qr/*
 !public/uploads/qr/.gitkeep
+!public/uploads/qr/.htaccess
 
 # Runtime migration lock files & secrets
 api/.migrated*
@@ -29,8 +30,9 @@ error_log
 api/error_log
 tests/error_log
 
-# Local development & testing (not part of core system)
-tests/
+# Local development & testing
+tests/*
+!tests/run_tests.php
 scripts/*
 !scripts/fix-css.js
 !scripts/migrate.php

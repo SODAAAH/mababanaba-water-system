@@ -63,14 +63,65 @@ class SuperAdminController {
         exit;
     }
 
+    public function saveStation() {
+        $this->requireSuperAdmin();
+        $sid = (int)($_POST['station_id'] ?? 0);
+        $stName = trim($_POST['station_name'] ?? '');
+        $addr = trim($_POST['address'] ?? '');
+        $contact = trim($_POST['contact_number'] ?? $_POST['contact'] ?? '');
+
+        if ($sid <= 0 || empty($stName)) {
+            echo json_encode(['error' => 'Station ID and Station Name are required.']);
+            exit;
+        }
+
+        try {
+            $updates = ["station_name = ?"];
+            $params = [$stName];
+
+            if ($addr !== '') {
+                $updates[] = "address = ?";
+                $params[] = $addr;
+            }
+            if ($contact !== '') {
+                $updates[] = "contact_number = ?";
+                $params[] = $contact;
+            }
+
+            $params[] = $sid;
+            $sql = "UPDATE STATION SET " . implode(', ', $updates) . " WHERE station_id = ?";
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute($params);
+
+            if (class_exists('CustomerController')) {
+                CustomerController::clearStationsCache();
+            }
+
+            echo json_encode(['success' => true, 'message' => 'Station updated successfully.']);
+        } catch (Exception $e) {
+            error_log("saSaveStation error: " . $e->getMessage());
+            echo json_encode(['error' => 'Failed to update station: ' . $e->getMessage()]);
+        }
+        exit;
+    }
+
     public function deleteStation() {
         $this->requireSuperAdmin();
+        $sid = (int)($_POST['station_id'] ?? 0);
+        $check = $this->pdo->prepare("SELECT COUNT(*) FROM ORDERS WHERE station_id = ?");
+        $check->execute([$sid]);
+        if ((int)$check->fetchColumn() > 0) {
+            echo json_encode(['error' => 'Cannot delete station with existing order history. Please keep it Suspended instead to preserve historical records.']);
+            exit;
+        }
+
         $stmt = $this->pdo->prepare("DELETE FROM STATION WHERE station_id = ? AND status = 'Suspended'"); 
-        $stmt->execute([$_POST['station_id']]);
+        $stmt->execute([$sid]);
         if ($stmt->rowCount() > 0) { 
+            CustomerController::clearStationsCache();
             echo json_encode(['success' => true]); 
         } else { 
-            echo json_encode(['error' => 'Must be Suspended first.']); 
+            echo json_encode(['error' => 'Station must be Suspended first before it can be deleted.']); 
         }
         exit;
     }
@@ -175,9 +226,12 @@ class SuperAdminController {
             $stationId = null;
         }
 
-        if (empty($username)) {
-            echo json_encode(['error' => 'Username is required']);
-            exit;
+        $currentAdminId = (int)($_SESSION['admin_id'] ?? 0);
+        if ($adminId && $adminId === $currentAdminId) {
+            if ($role !== 'Super Admin' || $status !== 'Active') {
+                echo json_encode(['error' => 'You cannot demote or suspend your own Super Admin account.']);
+                exit;
+            }
         }
 
         try {

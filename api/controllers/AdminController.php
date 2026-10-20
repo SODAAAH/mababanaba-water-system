@@ -88,6 +88,7 @@ class AdminController {
 
     public function saGetStations() { $this->getSuperAdmin()->getStations(); }
     public function saAddStation() { $this->getSuperAdmin()->addStation(); }
+    public function saSaveStation() { $this->getSuperAdmin()->saveStation(); }
     public function saToggleStation() { $this->getSuperAdmin()->toggleStation(); }
     public function saDeleteStation() { $this->getSuperAdmin()->deleteStation(); }
     public function saGetUsers() { $this->getSuperAdmin()->getUsers(); }

@@ -686,8 +686,12 @@ class CustomerController {
                 }
             }
             
-            $stmt = $this->pdo->prepare("SELECT stock_level FROM INVENTORY WHERE station_id = ? FOR UPDATE"); $stmt->execute([$sid]);
-            if ($stmt->fetch()['stock_level'] < $totalQty) { throw new Exception("Insufficient general stock."); }
+            $stmt = $this->pdo->prepare("SELECT stock_level, round_jugs, slim_jugs FROM INVENTORY WHERE station_id = ? FOR UPDATE"); 
+            $stmt->execute([$sid]);
+            $inv = $stmt->fetch();
+            if (!$inv || (int)$inv['stock_level'] < $totalQty) { throw new Exception("Insufficient general stock."); }
+            if ($totRound > 0 && ((int)$inv['round_jugs'] < $totRound)) { throw new Exception("Insufficient round jug stock."); }
+            if ($totSlim > 0 && ((int)$inv['slim_jugs'] < $totSlim)) { throw new Exception("Insufficient slim jug stock."); }
 
             $shippingFee = (float)$st['shipping_fee'];
 
@@ -701,16 +705,9 @@ class CustomerController {
                     $ordPoints = (int)$stmtDeliv->fetchColumn();
                     if ($ordPoints >= 10) {
                         $currPoints = $ordPoints;
-                    } else {
-                        $stmtAll = $this->pdo->prepare("SELECT IFNULL(SUM(points), 0) FROM CUSTOMER_LOYALTY WHERE customer_id = ?");
-                        $stmtAll->execute([$cid]);
-                        $allPts = (int)$stmtAll->fetchColumn();
-                        if ($allPts >= 10) {
-                            $currPoints = $allPts;
-                        }
                     }
                 }
-                if ($currPoints < 10) { throw new Exception("Not enough loyalty points."); }
+                if ($currPoints < 10) { throw new Exception("Not enough loyalty points at this station."); }
                 $newPts = max(0, $currPoints - 10);
                 $this->pdo->prepare("INSERT INTO CUSTOMER_LOYALTY (customer_id, station_id, points, lifetime_points) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE points = GREATEST(0, points - 10)")->execute([$cid, $sid, $newPts, $currPoints]);
             }

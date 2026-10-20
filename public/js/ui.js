@@ -649,9 +649,13 @@ const UI = {
                 } catch(ce) {}
             }
             State.csrfToken = null;
+            State.authToken = null;
             try {
                 sessionStorage.removeItem('csrf_token');
                 localStorage.removeItem('csrf_token');
+                sessionStorage.removeItem('auth_token');
+                localStorage.removeItem('auth_token');
+                sessionStorage.clear();
             } catch(e) {}
             this.navigate('login', 'replace');
             API.request('check_session').catch(() => {});
@@ -5002,7 +5006,10 @@ const UI = {
                                     <p class="text-xs text-slate-500 font-medium"><i class="fa-solid fa-user-shield mr-1 text-slate-400"></i>Admin: <strong class="text-slate-700">${escapeHtml(s.admin_username || 'None')}</strong></p>
                                     <p class="text-xs text-slate-500 font-medium mt-0.5"><i class="fa-solid fa-location-dot mr-1 text-slate-400"></i>${escapeHtml(s.address || 'No address')} ${s.latitude && s.longitude ? `<span class="text-blue-600 font-bold ml-1">(Lat: ${parseFloat(s.latitude).toFixed(3)}, Lng: ${parseFloat(s.longitude).toFixed(3)})</span>` : ''}</p>
                                 </div>
-                                <div class="flex gap-2">
+                                <div class="flex items-center gap-2">
+                                    <button onclick="App.openEditStationModal(JSON.parse(decodeURIComponent('${encodeURIComponent(JSON.stringify(s))}')))" class="px-3 py-2 rounded-xl text-xs font-bold bg-blue-50 text-blue-600 hover:bg-blue-100 transition cursor-pointer flex items-center gap-1.5" title="Rename or Edit Station">
+                                        <i class="fa-solid fa-pen-to-square"></i> Rename / Edit
+                                    </button>
                                     <button onclick="App.toggleStationStatus(${s.station_id}, '${isActive ? 'Suspend' : 'Active'}')" class="px-3.5 py-2 rounded-xl text-xs font-bold ${isActive ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'} transition cursor-pointer">
                                         ${isActive ? 'Suspend' : 'Activate'}
                                     </button>
@@ -5064,6 +5071,41 @@ const UI = {
             }
 
             html += `
+                <!-- Station Edit Modal (Super Admin) -->
+                <div id="sa-station-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+                    <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl shadow-blue-500/15 border border-blue-200/80 ring-2 ring-blue-500/30">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="font-black text-slate-800 text-lg flex items-center gap-2">
+                                <i class="fa-solid fa-store text-blue-600"></i> Edit Station Details
+                            </h3>
+                            <button type="button" onclick="App.closeEditStationModal()" class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center cursor-pointer">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+                        <form onsubmit="App.submitEditStation(event)" class="space-y-4">
+                            <input type="hidden" id="sa-modal-station-id">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Station Name <span class="text-red-500">*</span></label>
+                                <input type="text" id="sa-modal-station-name" required placeholder="e.g. Station 1 Central" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Complete Address</label>
+                                <textarea id="sa-modal-station-addr" rows="2" placeholder="Barangay Address" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Contact Number</label>
+                                <input type="tel" id="sa-modal-station-contact" maxlength="11" placeholder="09xxxxxxxxx" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,11)" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                            </div>
+                            <div class="flex gap-2 pt-2">
+                                <button type="button" onclick="App.closeEditStationModal()" class="w-1/2 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-sm cursor-pointer">Cancel</button>
+                                <button type="submit" class="w-1/2 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm shadow-md cursor-pointer flex items-center justify-center gap-1.5">
+                                    <i class="fa-solid fa-check"></i> Save Changes
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
                 <!-- Admin/Staff Modal -->
                 <div id="sa-admin-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
                     <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl shadow-blue-500/15 border border-blue-200/80 ring-2 ring-blue-500/30">

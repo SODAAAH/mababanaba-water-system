@@ -320,53 +320,56 @@ function run_migrations($pdo) {
     $migrationLockFileV11 = __DIR__ . '/.migrated_v11';
     if (!file_exists($migrationLockFileV11)) {
         try {
-            // 1. Ensure Super Admin account has valid password matching .env SUPERADMIN_PASSWORD
-            $saPass = password_hash('Superadmin2026', PASSWORD_DEFAULT);
-            $chkSa = $pdo->query("SELECT admin_id FROM ADMIN WHERE username = 'superadmin' LIMIT 1")->fetch();
-            if ($chkSa) {
-                $pdo->prepare("UPDATE ADMIN SET password = ?, role = 'Super Admin', status = 'Active' WHERE admin_id = ?")->execute([$saPass, $chkSa['admin_id']]);
-            } else {
-                $pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role, status) VALUES (NULL, 'superadmin', ?, 'Super Admin', 'Active')")->execute([$saPass]);
-            }
-
-            // 2. Ensure Station Admins exist and have StationTest@123 password
-            $stPass = password_hash('StationTest@123', PASSWORD_DEFAULT);
-            foreach ([1 => 'station1_admin', 2 => 'station2_admin', 3 => 'station3_admin'] as $sid => $uname) {
-                $chk = $pdo->prepare("SELECT admin_id FROM ADMIN WHERE username = ?");
-                $chk->execute([$uname]);
-                if ($row = $chk->fetch()) {
-                    $pdo->prepare("UPDATE ADMIN SET password = ?, station_id = ?, role = 'Admin', status = 'Active' WHERE admin_id = ?")->execute([$stPass, $sid, $row['admin_id']]);
+            // 1-4. Development test accounts and passwords (dev only)
+            if ($isDev) {
+                // 1. Ensure Super Admin account has valid password matching .env SUPERADMIN_PASSWORD
+                $saPass = password_hash('Superadmin2026', PASSWORD_DEFAULT);
+                $chkSa = $pdo->query("SELECT admin_id FROM ADMIN WHERE username = 'superadmin' LIMIT 1")->fetch();
+                if ($chkSa) {
+                    $pdo->prepare("UPDATE ADMIN SET password = ?, role = 'Super Admin', status = 'Active' WHERE admin_id = ?")->execute([$saPass, $chkSa['admin_id']]);
                 } else {
-                    $pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role, status) VALUES (?, ?, ?, 'Admin', 'Active')")->execute([$sid, $uname, $stPass]);
+                    $pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role, status) VALUES (NULL, 'superadmin', ?, 'Super Admin', 'Active')")->execute([$saPass]);
                 }
-            }
 
-            // 3. Ensure Delivery Staff exist and have StaffTest@123 password
-            $staffPass = password_hash('StaffTest@123', PASSWORD_DEFAULT);
-            foreach ([1 => 'station1_staff', 2 => 'station2_staff', 3 => 'station3_staff'] as $sid => $uname) {
-                $chk = $pdo->prepare("SELECT admin_id FROM ADMIN WHERE username = ?");
-                $chk->execute([$uname]);
-                if ($row = $chk->fetch()) {
-                    $pdo->prepare("UPDATE ADMIN SET password = ?, station_id = ?, role = 'Delivery Staff', status = 'Active' WHERE admin_id = ?")->execute([$staffPass, $sid, $row['admin_id']]);
-                } else {
-                    $pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role, status) VALUES (?, ?, ?, 'Delivery Staff', 'Active')")->execute([$sid, $uname, $staffPass]);
+                // 2. Ensure Station Admins exist and have StationTest@123 password
+                $stPass = password_hash('StationTest@123', PASSWORD_DEFAULT);
+                foreach ([1 => 'station1_admin', 2 => 'station2_admin', 3 => 'station3_admin'] as $sid => $uname) {
+                    $chk = $pdo->prepare("SELECT admin_id FROM ADMIN WHERE username = ?");
+                    $chk->execute([$uname]);
+                    if ($row = $chk->fetch()) {
+                        $pdo->prepare("UPDATE ADMIN SET password = ?, station_id = ?, role = 'Admin', status = 'Active' WHERE admin_id = ?")->execute([$stPass, $sid, $row['admin_id']]);
+                    } else {
+                        $pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role, status) VALUES (?, ?, ?, 'Admin', 'Active')")->execute([$sid, $uname, $stPass]);
+                    }
                 }
-            }
 
-            // 4. Ensure Test Customers exist and are verified
-            $custPass = password_hash('CustTest@123', PASSWORD_DEFAULT);
-            foreach ([
-                ['09111111111', 'Test Customer 1', '123 Station 1 St, Mababanaba, Tarlac'],
-                ['09222222222', 'Test Customer 2', '456 Station 2 Ave, Mababanaba, Tarlac'],
-                ['09333333333', 'Test Customer 3', '789 Station 3 Blvd, Mababanaba, Tarlac']
-            ] as $cdata) {
-                $cchk = $pdo->prepare("SELECT customer_id FROM CUSTOMER WHERE contact_number = ?");
-                $cchk->execute([$cdata[0]]);
-                if ($crow = $cchk->fetch()) {
-                    $pdo->prepare("UPDATE CUSTOMER SET password = ?, is_verified = 1 WHERE customer_id = ?")->execute([$custPass, $crow['customer_id']]);
-                } else {
-                    $pdo->prepare("INSERT INTO CUSTOMER (contact_number, full_name, address, password, is_verified) VALUES (?, ?, ?, ?, 1)")
-                        ->execute([$cdata[0], $cdata[1], $cdata[2], $custPass]);
+                // 3. Ensure Delivery Staff exist and have StaffTest@123 password
+                $staffPass = password_hash('StaffTest@123', PASSWORD_DEFAULT);
+                foreach ([1 => 'station1_staff', 2 => 'station2_staff', 3 => 'station3_staff'] as $sid => $uname) {
+                    $chk = $pdo->prepare("SELECT admin_id FROM ADMIN WHERE username = ?");
+                    $chk->execute([$uname]);
+                    if ($row = $chk->fetch()) {
+                        $pdo->prepare("UPDATE ADMIN SET password = ?, station_id = ?, role = 'Delivery Staff', status = 'Active' WHERE admin_id = ?")->execute([$staffPass, $sid, $row['admin_id']]);
+                    } else {
+                        $pdo->prepare("INSERT INTO ADMIN (station_id, username, password, role, status) VALUES (?, ?, ?, 'Delivery Staff', 'Active')")->execute([$sid, $uname, $staffPass]);
+                    }
+                }
+
+                // 4. Ensure Test Customers exist and are verified
+                $custPass = password_hash('CustTest@123', PASSWORD_DEFAULT);
+                foreach ([
+                    ['09111111111', 'Test Customer 1', '123 Station 1 St, Mababanaba, Tarlac'],
+                    ['09222222222', 'Test Customer 2', '456 Station 2 Ave, Mababanaba, Tarlac'],
+                    ['09333333333', 'Test Customer 3', '789 Station 3 Blvd, Mababanaba, Tarlac']
+                ] as $cdata) {
+                    $cchk = $pdo->prepare("SELECT customer_id FROM CUSTOMER WHERE contact_number = ?");
+                    $cchk->execute([$cdata[0]]);
+                    if ($crow = $cchk->fetch()) {
+                        $pdo->prepare("UPDATE CUSTOMER SET password = ?, is_verified = 1 WHERE customer_id = ?")->execute([$custPass, $crow['customer_id']]);
+                    } else {
+                        $pdo->prepare("INSERT INTO CUSTOMER (contact_number, full_name, address, password, is_verified) VALUES (?, ?, ?, ?, 1)")
+                            ->execute([$cdata[0], $cdata[1], $cdata[2], $custPass]);
+                    }
                 }
             }
 

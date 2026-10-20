@@ -38,8 +38,9 @@ class SmsService {
 
         try {
             $maskedMessage = preg_replace('/\b\d{6}\b/', '******', $message);
+            $maskedNumber = strlen($cleanNumber) >= 7 ? substr($cleanNumber, 0, 4) . '****' . substr($cleanNumber, -3) : '***********';
             $stmt = $pdo->prepare("INSERT INTO SMS_LOGS (contact_number, message, api_response) VALUES (?, ?, ?)");
-            $stmt->execute([$cleanNumber, $maskedMessage, $output ?: $curlErr]);
+            $stmt->execute([$maskedNumber, $maskedMessage, $output ?: $curlErr]);
         } catch (Exception $e) {
             error_log("SmsService DB log error: " . $e->getMessage());
         }

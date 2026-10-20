@@ -187,7 +187,9 @@ class SecurityContext {
 
     public static function normalizePhone(string $contact): string {
         $cleaned = preg_replace('/[^0-9]/', '', $contact);
-        if (strlen($cleaned) === 10 && str_starts_with($cleaned, '9')) {
+        if (strlen($cleaned) === 12 && str_starts_with($cleaned, '639')) {
+            $cleaned = '0' . substr($cleaned, 2);
+        } elseif (strlen($cleaned) === 10 && str_starts_with($cleaned, '9')) {
             $cleaned = '0' . $cleaned;
         }
         return $cleaned;
