@@ -4244,7 +4244,7 @@ const UI = {
                         <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Closure Message (Optional)</label>
                         <input type="text" id="set_closure_msg" placeholder="e.g. Closed for emergency maintenance" value="${escapeHtml(station.closure_message || '')}" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl">
                     </div>
-                    <button type="submit" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-3 rounded-xl shadow-md transition flex justify-center items-center">Update Status</button>
+                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-md transition flex justify-center items-center cursor-pointer active:scale-[0.99]">Update Status</button>
                 </form>
             </div>
 
@@ -4261,7 +4261,7 @@ const UI = {
                             <input type="time" id="set_close" required value="${station.closing_time}" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold">
                         </div>
                     </div>
-                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-md transition flex justify-center items-center">Save Hours</button>
+                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-md transition flex justify-center items-center cursor-pointer active:scale-[0.99]">Save Hours</button>
                 </form>
             </div>
 
@@ -4481,7 +4481,7 @@ const UI = {
                             </div>
                         </div>
                     </div>
-                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition shadow-md flex justify-center items-center">Save Profiles</button>
+                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl transition shadow-md flex justify-center items-center cursor-pointer active:scale-[0.99]">Save Profiles</button>
                 </form>
             </div>
             `;
@@ -4514,7 +4514,7 @@ const UI = {
                             </button>
                         </div>
                     </div>
-                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-md transition flex justify-center items-center">Update Security</button>
+                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-md transition flex justify-center items-center cursor-pointer active:scale-[0.99]">Update Security</button>
                 </form>
             </div>
 
@@ -4523,7 +4523,7 @@ const UI = {
                 <form onsubmit="App.addStaff(event)" class="space-y-3 mb-6">
                     <input type="text" id="staff_user" required placeholder="Staff Username" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl">
                     <input type="password" id="staff_pass" required placeholder="Staff Password" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl">
-                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-md transition flex justify-center items-center">Register Staff</button>
+                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-md transition flex justify-center items-center cursor-pointer active:scale-[0.99]">Register Staff</button>
                 </form>
                 <h4 class="font-bold text-slate-800 mb-3 text-sm">Active Staff</h4>
                 <div class="space-y-2">
