@@ -2933,11 +2933,16 @@ const App = {
         const statusEl = document.getElementById(`status_preview_${type}`);
         const subEl = document.getElementById(`sub_preview_${type}`);
 
-        if (statusEl) statusEl.innerText = 'Detecting QR code...';
-        if (subEl) subEl.innerText = 'Scanning screenshot boundaries';
+        if (statusEl) statusEl.innerHTML = '<span class="text-blue-600 font-bold flex items-center gap-1.5"><i class="fa-solid fa-spinner fa-spin"></i> Detecting QR code...</span>';
+        if (subEl) subEl.innerText = 'Scanning screenshot and cropping to 1:1 box';
         if (wrap) wrap.classList.remove('hidden');
 
         try {
+            // Store raw source file for manual fine-tuning if needed
+            const rawData = await this.getBase64(file);
+            State._rawQrData = State._rawQrData || {};
+            State._rawQrData[type] = rawData;
+
             const res = await this.extractAndCropQr(file);
             if (res && res.croppedDataUrl) {
                 if (type === 'gcash') {
@@ -2945,23 +2950,27 @@ const App = {
                 } else if (type === 'maya') {
                     State._croppedQrMaya = res.croppedDataUrl;
                 }
+                State._lastCropBox = State._lastCropBox || {};
+                State._lastCropBox[type] = res.cropBox;
 
                 if (img) img.src = res.croppedDataUrl;
                 if (statusEl) {
-                    statusEl.innerText = res.wasCropped ? 'QR Code Auto-Cropped' : 'QR Image Ready';
+                    statusEl.innerHTML = '<span class="text-emerald-600 font-bold flex items-center gap-1"><i class="fa-solid fa-check-circle"></i> QR Auto-Cropped (1:1)</span>';
                 }
                 if (subEl) {
                     subEl.innerText = res.wasCropped 
-                        ? 'Successfully extracted QR code from screenshot' 
-                        : 'Image optimized and ready for save';
+                        ? 'Screenshot cropped to QR code • 1:1 Box' 
+                        : 'Image loaded & formatted to 1:1 Box';
                 }
                 CustomToast.show(
-                    res.wasCropped ? 'QR code detected & cropped from screenshot.' : 'QR image loaded successfully.',
+                    res.wasCropped ? 'QR code detected & auto-cropped to 1:1 box.' : 'QR image formatted to 1:1 box.',
                     'success'
                 );
             }
         } catch (err) {
             console.error('[QR] Preview extraction failed:', err);
+            if (statusEl) statusEl.innerText = 'Detection error';
+            if (subEl) subEl.innerText = 'Please click Adjust Crop to set manually';
         }
     },
 
@@ -3348,10 +3357,16 @@ const App = {
 
 
     /**
-     * Automatically detects and crops a QR code from any image or mobile screenshot.
-     * Uses native BarcodeDetector if available, falling back to jsQR, with a quiet-zone white border.
+     * Automatically detects and crops a QR code from any image or screenshot (16:9, mobile 9:16, etc.)
+     * into a clean 1:1 square box with standard quiet-zone margins.
+     * Uses a multi-stage detection pipeline:
+     * 1. Native BarcodeDetector (fastest if supported)
+     * 2. Multi-pass jsQR (standard, contrast-boosted/binarized, and mobile card crops)
+     * 3. 1:1:3:1:1 QR Finder Pattern Triplet Detector (detects QR corners even with center logos like GCash/Maya)
+     * 4. High-frequency QR transition density quadrant scanner
+     * 5. Intelligent 1:1 Screenshot Auto-Crop fallback
      * @param {File|Blob|string} imageSource File object, Blob, or Data URL
-     * @returns {Promise<{ croppedDataUrl: string, wasCropped: boolean }>}
+     * @returns {Promise<{ croppedDataUrl: string, wasCropped: boolean, cropBox: {x:number, y:number, size:number}, origWidth: number, origHeight: number }>}
      */
     async extractAndCropQr(imageSource) {
         if (!imageSource) return null;
@@ -3372,154 +3387,92 @@ const App = {
                     if (!origW || !origH) {
                         cleanup();
                         const fallback = typeof imageSource === 'string' ? imageSource : await this.compressImage(imageSource);
-                        return resolve({ croppedDataUrl: fallback, wasCropped: false });
+                        return resolve({ croppedDataUrl: fallback, wasCropped: false, cropBox: null, origWidth: origW, origHeight: origH });
                     }
 
-                    // 1. Draw onto an inspection canvas (scale down if extraordinarily huge for fast scanning)
-                    const maxScanDim = 1600;
-                    let scanW = origW;
-                    let scanH = origH;
-                    if (scanW > maxScanDim || scanH > maxScanDim) {
-                        if (scanW > scanH) {
-                            scanH = Math.round((scanH * maxScanDim) / scanW);
-                            scanW = maxScanDim;
+                    // 1. Run multi-stage detection to locate the QR code box
+                    const detection = await this._detectQrBoundingBox(img, origW, origH);
+                    let cropBox = null;
+                    let wasCropped = false;
+
+                    if (detection && detection.box) {
+                        const bbox = detection.box;
+                        const cx = bbox.x + bbox.width / 2;
+                        const cy = bbox.y + bbox.height / 2;
+                        const qrSide = Math.max(bbox.width, bbox.height);
+
+                        // Standard QR specification requires a quiet zone (around 12-15% margin)
+                        const pad = Math.round(qrSide * 0.14);
+                        const targetSide = Math.min(Math.max(origW, origH), Math.round(qrSide + pad * 2));
+
+                        // Center the 1:1 square crop box around the QR code
+                        let cropLeft = Math.round(cx - targetSide / 2);
+                        let cropTop = Math.round(cy - targetSide / 2);
+
+                        // Keep within boundaries if possible while maintaining size
+                        if (cropLeft < 0) cropLeft = 0;
+                        if (cropTop < 0) cropTop = 0;
+                        if (cropLeft + targetSide > origW) cropLeft = Math.max(0, origW - targetSide);
+                        if (cropTop + targetSide > origH) cropTop = Math.max(0, origH - targetSide);
+
+                        cropBox = {
+                            x: cropLeft,
+                            y: cropTop,
+                            size: targetSide
+                        };
+                        wasCropped = true;
+                    } else {
+                        // Fallback: If image is not 1:1 (e.g. mobile screenshot or 16:9), isolate central 1:1 box
+                        const isSquare = Math.abs(origW - origH) / Math.max(origW, origH) < 0.06;
+                        if (!isSquare) {
+                            if (origH > origW * 1.2) {
+                                // Portrait phone screenshot: QR is almost always in the upper-center
+                                const side = Math.round(origW * 0.85);
+                                const cy = Math.round(origH * 0.45);
+                                cropBox = {
+                                    x: Math.round((origW - side) / 2),
+                                    y: Math.max(0, Math.min(origH - side, Math.round(cy - side / 2))),
+                                    size: side
+                                };
+                            } else {
+                                // Landscape screenshot (16:9)
+                                const side = Math.round(Math.min(origW, origH) * 0.90);
+                                cropBox = {
+                                    x: Math.round((origW - side) / 2),
+                                    y: Math.round((origH - side) / 2),
+                                    size: side
+                                };
+                            }
+                            wasCropped = true;
                         } else {
-                            scanW = Math.round((scanW * maxScanDim) / scanH);
-                            scanH = maxScanDim;
+                            cropBox = { x: 0, y: 0, size: Math.min(origW, origH) };
                         }
                     }
 
-                    const scanCanvas = document.createElement('canvas');
-                    scanCanvas.width = scanW;
-                    scanCanvas.height = scanH;
-                    const scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
-                    scanCtx.drawImage(img, 0, 0, scanW, scanH);
-
-                    let bbox = null;
-
-                    // 2. Try native BarcodeDetector first (hardware-accelerated on Chrome / Android)
-                    if ('BarcodeDetector' in window) {
-                        try {
-                            const detector = new BarcodeDetector({ formats: ['qr_code'] });
-                            const detected = await detector.detect(scanCanvas);
-                            if (detected && detected.length > 0) {
-                                const box = detected[0].boundingBox;
-                                bbox = {
-                                    x: box.x,
-                                    y: box.y,
-                                    width: box.width,
-                                    height: box.height
-                                };
-                            }
-                        } catch (err) {
-                            console.warn('[QR] Native BarcodeDetector error:', err);
-                        }
-                    }
-
-                    // 3. Fallback to jsQR if BarcodeDetector is not supported or found nothing
-                    if (!bbox && typeof jsQR === 'function') {
-                        try {
-                            const imgData = scanCtx.getImageData(0, 0, scanW, scanH);
-                            const code = jsQR(imgData.data, imgData.width, imgData.height, {
-                                inversionAttempts: 'attemptBoth'
-                            });
-                            if (code && code.location) {
-                                const loc = code.location;
-                                const xs = [loc.topLeftCorner.x, loc.topRightCorner.x, loc.bottomRightCorner.x, loc.bottomLeftCorner.x];
-                                const ys = [loc.topLeftCorner.y, loc.topRightCorner.y, loc.bottomRightCorner.y, loc.bottomLeftCorner.y];
-                                const minX = Math.min(...xs);
-                                const maxX = Math.max(...xs);
-                                const minY = Math.min(...ys);
-                                const maxY = Math.max(...ys);
-                                bbox = {
-                                    x: minX,
-                                    y: minY,
-                                    width: maxX - minX,
-                                    height: maxY - minY
-                                };
-                            }
-                        } catch (err) {
-                            console.warn('[QR] jsQR scanning error:', err);
-                        }
-                    }
-
-                    // 4. If QR code was detected, crop with generous quiet zone margin
-                    if (bbox && bbox.width > 20 && bbox.height > 20) {
-                        const scaleX = origW / scanW;
-                        const scaleY = origH / scanH;
-                        const origBoxX = bbox.x * scaleX;
-                        const origBoxY = bbox.y * scaleY;
-                        const origBoxW = bbox.width * scaleX;
-                        const origBoxH = bbox.height * scaleY;
-
-                        // Add 16% quiet zone margin around the QR code
-                        const pad = Math.max(origBoxW, origBoxH) * 0.16;
-                        const targetSide = Math.max(origBoxW, origBoxH) + (pad * 2);
-
-                        // Center the square crop box around the QR code
-                        const centerX = origBoxX + (origBoxW / 2);
-                        const centerY = origBoxY + (origBoxH / 2);
-                        const cropLeft = Math.max(0, centerX - (targetSide / 2));
-                        const cropTop = Math.max(0, centerY - (targetSide / 2));
-                        const cropRight = Math.min(origW, centerX + (targetSide / 2));
-                        const cropBottom = Math.min(origH, centerY + (targetSide / 2));
-                        const actualCropW = cropRight - cropLeft;
-                        const actualCropH = cropBottom - cropTop;
-
-                        // Create clean output square canvas (600x600)
-                        const outputSize = 600;
-                        const outCanvas = document.createElement('canvas');
-                        outCanvas.width = outputSize;
-                        outCanvas.height = outputSize;
-                        const outCtx = outCanvas.getContext('2d');
-
-                        // Crisp white background for optimal scannability
-                        outCtx.fillStyle = '#FFFFFF';
-                        outCtx.fillRect(0, 0, outputSize, outputSize);
-
-                        // Draw cropped QR centered
-                        const destSide = Math.min(outputSize - 24, Math.round(outputSize * 0.94));
-                        const destOffset = Math.round((outputSize - destSide) / 2);
-                        outCtx.drawImage(
-                            img,
-                            cropLeft, cropTop, actualCropW, actualCropH,
-                            destOffset, destOffset, destSide, destSide
-                        );
-
-                        cleanup();
-                        let format = 'image/jpeg';
-                        try {
-                            if (outCanvas.toDataURL('image/webp').startsWith('data:image/webp')) {
-                                format = 'image/webp';
-                            }
-                        } catch (e) {}
-
-                        return resolve({
-                            croppedDataUrl: outCanvas.toDataURL(format, 0.88),
-                            wasCropped: true
-                        });
-                    }
-
-                    // 5. Fallback: if no QR pattern detected (e.g. logo or already cropped image)
+                    // 2. Render into a clean, crisp 1:1 square canvas (600x600) with white background
+                    const result = this._cropImageToSquare(img, cropBox.x, cropBox.y, cropBox.size, origW, origH, 600);
                     cleanup();
-                    const defaultCompressed = await this.compressImage(imageSource, 600, 600, 0.85);
+
                     return resolve({
-                        croppedDataUrl: defaultCompressed,
-                        wasCropped: false
+                        croppedDataUrl: result.croppedDataUrl,
+                        wasCropped: wasCropped,
+                        cropBox: cropBox,
+                        origWidth: origW,
+                        origHeight: origH
                     });
 
                 } catch (err) {
                     console.error('[QR] Failed to crop QR:', err);
                     cleanup();
                     const fallback = await this.compressImage(imageSource, 600, 600, 0.85);
-                    return resolve({ croppedDataUrl: fallback, wasCropped: false });
+                    return resolve({ croppedDataUrl: fallback, wasCropped: false, cropBox: null, origWidth: 0, origHeight: 0 });
                 }
             };
 
             img.onerror = async () => {
                 cleanup();
                 const fallback = await this.compressImage(imageSource, 600, 600, 0.85);
-                return resolve({ croppedDataUrl: fallback, wasCropped: false });
+                return resolve({ croppedDataUrl: fallback, wasCropped: false, cropBox: null, origWidth: 0, origHeight: 0 });
             };
 
             if (typeof imageSource === 'string') {
@@ -3527,8 +3480,899 @@ const App = {
             } else if (imageSource instanceof Blob) {
                 img.src = URL.createObjectURL(imageSource);
             } else {
-                resolve({ croppedDataUrl: null, wasCropped: false });
+                resolve({ croppedDataUrl: null, wasCropped: false, cropBox: null, origWidth: 0, origHeight: 0 });
             }
+        });
+    },
+
+    /**
+     * Multi-stage QR detector that finds QR bounding boxes across mobile screenshots,
+     * photos, or desktop captures, including QR codes with center logos (GCash/Maya).
+     */
+    async _detectQrBoundingBox(img, origW, origH) {
+        const maxScanDim = 1000;
+        let scanW = origW;
+        let scanH = origH;
+        if (scanW > maxScanDim || scanH > maxScanDim) {
+            if (scanW > scanH) {
+                scanH = Math.round((scanH * maxScanDim) / scanW);
+                scanW = maxScanDim;
+            } else {
+                scanW = Math.round((scanW * maxScanDim) / scanH);
+                scanH = maxScanDim;
+            }
+        }
+
+        const scanCanvas = document.createElement('canvas');
+        scanCanvas.width = scanW;
+        scanCanvas.height = scanH;
+        const scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
+        scanCtx.drawImage(img, 0, 0, scanW, scanH);
+        const imgData = scanCtx.getImageData(0, 0, scanW, scanH);
+
+        let detectedScanBox = null;
+
+        // Stage 1: Native BarcodeDetector (Chrome/Android hardware accelerated)
+        if ('BarcodeDetector' in window) {
+            try {
+                const formats = await BarcodeDetector.getSupportedFormats().catch(() => []);
+                if (formats.includes('qr_code')) {
+                    const detector = new BarcodeDetector({ formats: ['qr_code'] });
+                    const detected = await detector.detect(scanCanvas);
+                    if (detected && detected.length > 0) {
+                        const b = detected[0].boundingBox;
+                        if (b && b.width > 20 && b.height > 20) {
+                            detectedScanBox = { x: b.x, y: b.y, width: b.width, height: b.height };
+                        }
+                    }
+                }
+            } catch (err) {}
+        }
+
+        // Stage 2: Multi-pass jsQR
+        if (!detectedScanBox && typeof jsQR === 'function') {
+            // Pass 2a: Standard full-canvas scan
+            try {
+                const code = jsQR(imgData.data, scanW, scanH, { inversionAttempts: 'attemptBoth' });
+                if (code && code.location) {
+                    detectedScanBox = this._boxFromJsQrLocation(code.location);
+                }
+            } catch (err) {}
+
+            // Pass 2b: Binarized/high-contrast scan
+            if (!detectedScanBox) {
+                try {
+                    const binarized = this._binarizeImageData(imgData);
+                    const code = jsQR(binarized.data, scanW, scanH, { inversionAttempts: 'dontInvert' });
+                    if (code && code.location) {
+                        detectedScanBox = this._boxFromJsQrLocation(code.location);
+                    }
+                } catch (err) {}
+            }
+
+            // Pass 2c: Central region scan on tall screenshots
+            if (!detectedScanBox && scanH > scanW * 1.2) {
+                try {
+                    const subX = Math.round(scanW * 0.05);
+                    const subY = Math.round(scanH * 0.15);
+                    const subW = Math.round(scanW * 0.90);
+                    const subH = Math.round(scanH * 0.70);
+                    const subData = scanCtx.getImageData(subX, subY, subW, subH);
+                    const code = jsQR(subData.data, subW, subH, { inversionAttempts: 'attemptBoth' });
+                    if (code && code.location) {
+                        const locBox = this._boxFromJsQrLocation(code.location);
+                        detectedScanBox = {
+                            x: locBox.x + subX,
+                            y: locBox.y + subY,
+                            width: locBox.width,
+                            height: locBox.height
+                        };
+                    }
+                } catch (err) {}
+            }
+        }
+
+        // Stage 3: Invariant 1:1:3:1:1 Finder Pattern Triplet Detector
+        // Detects the 3 corner finder patterns even if GCash or Maya put a logo in the center
+        if (!detectedScanBox) {
+            try {
+                detectedScanBox = this._detectQrFinderPatterns(imgData, scanW, scanH);
+            } catch (err) {
+                console.warn('[QR] Finder pattern detector error:', err);
+            }
+        }
+
+        // Stage 4: High-frequency QR transition density quadrant scanner
+        if (!detectedScanBox) {
+            try {
+                detectedScanBox = this._detectQrDensityBox(imgData, scanW, scanH);
+            } catch (err) {
+                console.warn('[QR] Density scanner error:', err);
+            }
+        }
+
+        if (detectedScanBox && detectedScanBox.width > 20 && detectedScanBox.height > 20) {
+            const scaleX = origW / scanW;
+            const scaleY = origH / scanH;
+            return {
+                box: {
+                    x: Math.round(detectedScanBox.x * scaleX),
+                    y: Math.round(detectedScanBox.y * scaleY),
+                    width: Math.round(detectedScanBox.width * scaleX),
+                    height: Math.round(detectedScanBox.height * scaleY)
+                }
+            };
+        }
+
+        return null;
+    },
+
+    _boxFromJsQrLocation(loc) {
+        const xs = [loc.topLeftCorner.x, loc.topRightCorner.x, loc.bottomRightCorner.x, loc.bottomLeftCorner.x];
+        const ys = [loc.topLeftCorner.y, loc.topRightCorner.y, loc.bottomRightCorner.y, loc.bottomLeftCorner.y];
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+        return {
+            x: minX,
+            y: minY,
+            width: Math.max(10, maxX - minX),
+            height: Math.max(10, maxY - minY)
+        };
+    },
+
+    _binarizeImageData(imgData) {
+        const w = imgData.width;
+        const h = imgData.height;
+        const d = imgData.data;
+        const out = new ImageData(new Uint8ClampedArray(d), w, h);
+        const outD = out.data;
+
+        // Compute average luminance
+        let sumLum = 0;
+        let count = 0;
+        const sampleStep = 8;
+        for (let i = 0; i < d.length; i += 4 * sampleStep) {
+            sumLum += (d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8;
+            count++;
+        }
+        const avgLum = count > 0 ? (sumLum / count) : 128;
+        const threshold = Math.max(60, Math.min(195, avgLum));
+
+        for (let i = 0; i < d.length; i += 4) {
+            const lum = (d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8;
+            const val = lum < threshold ? 0 : 255;
+            outD[i] = val;
+            outD[i + 1] = val;
+            outD[i + 2] = val;
+            outD[i + 3] = 255;
+        }
+        return out;
+    },
+
+    /**
+     * Scans for 1:1:3:1:1 black-white-black-white-black finder patterns
+     * and identifies the right-angled triplet forming a QR code.
+     */
+    _detectQrFinderPatterns(imgData, width, height) {
+        const d = imgData.data;
+        const getDark = (x, y) => {
+            if (x < 0 || x >= width || y < 0 || y >= height) return false;
+            const idx = (y * width + x) * 4;
+            const lum = (d[idx] * 77 + d[idx + 1] * 150 + d[idx + 2] * 29) >> 8;
+            return lum < 120;
+        };
+
+        const candidates = [];
+        const step = 2; // scan every 2 rows
+
+        for (let y = 0; y < height; y += step) {
+            let runs = [0, 0, 0, 0, 0];
+            let state = getDark(0, y) ? 0 : 1;
+
+            for (let x = 0; x < width; x++) {
+                const dark = getDark(x, y);
+                if (dark === (state % 2 === 0)) {
+                    runs[state]++;
+                } else {
+                    if (state === 4) {
+                        if (this._checkFinderRatio(runs)) {
+                            const total = runs[0] + runs[1] + runs[2] + runs[3] + runs[4];
+                            const modSize = total / 7;
+                            const cx = Math.round(x - runs[4] - runs[3] - runs[2] / 2);
+                            const vResult = this._checkVerticalFinder(cx, y, height, modSize, getDark);
+                            if (vResult) {
+                                candidates.push({ x: cx, y: vResult.cy, size: total });
+                            }
+                        }
+                        runs[0] = runs[2];
+                        runs[1] = runs[3];
+                        runs[2] = runs[4];
+                        runs[3] = 1;
+                        runs[4] = 0;
+                        state = 3;
+                    } else {
+                        state++;
+                        runs[state] = 1;
+                    }
+                }
+            }
+        }
+
+        // Deduplicate & cluster nearby candidate points
+        const clusters = [];
+        for (const c of candidates) {
+            let found = false;
+            for (const cl of clusters) {
+                if (Math.hypot(cl.x - c.x, cl.y - c.y) < cl.size * 0.7) {
+                    cl.x = Math.round((cl.x + c.x) / 2);
+                    cl.y = Math.round((cl.y + c.y) / 2);
+                    cl.size = Math.round((cl.size + c.size) / 2);
+                    cl.count = (cl.count || 1) + 1;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) clusters.push({ ...c, count: 1 });
+        }
+
+        if (clusters.length < 3) return null;
+        return this._findQrTriplet(clusters);
+    },
+
+    _checkFinderRatio(runs) {
+        const total = runs[0] + runs[1] + runs[2] + runs[3] + runs[4];
+        if (total < 7) return false;
+        const mod = total / 7;
+        const maxVar = mod * 0.75;
+        return (
+            Math.abs(runs[0] - mod) < maxVar &&
+            Math.abs(runs[1] - mod) < maxVar &&
+            Math.abs(runs[2] - 3 * mod) < maxVar * 1.5 &&
+            Math.abs(runs[3] - mod) < maxVar &&
+            Math.abs(runs[4] - mod) < maxVar
+        );
+    },
+
+    _checkVerticalFinder(cx, cy, height, modSize, getDark) {
+        if (!getDark(cx, cy)) return null;
+        const maxScan = Math.min(height, Math.round(modSize * 8));
+
+        let centerStart = cy;
+        while (centerStart >= 0 && getDark(cx, centerStart) && (cy - centerStart) < maxScan) centerStart--;
+        centerStart++;
+
+        let centerEnd = cy;
+        while (centerEnd < height && getDark(cx, centerEnd) && (centerEnd - cy) < maxScan) centerEnd++;
+        centerEnd--;
+
+        const centerDarkLen = centerEnd - centerStart + 1;
+        if (Math.abs(centerDarkLen - 3 * modSize) > modSize * 1.6) return null;
+
+        let y = centerStart - 1;
+        let upWhite = 0;
+        while (y >= 0 && !getDark(cx, y) && upWhite < maxScan) { upWhite++; y--; }
+        if (Math.abs(upWhite - modSize) > modSize * 0.85) return null;
+
+        let upBlack = 0;
+        while (y >= 0 && getDark(cx, y) && upBlack < maxScan) { upBlack++; y--; }
+        if (Math.abs(upBlack - modSize) > modSize * 0.85) return null;
+
+        y = centerEnd + 1;
+        let downWhite = 0;
+        while (y < height && !getDark(cx, y) && downWhite < maxScan) { downWhite++; y++; }
+        if (Math.abs(downWhite - modSize) > modSize * 0.85) return null;
+
+        let downBlack = 0;
+        while (y < height && getDark(cx, y) && downBlack < maxScan) { downBlack++; y++; }
+        if (Math.abs(downBlack - modSize) > modSize * 0.85) return null;
+
+        return { cy: Math.round((centerStart + centerEnd) / 2) };
+    },
+
+    _findQrTriplet(patterns) {
+        let bestTriplet = null;
+        let bestScore = Infinity;
+
+        for (let i = 0; i < patterns.length; i++) {
+            for (let j = 0; j < patterns.length; j++) {
+                if (i === j) continue;
+                for (let k = 0; k < patterns.length; k++) {
+                    if (k === i || k === j) continue;
+
+                    const tl = patterns[i];
+                    const tr = patterns[j];
+                    const bl = patterns[k];
+
+                    const d1 = Math.hypot(tr.x - tl.x, tr.y - tl.y);
+                    const d2 = Math.hypot(bl.x - tl.x, bl.y - tl.y);
+
+                    if (d1 < 25 || d2 < 25) continue;
+
+                    // Arms should be approximately equal length
+                    const sideDiff = Math.abs(d1 - d2) / Math.max(d1, d2);
+                    if (sideDiff > 0.35) continue;
+
+                    // Check right angle: dot product near 0
+                    const v1x = tr.x - tl.x, v1y = tr.y - tl.y;
+                    const v2x = bl.x - tl.x, v2y = bl.y - tl.y;
+                    const dot = v1x * v2x + v1y * v2y;
+                    const cosVal = Math.abs(dot / (d1 * d2));
+                    if (cosVal > 0.35) continue;
+
+                    // Ensure valid 2D clockwise/counter-clockwise orientation
+                    const cross = v1x * v2y - v1y * v2x;
+                    if (cross <= 0) continue;
+
+                    const score = sideDiff + cosVal;
+                    if (score < bestScore) {
+                        bestScore = score;
+                        bestTriplet = { tl, tr, bl };
+                    }
+                }
+            }
+        }
+
+        if (!bestTriplet) return null;
+
+        const { tl, tr, bl } = bestTriplet;
+        const avgFinderSize = (tl.size + tr.size + bl.size) / 3;
+        const half = avgFinderSize / 2;
+
+        const minX = Math.min(tl.x, bl.x) - half;
+        const maxX = Math.max(tr.x, tl.x + (tr.x - tl.x)) + half;
+        const minY = Math.min(tl.y, tr.y) - half;
+        const maxY = Math.max(bl.y, tl.y + (bl.y - tl.y)) + half;
+
+        return {
+            x: Math.max(0, Math.round(minX)),
+            y: Math.max(0, Math.round(minY)),
+            width: Math.round(maxX - minX),
+            height: Math.round(maxY - minY)
+        };
+    },
+
+    /**
+     * Fallback quadrant scanner for high-frequency QR transitions in mobile screenshots
+     */
+    _detectQrDensityBox(imgData, width, height) {
+        const d = imgData.data;
+        const blockSize = 24;
+        const gridW = Math.floor(width / blockSize);
+        const gridH = Math.floor(height / blockSize);
+        if (gridW < 4 || gridH < 4) return null;
+
+        const density = new Float32Array(gridW * gridH);
+
+        for (let gy = 0; gy < gridH; gy++) {
+            for (let gx = 0; gx < gridW; gx++) {
+                let transitions = 0;
+                const startX = gx * blockSize;
+                const startY = gy * blockSize;
+
+                for (let y = startY; y < startY + blockSize - 1; y += 2) {
+                    let prevLum = (d[(y * width + startX) * 4] * 77 + d[(y * width + startX) * 4 + 1] * 150 + d[(y * width + startX) * 4 + 2] * 29) >> 8;
+                    for (let x = startX + 1; x < startX + blockSize; x++) {
+                        const idx = (y * width + x) * 4;
+                        const lum = (d[idx] * 77 + d[idx + 1] * 150 + d[idx + 2] * 29) >> 8;
+                        if (Math.abs(lum - prevLum) > 55) {
+                            transitions++;
+                        }
+                        prevLum = lum;
+                    }
+                }
+                density[gy * gridW + gx] = transitions / ((blockSize / 2) * blockSize);
+            }
+        }
+
+        // Look for dense contiguous blocks
+        let minGx = Infinity, maxGx = -1, minGy = Infinity, maxGy = -1;
+        let highCount = 0;
+
+        for (let gy = 0; gy < gridH; gy++) {
+            for (let gx = 0; gx < gridW; gx++) {
+                if (density[gy * gridW + gx] > 0.18) {
+                    highCount++;
+                    if (gx < minGx) minGx = gx;
+                    if (gx > maxGx) maxGx = gx;
+                    if (gy < minGy) minGy = gy;
+                    if (gy > maxGy) maxGy = gy;
+                }
+            }
+        }
+
+        if (highCount >= 6 && maxGx > minGx && maxGy > minGy) {
+            const rawW = (maxGx - minGx + 1) * blockSize;
+            const rawH = (maxGy - minGy + 1) * blockSize;
+            const side = Math.max(rawW, rawH);
+            return {
+                x: minGx * blockSize,
+                y: minGy * blockSize,
+                width: side,
+                height: side
+            };
+        }
+
+        return null;
+    },
+
+    /**
+     * Crops a 1:1 square from the original image onto a standardized 600x600 canvas
+     * with crisp pure white (#FFFFFF) background and quiet zone.
+     */
+    _cropImageToSquare(img, cropX, cropY, cropSize, origW, origH, outputSize = 600) {
+        const canvas = document.createElement('canvas');
+        canvas.width = outputSize;
+        canvas.height = outputSize;
+        const ctx = canvas.getContext('2d');
+
+        // Crisp white quiet-zone background
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, outputSize, outputSize);
+
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        // 16px safe quiet-zone border inside the 600x600 container
+        const margin = 16;
+        const drawSide = outputSize - (margin * 2);
+
+        // Draw image sub-rectangle
+        ctx.drawImage(
+            img,
+            cropX, cropY, cropSize, cropSize,
+            margin, margin, drawSide, drawSide
+        );
+
+        let format = 'image/jpeg';
+        try {
+            if (canvas.toDataURL('image/webp').startsWith('data:image/webp')) {
+                format = 'image/webp';
+            }
+        } catch (e) {}
+
+        return {
+            croppedDataUrl: canvas.toDataURL(format, 0.90),
+            cropBox: { x: cropX, y: cropY, size: cropSize }
+        };
+    },
+
+    /**
+     * Opens the interactive 1:1 QR Cropper modal allowing the admin
+     * to visually reposition, zoom, scale, or center the square crop box.
+     */
+    async openQrCropperModal(type) {
+        const rawSrc = (State._rawQrData && State._rawQrData[type]) ||
+            (type === 'gcash' ? (State._croppedQrGcash || (State.station && State.station.gcash_qr)) : (State._croppedQrMaya || (State.station && State.station.maya_qr)));
+
+        if (!rawSrc) {
+            CustomToast.show('Please choose a QR image first.', 'warning');
+            return;
+        }
+
+        const img = new Image();
+        img.onload = () => {
+            const origW = img.naturalWidth || img.width;
+            const origH = img.naturalHeight || img.height;
+
+            let cropBox = State._lastCropBox && State._lastCropBox[type];
+            if (!cropBox) {
+                const initSize = Math.round(Math.min(origW, origH) * 0.85);
+                cropBox = {
+                    x: Math.round((origW - initSize) / 2),
+                    y: origH > origW * 1.2 ? Math.round(origH * 0.35) : Math.round((origH - initSize) / 2),
+                    size: initSize
+                };
+            }
+
+            this._cropperState = {
+                type,
+                img,
+                origW,
+                origH,
+                cropX: Math.max(0, Math.min(origW - cropBox.size, cropBox.x)),
+                cropY: Math.max(0, Math.min(origH - cropBox.size, cropBox.y)),
+                cropSize: Math.min(Math.min(origW, origH), cropBox.size),
+                isDragging: false,
+                dragMode: null,
+                startX: 0,
+                startY: 0,
+                startCropX: 0,
+                startCropY: 0,
+                startCropSize: 0
+            };
+
+            this._mountCropperModalDom();
+            this._renderCropperCanvas();
+        };
+        img.onerror = () => {
+            CustomToast.show('Failed to load image for cropping.', 'error');
+        };
+        img.src = rawSrc;
+    },
+
+    _mountCropperModalDom() {
+        let root = document.getElementById('qr-cropper-modal-root');
+        if (!root) {
+            root = document.createElement('div');
+            root.id = 'qr-cropper-modal-root';
+            document.body.appendChild(root);
+        }
+
+        const titleLabel = this._cropperState.type === 'gcash' ? 'GCash QR' : 'Maya QR';
+
+        root.innerHTML = `
+        <div id="qr-cropper-backdrop" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[110] flex items-center justify-center p-3 sm:p-4 opacity-0 transition-opacity duration-200">
+            <div class="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-lg w-full flex flex-col overflow-hidden max-h-[92vh] transform scale-95 transition-transform duration-200">
+                <!-- Header -->
+                <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                            <i class="fa-solid fa-crop-simple text-sm"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-bold text-slate-800">Crop ${titleLabel} to 1:1 Box</h3>
+                            <p class="text-[11px] text-slate-500">Frame only the QR code for crisp display</p>
+                        </div>
+                    </div>
+                    <button type="button" onclick="App.closeQrCropperModal()" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-slate-700 flex items-center justify-center transition active:scale-95">
+                        <i class="fa-solid fa-xmark text-sm"></i>
+                    </button>
+                </div>
+                <!-- Interactive Canvas Workspace -->
+                <div class="p-4 bg-slate-950 flex flex-col items-center justify-center select-none overflow-hidden relative" style="min-height: 290px; max-height: 52vh;">
+                    <canvas id="qr-cropper-canvas" class="max-w-full max-h-[46vh] object-contain cursor-move rounded-lg shadow-inner"></canvas>
+                    <div class="absolute bottom-2 left-2 right-2 flex items-center justify-between pointer-events-none px-2">
+                        <span class="text-[10px] text-slate-300 bg-black/60 px-2 py-0.5 rounded backdrop-blur-xs font-semibold">1:1 Square</span>
+                        <span class="text-[10px] text-slate-300 bg-black/60 px-2 py-0.5 rounded backdrop-blur-xs">Drag to move • Corner to scale</span>
+                    </div>
+                </div>
+                <!-- Controls and Live Preview Bar -->
+                <div class="px-4 py-3 bg-slate-50 border-t border-b border-slate-100 flex items-center justify-between gap-2 text-xs flex-wrap">
+                    <div class="flex items-center gap-1.5">
+                        <button type="button" onclick="App.cropperZoom(-1)" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 font-semibold hover:bg-slate-100 transition flex items-center gap-1 shadow-xs">
+                            <i class="fa-solid fa-magnifying-glass-minus text-[11px]"></i> Smaller
+                        </button>
+                        <button type="button" onclick="App.cropperZoom(1)" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 font-semibold hover:bg-slate-100 transition flex items-center gap-1 shadow-xs">
+                            <i class="fa-solid fa-magnifying-glass-plus text-[11px]"></i> Larger
+                        </button>
+                        <button type="button" onclick="App.cropperCenter()" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 font-semibold hover:bg-slate-100 transition flex items-center gap-1 shadow-xs">
+                            <i class="fa-solid fa-arrows-to-dot text-[11px]"></i> Center
+                        </button>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-[11px] font-bold text-slate-500">Live 1:1:</span>
+                        <canvas id="qr-live-preview" width="56" height="56" class="w-11 h-11 rounded-lg border border-slate-300 bg-white p-0.5 object-contain shadow-xs aspect-square"></canvas>
+                    </div>
+                </div>
+                <!-- Footer Action Buttons -->
+                <div class="px-5 py-3.5 bg-white flex items-center justify-end gap-2.5">
+                    <button type="button" onclick="App.closeQrCropperModal()" class="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-xl transition">Cancel</button>
+                    <button type="button" onclick="App.applyQrCropperModal()" class="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition shadow-md shadow-blue-500/20 flex items-center gap-1.5 active:scale-95">
+                        <i class="fa-solid fa-check"></i> Apply 1:1 Crop
+                    </button>
+                </div>
+            </div>
+        </div>
+        `;
+
+        requestAnimationFrame(() => {
+            const backdrop = document.getElementById('qr-cropper-backdrop');
+            if (backdrop) {
+                backdrop.classList.remove('opacity-0');
+                if (backdrop.firstElementChild) backdrop.firstElementChild.classList.remove('scale-95');
+            }
+        });
+
+        const canvas = document.getElementById('qr-cropper-canvas');
+        if (canvas) {
+            canvas.addEventListener('mousedown', (e) => this._handleCropperPointerDown(e));
+            window.addEventListener('mousemove', this._cropperMoveHandler = (e) => this._handleCropperPointerMove(e));
+            window.addEventListener('mouseup', this._cropperUpHandler = (e) => this._handleCropperPointerUp(e));
+
+            // Touch support
+            canvas.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    const t = e.touches[0];
+                    this._handleCropperPointerDown({ clientX: t.clientX, clientY: t.clientY, target: canvas, preventDefault: () => e.preventDefault() });
+                }
+            }, { passive: false });
+
+            window.addEventListener('touchmove', this._cropperTouchMoveHandler = (e) => {
+                if (e.touches.length === 1 && this._cropperState && this._cropperState.isDragging) {
+                    const t = e.touches[0];
+                    this._handleCropperPointerMove({ clientX: t.clientX, clientY: t.clientY, preventDefault: () => e.preventDefault() });
+                }
+            }, { passive: false });
+
+            window.addEventListener('touchend', this._cropperTouchUpHandler = () => this._handleCropperPointerUp({}));
+
+            // Mouse wheel zoom
+            canvas.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                this.cropperZoom(e.deltaY < 0 ? 1 : -1);
+            }, { passive: false });
+        }
+    },
+
+    _renderCropperCanvas() {
+        const state = this._cropperState;
+        if (!state) return;
+
+        const canvas = document.getElementById('qr-cropper-canvas');
+        if (!canvas) return;
+
+        const ctx = canvas.getContext('2d');
+        const viewW = 440;
+        const viewH = Math.round((state.origH * viewW) / state.origW);
+
+        canvas.width = viewW;
+        canvas.height = viewH;
+
+        const scale = viewW / state.origW;
+
+        // 1. Draw original screenshot
+        ctx.drawImage(state.img, 0, 0, viewW, viewH);
+
+        const screenX = state.cropX * scale;
+        const screenY = state.cropY * scale;
+        const screenSize = state.cropSize * scale;
+
+        // 2. Dark translucent mask outside the 1:1 box
+        ctx.save();
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.68)';
+        ctx.fillRect(0, 0, viewW, screenY);
+        ctx.fillRect(0, screenY, screenX, screenSize);
+        ctx.fillRect(screenX + screenSize, screenY, viewW - (screenX + screenSize), screenSize);
+        ctx.fillRect(0, screenY + screenSize, viewW, viewH - (screenY + screenSize));
+
+        // 3. Crisp white + blue box border
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(screenX, screenY, screenSize, screenSize);
+
+        ctx.strokeStyle = '#2563EB';
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(screenX - 1, screenY - 1, screenSize + 2, screenSize + 2);
+
+        // 4. Subtle grid lines inside box
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(screenX + screenSize / 3, screenY);
+        ctx.lineTo(screenX + screenSize / 3, screenY + screenSize);
+        ctx.moveTo(screenX + (screenSize * 2) / 3, screenY);
+        ctx.lineTo(screenX + (screenSize * 2) / 3, screenY + screenSize);
+        ctx.moveTo(screenX, screenY + screenSize / 3);
+        ctx.lineTo(screenX + screenSize, screenY + screenSize / 3);
+        ctx.moveTo(screenX, screenY + (screenSize * 2) / 3);
+        ctx.lineTo(screenX + screenSize, screenY + (screenSize * 2) / 3);
+        ctx.stroke();
+
+        // 5. Corner resize handle at bottom-right
+        const handleX = screenX + screenSize;
+        const handleY = screenY + screenSize;
+        ctx.fillStyle = '#2563EB';
+        ctx.beginPath();
+        ctx.arc(handleX, handleY, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.restore();
+
+        // 6. Update live 1:1 preview canvas
+        const liveCanvas = document.getElementById('qr-live-preview');
+        if (liveCanvas) {
+            const liveCtx = liveCanvas.getContext('2d');
+            liveCtx.fillStyle = '#FFFFFF';
+            liveCtx.fillRect(0, 0, liveCanvas.width, liveCanvas.height);
+            liveCtx.imageSmoothingEnabled = true;
+            liveCtx.imageSmoothingQuality = 'high';
+            liveCtx.drawImage(
+                state.img,
+                state.cropX, state.cropY, state.cropSize, state.cropSize,
+                2, 2, liveCanvas.width - 4, liveCanvas.height - 4
+            );
+        }
+    },
+
+    _handleCropperPointerDown(e) {
+        const state = this._cropperState;
+        if (!state) return;
+
+        const canvas = document.getElementById('qr-cropper-canvas');
+        if (!canvas) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.clientX;
+        const clientY = e.clientY;
+
+        const mouseX = (clientX - rect.left) * (canvas.width / rect.width);
+        const mouseY = (clientY - rect.top) * (canvas.height / rect.height);
+
+        const scale = canvas.width / state.origW;
+        const screenX = state.cropX * scale;
+        const screenY = state.cropY * scale;
+        const screenSize = state.cropSize * scale;
+
+        // Check if clicking near bottom-right resize handle (within 18px)
+        const distToHandle = Math.hypot(mouseX - (screenX + screenSize), mouseY - (screenY + screenSize));
+        if (distToHandle < 20) {
+            state.isDragging = true;
+            state.dragMode = 'resize';
+            state.startX = clientX;
+            state.startY = clientY;
+            state.startCropSize = state.cropSize;
+            return;
+        }
+
+        // Check if clicking inside crop box
+        if (mouseX >= screenX && mouseX <= screenX + screenSize && mouseY >= screenY && mouseY <= screenY + screenSize) {
+            state.isDragging = true;
+            state.dragMode = 'move';
+            state.startX = clientX;
+            state.startY = clientY;
+            state.startCropX = state.cropX;
+            state.startCropY = state.cropY;
+            return;
+        }
+
+        // Clicking outside centers the box at this position
+        const clickedImgX = mouseX / scale;
+        const clickedImgY = mouseY / scale;
+        state.cropX = Math.round(Math.max(0, Math.min(state.origW - state.cropSize, clickedImgX - state.cropSize / 2)));
+        state.cropY = Math.round(Math.max(0, Math.min(state.origH - state.cropSize, clickedImgY - state.cropSize / 2)));
+        state.isDragging = true;
+        state.dragMode = 'move';
+        state.startX = clientX;
+        state.startY = clientY;
+        state.startCropX = state.cropX;
+        state.startCropY = state.cropY;
+        this._renderCropperCanvas();
+    },
+
+    _handleCropperPointerMove(e) {
+        const state = this._cropperState;
+        if (!state || !state.isDragging) return;
+
+        const canvas = document.getElementById('qr-cropper-canvas');
+        if (!canvas) return;
+
+        const scale = canvas.width / state.origW;
+        const dx = (e.clientX - state.startX) / scale;
+        const dy = (e.clientY - state.startY) / scale;
+
+        if (state.dragMode === 'move') {
+            state.cropX = Math.round(Math.max(0, Math.min(state.origW - state.cropSize, state.startCropX + dx)));
+            state.cropY = Math.round(Math.max(0, Math.min(state.origH - state.cropSize, state.startCropY + dy)));
+            this._renderCropperCanvas();
+        } else if (state.dragMode === 'resize') {
+            const delta = Math.max(dx, dy);
+            const minSize = Math.round(Math.min(state.origW, state.origH) * 0.15);
+            const maxSize = Math.min(state.origW - state.cropX, state.origH - state.cropY);
+            state.cropSize = Math.round(Math.max(minSize, Math.min(maxSize, state.startCropSize + delta)));
+            this._renderCropperCanvas();
+        }
+    },
+
+    _handleCropperPointerUp() {
+        if (this._cropperState) {
+            this._cropperState.isDragging = false;
+            this._cropperState.dragMode = null;
+        }
+    },
+
+    cropperZoom(dir) {
+        const state = this._cropperState;
+        if (!state) return;
+
+        const factor = dir > 0 ? 1.12 : 0.89;
+        const minSize = Math.round(Math.min(state.origW, state.origH) * 0.15);
+        const maxSize = Math.min(state.origW, state.origH);
+
+        const newSize = Math.round(Math.max(minSize, Math.min(maxSize, state.cropSize * factor)));
+        const delta = newSize - state.cropSize;
+
+        let newX = Math.round(state.cropX - delta / 2);
+        let newY = Math.round(state.cropY - delta / 2);
+
+        if (newX < 0) newX = 0;
+        if (newY < 0) newY = 0;
+        if (newX + newSize > state.origW) newX = state.origW - newSize;
+        if (newY + newSize > state.origH) newY = state.origH - newSize;
+
+        state.cropSize = newSize;
+        state.cropX = newX;
+        state.cropY = newY;
+        this._renderCropperCanvas();
+    },
+
+    cropperCenter() {
+        const state = this._cropperState;
+        if (!state) return;
+
+        state.cropX = Math.round((state.origW - state.cropSize) / 2);
+        state.cropY = Math.round((state.origH - state.cropSize) / 2);
+        this._renderCropperCanvas();
+    },
+
+    applyQrCropperModal() {
+        const state = this._cropperState;
+        if (!state) return;
+
+        const res = this._cropImageToSquare(state.img, state.cropX, state.cropY, state.cropSize, state.origW, state.origH, 600);
+        if (state.type === 'gcash') {
+            State._croppedQrGcash = res.croppedDataUrl;
+        } else if (state.type === 'maya') {
+            State._croppedQrMaya = res.croppedDataUrl;
+        }
+
+        State._lastCropBox = State._lastCropBox || {};
+        State._lastCropBox[state.type] = res.cropBox;
+
+        const previewImg = document.getElementById(`img_preview_${state.type}`);
+        if (previewImg) previewImg.src = res.croppedDataUrl;
+
+        const statusEl = document.getElementById(`status_preview_${state.type}`);
+        if (statusEl) statusEl.innerHTML = '<span class="text-emerald-600 font-bold flex items-center gap-1"><i class="fa-solid fa-check-circle"></i> QR Cropped (1:1)</span>';
+
+        const subEl = document.getElementById(`sub_preview_${state.type}`);
+        if (subEl) subEl.innerText = 'Custom 1:1 square crop applied';
+
+        this.closeQrCropperModal();
+        CustomToast.show('1:1 QR crop applied successfully.', 'success');
+    },
+
+    closeQrCropperModal() {
+        if (this._cropperMoveHandler) window.removeEventListener('mousemove', this._cropperMoveHandler);
+        if (this._cropperUpHandler) window.removeEventListener('mouseup', this._cropperUpHandler);
+        if (this._cropperTouchMoveHandler) window.removeEventListener('touchmove', this._cropperTouchMoveHandler);
+        if (this._cropperTouchUpHandler) window.removeEventListener('touchend', this._cropperTouchUpHandler);
+
+        const backdrop = document.getElementById('qr-cropper-backdrop');
+        if (backdrop) {
+            backdrop.classList.add('opacity-0');
+            if (backdrop.firstElementChild) backdrop.firstElementChild.classList.add('scale-95');
+        }
+        setTimeout(() => {
+            const root = document.getElementById('qr-cropper-modal-root');
+            if (root) root.innerHTML = '';
+            this._cropperState = null;
+        }, 200);
+    },
+
+    /**
+     * Previews the full size 1:1 QR code in a high-resolution dialog.
+     */
+    viewQrFull(type) {
+        const qrSrc = type === 'gcash' ? (State._croppedQrGcash || (State.station && State.station.gcash_qr)) : (State._croppedQrMaya || (State.station && State.station.maya_qr));
+        if (!qrSrc) {
+            CustomToast.show('No QR code available to preview.', 'warning');
+            return;
+        }
+        const name = type === 'gcash' ? (document.getElementById('set_gcash_name')?.value || State.station?.gcash_name || 'Account') : (document.getElementById('set_maya_name')?.value || State.station?.maya_name || 'Account');
+        const num = type === 'gcash' ? (document.getElementById('set_gcash_num')?.value || State.station?.gcash_number || '') : (document.getElementById('set_maya_num')?.value || State.station?.maya_number || '');
+        const title = type === 'gcash' ? 'GCash QR Code (1:1)' : 'Maya QR Code (1:1)';
+
+        CustomDialog.show({
+            type: 'custom',
+            title,
+            confirmText: 'Close',
+            extraHtml: `
+                <div class="mt-4 flex flex-col items-center">
+                    <div class="w-64 h-64 p-3 bg-white rounded-2xl border border-slate-200 shadow-md flex items-center justify-center">
+                        <img src="${qrSrc}" class="w-full h-full object-contain aspect-square rounded-lg" alt="${title}">
+                    </div>
+                    <div class="mt-3 text-center">
+                        <p class="text-sm font-bold text-slate-800">${escapeHtml(name)}</p>
+                        ${num ? `<p class="text-xs font-semibold text-slate-500 tracking-wider">${escapeHtml(num)}</p>` : ''}
+                        <p class="text-[11px] text-emerald-600 font-semibold mt-1 flex items-center justify-center gap-1"><i class="fa-solid fa-check"></i> 1:1 Square Format (Ready for Customers)</p>
+                    </div>
+                </div>
+            `
         });
     },
 
