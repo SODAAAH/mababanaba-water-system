@@ -451,12 +451,17 @@ class StationAdminController {
         $admin = $this->requireStationAdmin();
         $lat = isset($_POST['latitude']) && $_POST['latitude'] !== '' ? (float)$_POST['latitude'] : null;
         $lng = isset($_POST['longitude']) && $_POST['longitude'] !== '' ? (float)$_POST['longitude'] : null;
+        $address = isset($_POST['address']) ? trim($_POST['address']) : null;
 
-        $this->pdo->prepare("UPDATE STATION SET latitude = ?, longitude = ? WHERE station_id = ?")->execute([$lat, $lng, $admin['station_id']]);
+        if ($address !== null && $address !== '') {
+            $this->pdo->prepare("UPDATE STATION SET latitude = ?, longitude = ?, address = ? WHERE station_id = ?")->execute([$lat, $lng, $address, $admin['station_id']]);
+        } else {
+            $this->pdo->prepare("UPDATE STATION SET latitude = ?, longitude = ? WHERE station_id = ?")->execute([$lat, $lng, $admin['station_id']]);
+        }
         if (class_exists('CustomerController')) {
             CustomerController::clearStationsCache();
         }
-        echo json_encode(['success' => true, 'latitude' => $lat, 'longitude' => $lng]);
+        echo json_encode(['success' => true, 'latitude' => $lat, 'longitude' => $lng, 'address' => $address]);
         exit;
     }
 }

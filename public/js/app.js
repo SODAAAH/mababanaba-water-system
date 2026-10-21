@@ -608,91 +608,89 @@ const App = {
 
     async handleManualStationLocation(event) {
         if (event) event.preventDefault();
+        const addrInput = document.getElementById('set_station_address');
         const latInput = document.getElementById('set_station_lat');
         const lngInput = document.getElementById('set_station_lng');
-        const pasteInput = document.getElementById('set_station_coord_paste');
 
-        let lat = null;
-        let lng = null;
+        const address = addrInput ? addrInput.value.trim() : '';
+        const rawLat = latInput ? latInput.value.trim() : '';
+        const rawLng = lngInput ? lngInput.value.trim() : '';
 
-        if (pasteInput && pasteInput.value.trim()) {
-            const parsed = this.parseCoordinates(pasteInput.value.trim());
-            if (parsed) {
-                lat = parsed.lat;
-                lng = parsed.lng;
-                if (latInput) latInput.value = lat;
-                if (lngInput) lngInput.value = lng;
-            }
-        }
+        let lat = parseFloat(rawLat);
+        let lng = parseFloat(rawLng);
 
-        if (lat === null || lng === null) {
-            const rawLat = latInput ? latInput.value.trim() : '';
-            const rawLng = lngInput ? lngInput.value.trim() : '';
-
-            const parsedFromLat = this.parseCoordinates(rawLat);
-            if (parsedFromLat) {
-                lat = parsedFromLat.lat;
-                lng = parsedFromLat.lng;
-                if (latInput) latInput.value = lat;
-                if (lngInput) lngInput.value = lng;
-            } else {
-                lat = parseFloat(rawLat);
-                lng = parseFloat(rawLng);
-            }
+        const parsedFromLat = this.parseCoordinates(rawLat);
+        if (parsedFromLat) {
+            lat = parsedFromLat.lat;
+            lng = parsedFromLat.lng;
+            if (latInput) latInput.value = lat;
+            if (lngInput) lngInput.value = lng;
         }
 
         if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-            CustomToast.show("Please enter valid coordinates like (15.500619, 120.455028)", "error");
+            CustomToast.show("Please enter valid latitude and longitude coordinates.", "error");
             return;
         }
 
-        await this.saveStationLocation(lat, lng);
+        await this.saveStationLocation(lat, lng, address);
     },
 
     openStationMapPicker() {
+        const addrInput = document.getElementById('set_station_address');
         const latInput = document.getElementById('set_station_lat');
         const lngInput = document.getElementById('set_station_lng');
-        const pasteInput = document.getElementById('set_station_coord_paste');
 
         let initLat = parseFloat(latInput?.value);
         let initLng = parseFloat(lngInput?.value);
-
-        if (pasteInput && pasteInput.value.trim()) {
-            const parsed = this.parseCoordinates(pasteInput.value.trim());
-            if (parsed) {
-                initLat = parsed.lat;
-                initLng = parsed.lng;
-            }
-        }
+        let initAddr = addrInput?.value?.trim() || '';
 
         const station = State.adminData?.station || {};
         if (isNaN(initLat)) initLat = parseFloat(station.latitude) || 15.5056;
         if (isNaN(initLng)) initLng = parseFloat(station.longitude) || 120.4462;
+        if (!initAddr) initAddr = station.address || 'Central Station';
 
         this.openMapLocationModal({
             title: 'Set Station Coordinates',
             initialLat: initLat,
             initialLng: initLng,
-            initialAddress: station.address || 'Central Station',
+            initialAddress: initAddr,
             onSave: (pos) => {
                 if (latInput) latInput.value = pos.lat.toFixed(6);
                 if (lngInput) lngInput.value = pos.lng.toFixed(6);
-                if (pasteInput) pasteInput.value = `${pos.lat.toFixed(6)}, ${pos.lng.toFixed(6)}`;
-                this.saveStationLocation(pos.lat, pos.lng);
+                if (addrInput && pos.address) addrInput.value = pos.address;
+                this.saveStationLocation(pos.lat, pos.lng, pos.address || addrInput?.value);
             }
         });
     },
 
-    async saveStationLocation(lat, lng) {
+    async saveStationLocation(lat, lng, address) {
         try {
-            CustomToast.show("Saving station pin...", "loading", 4000, "station-loc-save");
-            const res = await API.request('admin_update_station_location', 'POST', { latitude: lat, longitude: lng });
+            CustomToast.show("Saving station location...", "loading", 4000, "station-loc-save");
+            const payload = { latitude: lat, longitude: lng };
+            const addr = address !== undefined && address !== null ? address : document.getElementById('set_station_address')?.value?.trim();
+            if (addr) payload.address = addr;
+
+            const res = await API.request('admin_update_station_location', 'POST', payload);
             CustomToast.dismiss("station-loc-save");
             if (res && res.success) {
-                CustomToast.show("Station map location updated!", "success");
+                CustomToast.show("Station location saved successfully.", "success");
                 if (State.adminData && State.adminData.station) {
                     State.adminData.station.latitude = lat;
                     State.adminData.station.longitude = lng;
+                    if (addr) State.adminData.station.address = addr;
+                }
+                const cached = localStorage.getItem('cache_get_admin_dashboard_data');
+                if (cached) {
+                    try {
+                        const parsed = JSON.parse(cached);
+                        const target = parsed.data || parsed;
+                        if (target && target.station) {
+                            target.station.latitude = lat;
+                            target.station.longitude = lng;
+                            if (addr) target.station.address = addr;
+                            localStorage.setItem('cache_get_admin_dashboard_data', JSON.stringify(parsed));
+                        }
+                    } catch(e) {}
                 }
                 if (UI._currentView === 'admin_settings') {
                     UI.renderAdminSettings();
