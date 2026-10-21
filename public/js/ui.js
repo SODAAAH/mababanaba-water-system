@@ -4521,12 +4521,17 @@ const UI = {
                         <div>
                             <label class="block text-xs font-bold text-slate-500 mb-1">Upload GCash QR (or Screenshot)</label>
                             <input type="file" id="set_gcash_qr" accept="image/*" onchange="App.handleQrUploadPreview(event, 'gcash')" class="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-100 file:text-blue-700 file:font-bold hover:file:bg-blue-200 cursor-pointer transition">
-                            <div id="preview_gcash_wrap" class="${station.gcash_qr ? '' : 'hidden'} mt-3 p-3 bg-white rounded-xl border border-slate-200 flex items-center gap-3">
-                                <img id="img_preview_gcash" src="${station.gcash_qr || ''}" class="w-16 h-16 object-contain rounded-lg border border-slate-200 shadow-sm bg-white p-1 shrink-0 aspect-square">
-                                <div class="min-w-0">
-                                    <p id="status_preview_gcash" class="text-xs font-bold text-slate-800">${station.gcash_qr ? 'Current QR Code' : 'New QR Code'}</p>
-                                    <p id="sub_preview_gcash" class="text-[11px] text-slate-500">Ready to accept payments</p>
+                            <div id="preview_gcash_wrap" class="${station.gcash_qr ? '' : 'hidden'} mt-3 p-3 bg-white rounded-xl border border-slate-200 flex items-center justify-between gap-3">
+                                <div class="flex items-center gap-3 min-w-0">
+                                    <img id="img_preview_gcash" src="${station.gcash_qr || ''}" class="w-16 h-16 object-contain rounded-lg border border-slate-200 shadow-sm bg-white p-0.5 shrink-0 aspect-square">
+                                    <div class="min-w-0">
+                                        <p id="status_preview_gcash" class="text-xs font-bold text-slate-800">${station.gcash_qr ? 'Current QR Code' : 'New QR Code'}</p>
+                                        <p id="sub_preview_gcash" class="text-[11px] text-slate-500">Ready to accept payments</p>
+                                    </div>
                                 </div>
+                                <button type="button" id="btn_crop_gcash" onclick="App.openQrCropperModal('gcash')" class="px-3 py-1.5 text-xs font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition shrink-0 flex items-center gap-1.5" title="Adjust crop">
+                                    <i class="fa-solid fa-crop text-slate-500"></i> Adjust Crop
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -4540,12 +4545,17 @@ const UI = {
                         <div>
                             <label class="block text-xs font-bold text-slate-500 mb-1">Upload Maya QR (or Screenshot)</label>
                             <input type="file" id="set_maya_qr" accept="image/*" onchange="App.handleQrUploadPreview(event, 'maya')" class="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-100 file:text-blue-700 file:font-bold hover:file:bg-blue-200 cursor-pointer transition">
-                            <div id="preview_maya_wrap" class="${station.maya_qr ? '' : 'hidden'} mt-3 p-3 bg-white rounded-xl border border-slate-200 flex items-center gap-3">
-                                <img id="img_preview_maya" src="${station.maya_qr || ''}" class="w-16 h-16 object-contain rounded-lg border border-slate-200 shadow-sm bg-white p-1 shrink-0 aspect-square">
-                                <div class="min-w-0">
-                                    <p id="status_preview_maya" class="text-xs font-bold text-slate-800">${station.maya_qr ? 'Current QR Code' : 'New QR Code'}</p>
-                                    <p id="sub_preview_maya" class="text-[11px] text-slate-500">Ready to accept payments</p>
+                            <div id="preview_maya_wrap" class="${station.maya_qr ? '' : 'hidden'} mt-3 p-3 bg-white rounded-xl border border-slate-200 flex items-center justify-between gap-3">
+                                <div class="flex items-center gap-3 min-w-0">
+                                    <img id="img_preview_maya" src="${station.maya_qr || ''}" class="w-16 h-16 object-contain rounded-lg border border-slate-200 shadow-sm bg-white p-0.5 shrink-0 aspect-square">
+                                    <div class="min-w-0">
+                                        <p id="status_preview_maya" class="text-xs font-bold text-slate-800">${station.maya_qr ? 'Current QR Code' : 'New QR Code'}</p>
+                                        <p id="sub_preview_maya" class="text-[11px] text-slate-500">Ready to accept payments</p>
+                                    </div>
                                 </div>
+                                <button type="button" id="btn_crop_maya" onclick="App.openQrCropperModal('maya')" class="px-3 py-1.5 text-xs font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition shrink-0 flex items-center gap-1.5" title="Adjust crop">
+                                    <i class="fa-solid fa-crop text-slate-500"></i> Adjust Crop
+                                </button>
                             </div>
                         </div>
                     </div>

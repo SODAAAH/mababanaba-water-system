@@ -2917,6 +2917,8 @@ const App = {
             await API.request('admin_update_payment_profile', 'POST', data);
             State._croppedQrGcash = null;
             State._croppedQrMaya = null;
+            State._rawQrData = null;
+            State._lastCropBox = null;
             CustomToast.show('Payment profiles saved.', 'success');
             UI.renderAdminSettings(); 
         } catch(e) {
@@ -2934,11 +2936,15 @@ const App = {
         const subEl = document.getElementById(`sub_preview_${type}`);
 
         if (statusEl) statusEl.innerText = 'New QR Code';
-        if (subEl) subEl.innerText = 'Uploading...';
+        if (subEl) subEl.innerText = 'Processing...';
         if (wrap) wrap.classList.remove('hidden');
 
         try {
-            const res = await this.extractAndCropQr(file);
+            const rawData = await this.getBase64(file);
+            State._rawQrData = State._rawQrData || {};
+            State._rawQrData[type] = rawData;
+
+            const res = await this.extractAndCropQr(rawData);
             if (res && res.croppedDataUrl) {
                 if (type === 'gcash') {
                     State._croppedQrGcash = res.croppedDataUrl;
@@ -3387,9 +3393,8 @@ const App = {
                         const cy = bbox.y + bbox.height / 2;
                         const qrSide = Math.max(bbox.width, bbox.height);
 
-                        // Standard QR specification requires a quiet zone (around 12-15% margin)
-                        const pad = Math.round(qrSide * 0.14);
-                        const targetSide = Math.min(Math.max(origW, origH), Math.round(qrSide + pad * 2));
+                        // Edge-to-edge crop: frame the QR code bounds tightly without padding
+                        const targetSide = Math.min(Math.min(origW, origH), Math.round(qrSide));
 
                         // Center the 1:1 square crop box around the QR code
                         let cropLeft = Math.round(cx - targetSide / 2);
@@ -3600,11 +3605,17 @@ const App = {
         const maxX = Math.max(...xs);
         const minY = Math.min(...ys);
         const maxY = Math.max(...ys);
+        const spanW = maxX - minX;
+        const spanH = maxY - minY;
+        // jsQR returns finder pattern centers (3.5 modules inward from outer edges).
+        // For standard payment QRs, expanding by ~13% accurately hits the outer module bounds.
+        const padX = spanW * 0.13;
+        const padY = spanH * 0.13;
         return {
-            x: minX,
-            y: minY,
-            width: Math.max(10, maxX - minX),
-            height: Math.max(10, maxY - minY)
+            x: Math.max(0, Math.round(minX - padX)),
+            y: Math.max(0, Math.round(minY - padY)),
+            width: Math.round(spanW + padX * 2),
+            height: Math.round(spanH + padY * 2)
         };
     },
 
@@ -3893,22 +3904,18 @@ const App = {
         canvas.height = outputSize;
         const ctx = canvas.getContext('2d');
 
-        // Crisp white quiet-zone background
+        // Crisp white background
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, outputSize, outputSize);
 
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
 
-        // 16px safe quiet-zone border inside the 600x600 container
-        const margin = 16;
-        const drawSide = outputSize - (margin * 2);
-
-        // Draw image sub-rectangle
+        // Draw image sub-rectangle edge-to-edge into outputSize x outputSize
         ctx.drawImage(
             img,
             cropX, cropY, cropSize, cropSize,
-            margin, margin, drawSide, drawSide
+            0, 0, outputSize, outputSize
         );
 
         let format = 'image/jpeg';
@@ -3919,7 +3926,7 @@ const App = {
         } catch (e) {}
 
         return {
-            croppedDataUrl: canvas.toDataURL(format, 0.90),
+            croppedDataUrl: canvas.toDataURL(format, 0.92),
             cropBox: { x: cropX, y: cropY, size: cropSize }
         };
     },
@@ -3938,6 +3945,7 @@ const App = {
         }
 
         const img = new Image();
+        img.crossOrigin = 'anonymous';
         img.onload = () => {
             const origW = img.naturalWidth || img.width;
             const origH = img.naturalHeight || img.height;
@@ -4160,7 +4168,7 @@ const App = {
             liveCtx.drawImage(
                 state.img,
                 state.cropX, state.cropY, state.cropSize, state.cropSize,
-                2, 2, liveCanvas.width - 4, liveCanvas.height - 4
+                0, 0, liveCanvas.width, liveCanvas.height
             );
         }
     },
@@ -4303,13 +4311,13 @@ const App = {
         if (previewImg) previewImg.src = res.croppedDataUrl;
 
         const statusEl = document.getElementById(`status_preview_${state.type}`);
-        if (statusEl) statusEl.innerHTML = '<span class="text-emerald-600 font-bold flex items-center gap-1"><i class="fa-solid fa-check-circle"></i> QR Cropped (1:1)</span>';
+        if (statusEl) statusEl.innerText = 'New QR Code';
 
         const subEl = document.getElementById(`sub_preview_${state.type}`);
-        if (subEl) subEl.innerText = 'Custom 1:1 square crop applied';
+        if (subEl) subEl.innerText = 'Ready to accept payments';
 
         this.closeQrCropperModal();
-        CustomToast.show('1:1 QR crop applied successfully.', 'success');
+        CustomToast.show('QR crop updated.', 'success');
     },
 
     closeQrCropperModal() {
