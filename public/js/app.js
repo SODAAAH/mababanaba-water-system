@@ -2933,16 +2933,11 @@ const App = {
         const statusEl = document.getElementById(`status_preview_${type}`);
         const subEl = document.getElementById(`sub_preview_${type}`);
 
-        if (statusEl) statusEl.innerHTML = '<span class="text-blue-600 font-bold flex items-center gap-1.5"><i class="fa-solid fa-spinner fa-spin"></i> Detecting QR code...</span>';
-        if (subEl) subEl.innerText = 'Scanning screenshot and cropping to 1:1 box';
+        if (statusEl) statusEl.innerText = 'New QR Code';
+        if (subEl) subEl.innerText = 'Uploading...';
         if (wrap) wrap.classList.remove('hidden');
 
         try {
-            // Store raw source file for manual fine-tuning if needed
-            const rawData = await this.getBase64(file);
-            State._rawQrData = State._rawQrData || {};
-            State._rawQrData[type] = rawData;
-
             const res = await this.extractAndCropQr(file);
             if (res && res.croppedDataUrl) {
                 if (type === 'gcash') {
@@ -2954,23 +2949,14 @@ const App = {
                 State._lastCropBox[type] = res.cropBox;
 
                 if (img) img.src = res.croppedDataUrl;
-                if (statusEl) {
-                    statusEl.innerHTML = '<span class="text-emerald-600 font-bold flex items-center gap-1"><i class="fa-solid fa-check-circle"></i> QR Auto-Cropped (1:1)</span>';
-                }
-                if (subEl) {
-                    subEl.innerText = res.wasCropped 
-                        ? 'Screenshot cropped to QR code • 1:1 Box' 
-                        : 'Image loaded & formatted to 1:1 Box';
-                }
-                CustomToast.show(
-                    res.wasCropped ? 'QR code detected & auto-cropped to 1:1 box.' : 'QR image formatted to 1:1 box.',
-                    'success'
-                );
+                if (statusEl) statusEl.innerText = 'New QR Code';
+                if (subEl) subEl.innerText = 'Ready to accept payments';
+                CustomToast.show('QR code image loaded.', 'success');
             }
         } catch (err) {
             console.error('[QR] Preview extraction failed:', err);
-            if (statusEl) statusEl.innerText = 'Detection error';
-            if (subEl) subEl.innerText = 'Please click Adjust Crop to set manually';
+            if (statusEl) statusEl.innerText = 'Upload failed';
+            if (subEl) subEl.innerText = 'Please select a valid image';
         }
     },
 
