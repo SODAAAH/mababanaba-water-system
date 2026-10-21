@@ -1200,12 +1200,16 @@ const App = {
     },
     
     formatDate(dateString) {
-        if(!dateString) return 'N/A';
-        const d = new Date(dateString);
-        const mm = (d.getMonth() + 1).toString().padStart(2, '0');
-        const dd = d.getDate().toString().padStart(2, '0');
-        const yy = d.getFullYear().toString().slice(-2);
-        return `${mm}/${dd}/${yy}`;
+        if (!dateString) return 'N/A';
+        if (typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateString.trim())) {
+            const [y, m, d] = dateString.trim().split('-').map(Number);
+            const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+            return `${months[m - 1]} ${d}, ${y}`;
+        }
+        const d = (dateString instanceof Date) ? dateString : new Date(dateString);
+        if (isNaN(d.getTime())) return dateString;
+        const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
     },
 
     formatDateTime(dateString) {
@@ -2832,11 +2836,17 @@ const App = {
         e.preventDefault();
         const btn = e.target.querySelector('button[type="submit"]');
         this.setLoading(btn, true);
+        const cleanedVal = document.getElementById('set_cleaned') ? document.getElementById('set_cleaned').value : '';
+        const filterVal = document.getElementById('set_filter') ? document.getElementById('set_filter').value : '';
         const data = new FormData();
-        data.append('last_cleaned_date', document.getElementById('set_cleaned').value);
-        data.append('last_filter_changed_date', document.getElementById('set_filter').value);
+        data.append('last_cleaned_date', cleanedVal);
+        data.append('last_filter_changed_date', filterVal);
         try {
             await API.request('admin_update_maintenance', 'POST', data);
+            if (State.adminData && State.adminData.station) {
+                State.adminData.station.last_cleaned_date = cleanedVal;
+                State.adminData.station.last_filter_changed_date = filterVal;
+            }
             CustomToast.show('Maintenance logs updated successfully.', 'success');
         } catch(e) {}
         this.setLoading(btn, false);

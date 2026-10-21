@@ -4206,7 +4206,7 @@ const UI = {
 
         if (showSkeleton) {
             html += `
-                <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-6 mb-6">
+                <div class="bg-white rounded-3xl shadow-md border border-slate-200 p-6 mb-6">
                     <div class="skeleton h-6 w-1/3 mb-4"></div>
                     <div class="skeleton h-12 w-full mb-4"></div>
                     <div class="skeleton h-12 w-full mb-4"></div>
@@ -4401,18 +4401,28 @@ const UI = {
 
         if (State.adminSettingsTab === 'Maintenance') {
             html += `
-            <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-6 mb-6">
+            <div class="bg-white rounded-3xl shadow-md border border-slate-200 p-6 mb-6">
                 <h3 class="font-bold text-slate-800 mb-4 flex items-center"><i class="fa-solid fa-screwdriver-wrench text-blue-500 mr-2"></i> Maintenance Logs</h3>
                 <form onsubmit="App.updateMaintenance(event)" class="space-y-4">
                     <div>
                         <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Last System Cleaned Date</label>
-                        <input type="date" id="set_cleaned" value="${station.last_cleaned_date || ''}" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold">
+                        <div class="relative">
+                            <input type="text" id="set_cleaned" value="${station.last_cleaned_date || ''}" placeholder="Select date" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 cursor-pointer focus:bg-white focus:border-blue-600 focus:outline-hidden transition pr-11">
+                            <div class="absolute inset-y-0 right-4 flex items-center pointer-events-none text-slate-400">
+                                <i class="fa-regular fa-calendar text-base"></i>
+                            </div>
+                        </div>
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Last Filter Changed Date</label>
-                        <input type="date" id="set_filter" value="${station.last_filter_changed_date || ''}" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold">
+                        <div class="relative">
+                            <input type="text" id="set_filter" value="${station.last_filter_changed_date || ''}" placeholder="Select date" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 cursor-pointer focus:bg-white focus:border-blue-600 focus:outline-hidden transition pr-11">
+                            <div class="absolute inset-y-0 right-4 flex items-center pointer-events-none text-slate-400">
+                                <i class="fa-regular fa-calendar text-base"></i>
+                            </div>
+                        </div>
                     </div>
-                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-md transition flex justify-center items-center">Save Logs</button>
+                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-md transition flex justify-center items-center cursor-pointer active:scale-[0.99]">Save Logs</button>
                 </form>
             </div>
             `;
@@ -4420,7 +4430,7 @@ const UI = {
 
         if (State.adminSettingsTab === 'Payments') {
             html += `
-            <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-6 mb-6">
+            <div class="bg-white rounded-3xl shadow-md border border-slate-200 p-6 mb-6">
                 <h3 class="font-bold text-slate-800 mb-4 flex items-center"><i class="fa-solid fa-qrcode text-blue-500 mr-2"></i> Payment Profiles (Cashless)</h3>
                 <form onsubmit="App.updatePaymentProfile(event)" class="space-y-5">
                     <div class="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
@@ -4479,7 +4489,7 @@ const UI = {
 
         if (State.adminSettingsTab === 'Security') {
             html += `
-            <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-6 mb-6">
+            <div class="bg-white rounded-3xl shadow-md border border-slate-200 p-6 mb-6">
                 <h3 class="font-bold text-slate-800 mb-4 flex items-center"><i class="fa-solid fa-shield-halved text-blue-500 mr-2"></i> Account Security</h3>
                 <form onsubmit="App.updateSecurity(event)" class="space-y-4">
                     <div>
@@ -4508,7 +4518,7 @@ const UI = {
                 </form>
             </div>
 
-            <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-6 mb-6">
+            <div class="bg-white rounded-3xl shadow-md border border-slate-200 p-6 mb-6">
                 <h3 class="font-bold text-slate-800 mb-4 flex items-center"><i class="fa-solid fa-motorcycle text-blue-500 mr-2"></i> Delivery Staff</h3>
                 <form onsubmit="App.addStaff(event)" class="space-y-3 mb-6">
                     <input type="text" id="staff_user" required placeholder="Staff Username" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl">
@@ -4535,6 +4545,23 @@ const UI = {
         }
 
         this.html('<div class="max-w-3xl mx-auto w-full">' + html + '</div>');
+
+        if (State.adminSettingsTab === 'Maintenance' && typeof flatpickr !== 'undefined') {
+            const fpConfig = {
+                dateFormat: 'Y-m-d',
+                altInput: true,
+                altFormat: 'F j, Y',
+                altInputClass: 'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 cursor-pointer focus:bg-white focus:border-blue-600 focus:outline-hidden transition pr-11',
+                disableMobile: true,
+                allowInput: false
+            };
+            if (document.getElementById('set_cleaned')) {
+                flatpickr('#set_cleaned', fpConfig);
+            }
+            if (document.getElementById('set_filter')) {
+                flatpickr('#set_filter', fpConfig);
+            }
+        }
     },
 
     async renderDeliveryDashboard() {
