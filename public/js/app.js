@@ -2902,14 +2902,24 @@ const App = {
         let gcashQrData = State._croppedQrGcash;
         if (!gcashQrData && gcashFile) {
             const cropRes = await this.extractAndCropQr(gcashFile);
-            gcashQrData = cropRes ? cropRes.croppedDataUrl : await this.compressImage(gcashFile, 600, 600, 0.85);
+            if (!cropRes || !cropRes.isQr) {
+                this.setLoading(btn, false);
+                CustomToast.show('No QR code detected in the selected GCash photo. Please upload a valid QR code.', 'error');
+                return;
+            }
+            gcashQrData = cropRes.croppedDataUrl;
         }
         if (gcashQrData) data.append('gcash_qr', gcashQrData);
 
         let mayaQrData = State._croppedQrMaya;
         if (!mayaQrData && mayaFile) {
             const cropRes = await this.extractAndCropQr(mayaFile);
-            mayaQrData = cropRes ? cropRes.croppedDataUrl : await this.compressImage(mayaFile, 600, 600, 0.85);
+            if (!cropRes || !cropRes.isQr) {
+                this.setLoading(btn, false);
+                CustomToast.show('No QR code detected in the selected Maya photo. Please upload a valid QR code.', 'error');
+                return;
+            }
+            mayaQrData = cropRes.croppedDataUrl;
         }
         if (mayaQrData) data.append('maya_qr', mayaQrData);
         
@@ -2935,34 +2945,65 @@ const App = {
         const statusEl = document.getElementById(`status_preview_${type}`);
         const subEl = document.getElementById(`sub_preview_${type}`);
 
-        if (statusEl) statusEl.innerText = 'New QR Code';
-        if (subEl) subEl.innerText = 'Processing...';
+        if (statusEl) statusEl.innerText = 'Checking QR Code...';
+        if (subEl) subEl.innerText = 'Analyzing photo...';
         if (wrap) wrap.classList.remove('hidden');
 
         try {
             const rawData = await this.getBase64(file);
+            const res = await this.extractAndCropQr(rawData);
+
+            if (!res || !res.isQr || !res.croppedDataUrl) {
+                // Reject non-QR photo!
+                event.target.value = '';
+                if (type === 'gcash') {
+                    State._croppedQrGcash = null;
+                } else if (type === 'maya') {
+                    State._croppedQrMaya = null;
+                }
+                if (State._rawQrData) delete State._rawQrData[type];
+                if (State._lastCropBox) delete State._lastCropBox[type];
+
+                const existingQr = State.station && (type === 'gcash' ? State.station.gcash_qr : State.station.maya_qr);
+                if (existingQr) {
+                    if (img) img.src = existingQr;
+                    if (statusEl) statusEl.innerText = 'Current QR Code';
+                    if (subEl) subEl.innerText = 'Ready to accept payments';
+                } else {
+                    if (wrap) wrap.classList.add('hidden');
+                }
+
+                CustomToast.show('No QR code detected in this photo. Please upload a valid QR code image or screenshot.', 'error');
+                return;
+            }
+
             State._rawQrData = State._rawQrData || {};
             State._rawQrData[type] = rawData;
-
-            const res = await this.extractAndCropQr(rawData);
-            if (res && res.croppedDataUrl) {
-                if (type === 'gcash') {
-                    State._croppedQrGcash = res.croppedDataUrl;
-                } else if (type === 'maya') {
-                    State._croppedQrMaya = res.croppedDataUrl;
-                }
-                State._lastCropBox = State._lastCropBox || {};
-                State._lastCropBox[type] = res.cropBox;
-
-                if (img) img.src = res.croppedDataUrl;
-                if (statusEl) statusEl.innerText = 'New QR Code';
-                if (subEl) subEl.innerText = 'Ready to accept payments';
-                CustomToast.show('QR code image loaded.', 'success');
+            if (type === 'gcash') {
+                State._croppedQrGcash = res.croppedDataUrl;
+            } else if (type === 'maya') {
+                State._croppedQrMaya = res.croppedDataUrl;
             }
+            State._lastCropBox = State._lastCropBox || {};
+            State._lastCropBox[type] = res.cropBox;
+
+            if (img) img.src = res.croppedDataUrl;
+            if (statusEl) statusEl.innerText = 'New QR Code';
+            if (subEl) subEl.innerText = 'Ready to accept payments';
+            if (wrap) wrap.classList.remove('hidden');
+            CustomToast.show('QR code image loaded.', 'success');
         } catch (err) {
             console.error('[QR] Preview extraction failed:', err);
-            if (statusEl) statusEl.innerText = 'Upload failed';
-            if (subEl) subEl.innerText = 'Please select a valid image';
+            event.target.value = '';
+            const existingQr = State.station && (type === 'gcash' ? State.station.gcash_qr : State.station.maya_qr);
+            if (existingQr) {
+                if (img) img.src = existingQr;
+                if (statusEl) statusEl.innerText = 'Current QR Code';
+                if (subEl) subEl.innerText = 'Ready to accept payments';
+            } else {
+                if (wrap) wrap.classList.add('hidden');
+            }
+            CustomToast.show('Failed to process image. Please try another file.', 'error');
         }
     },
 
@@ -3378,76 +3419,59 @@ const App = {
 
                     if (!origW || !origH) {
                         cleanup();
-                        const fallback = typeof imageSource === 'string' ? imageSource : await this.compressImage(imageSource);
-                        return resolve({ croppedDataUrl: fallback, wasCropped: false, cropBox: null, origWidth: origW, origHeight: origH });
+                        return resolve({ isQr: false, croppedDataUrl: null, wasCropped: false, cropBox: null, origWidth: 0, origHeight: 0 });
                     }
 
                     // 1. Run multi-stage detection to locate the QR code box
                     const detection = await this._detectQrBoundingBox(img, origW, origH);
-                    let cropBox = null;
-                    let wasCropped = false;
 
-                    if (detection && detection.box) {
-                        const bbox = detection.box;
-                        const cx = bbox.x + bbox.width / 2;
-                        const cy = bbox.y + bbox.height / 2;
-                        const qrSide = Math.max(bbox.width, bbox.height);
-
-                        // Subtle breathing room (around 3.5%) so modules and finder patterns are clearly visible and not clipped
-                        const pad = Math.round(qrSide * 0.035);
-                        const targetSide = Math.min(Math.min(origW, origH), Math.round(qrSide + pad * 2));
-
-                        // Center the 1:1 square crop box around the QR code
-                        let cropLeft = Math.round(cx - targetSide / 2);
-                        let cropTop = Math.round(cy - targetSide / 2);
-
-                        // Keep within boundaries if possible while maintaining size
-                        if (cropLeft < 0) cropLeft = 0;
-                        if (cropTop < 0) cropTop = 0;
-                        if (cropLeft + targetSide > origW) cropLeft = Math.max(0, origW - targetSide);
-                        if (cropTop + targetSide > origH) cropTop = Math.max(0, origH - targetSide);
-
-                        cropBox = {
-                            x: cropLeft,
-                            y: cropTop,
-                            size: targetSide
-                        };
-                        wasCropped = true;
-                    } else {
-                        // Fallback: If image is not 1:1 (e.g. mobile screenshot or 16:9), isolate central 1:1 box
-                        const isSquare = Math.abs(origW - origH) / Math.max(origW, origH) < 0.06;
-                        if (!isSquare) {
-                            if (origH > origW * 1.2) {
-                                // Portrait phone screenshot: QR is almost always in the upper-center
-                                const side = Math.round(origW * 0.85);
-                                const cy = Math.round(origH * 0.45);
-                                cropBox = {
-                                    x: Math.round((origW - side) / 2),
-                                    y: Math.max(0, Math.min(origH - side, Math.round(cy - side / 2))),
-                                    size: side
-                                };
-                            } else {
-                                // Landscape screenshot (16:9)
-                                const side = Math.round(Math.min(origW, origH) * 0.90);
-                                cropBox = {
-                                    x: Math.round((origW - side) / 2),
-                                    y: Math.round((origH - side) / 2),
-                                    size: side
-                                };
-                            }
-                            wasCropped = true;
-                        } else {
-                            cropBox = { x: 0, y: 0, size: Math.min(origW, origH) };
-                        }
+                    if (!detection || !detection.box) {
+                        // Strictly reject non-QR photo!
+                        cleanup();
+                        return resolve({
+                            isQr: false,
+                            croppedDataUrl: null,
+                            wasCropped: false,
+                            cropBox: null,
+                            origWidth: origW,
+                            origHeight: origH,
+                            error: 'No QR code detected'
+                        });
                     }
 
-                    // 2. Render into a clean, crisp 1:1 square canvas (600x600) with white background
+                    const bbox = detection.box;
+                    const cx = bbox.x + bbox.width / 2;
+                    const cy = bbox.y + bbox.height / 2;
+                    const qrSide = Math.max(bbox.width, bbox.height);
+
+                    // Subtle breathing room (around 3.5%) so modules and finder patterns are clearly visible and not clipped
+                    const pad = Math.round(qrSide * 0.035);
+                    const targetSide = Math.min(Math.min(origW, origH), Math.round(qrSide + pad * 2));
+
+                    // Center the 1:1 square crop box around the QR code
+                    let cropLeft = Math.round(cx - targetSide / 2);
+                    let cropTop = Math.round(cy - targetSide / 2);
+
+                    // Keep within boundaries if possible while maintaining size
+                    if (cropLeft < 0) cropLeft = 0;
+                    if (cropTop < 0) cropTop = 0;
+                    if (cropLeft + targetSide > origW) cropLeft = Math.max(0, origW - targetSide);
+                    if (cropTop + targetSide > origH) cropTop = Math.max(0, origH - targetSide);
+
+                    const cropBox = {
+                        x: cropLeft,
+                        y: cropTop,
+                        size: targetSide
+                    };
+
+                    // 2. Render into a clean, crisp 1:1 square canvas (600x600) with subtle white margin
                     const result = this._cropImageToSquare(img, cropBox.x, cropBox.y, cropBox.size, origW, origH, 600);
                     cleanup();
 
                     return resolve({
+                        isQr: true,
                         croppedDataUrl: result.croppedDataUrl,
-                        wasCropped: wasCropped,
+                        wasCropped: true,
                         cropBox: cropBox,
                         origWidth: origW,
                         origHeight: origH
@@ -3456,15 +3480,13 @@ const App = {
                 } catch (err) {
                     console.error('[QR] Failed to crop QR:', err);
                     cleanup();
-                    const fallback = await this.compressImage(imageSource, 600, 600, 0.85);
-                    return resolve({ croppedDataUrl: fallback, wasCropped: false, cropBox: null, origWidth: 0, origHeight: 0 });
+                    return resolve({ isQr: false, croppedDataUrl: null, wasCropped: false, cropBox: null, origWidth: 0, origHeight: 0 });
                 }
             };
 
-            img.onerror = async () => {
+            img.onerror = () => {
                 cleanup();
-                const fallback = await this.compressImage(imageSource, 600, 600, 0.85);
-                return resolve({ croppedDataUrl: fallback, wasCropped: false, cropBox: null, origWidth: 0, origHeight: 0 });
+                return resolve({ isQr: false, croppedDataUrl: null, wasCropped: false, cropBox: null, origWidth: 0, origHeight: 0 });
             };
 
             if (typeof imageSource === 'string') {
@@ -3472,7 +3494,7 @@ const App = {
             } else if (imageSource instanceof Blob) {
                 img.src = URL.createObjectURL(imageSource);
             } else {
-                resolve({ croppedDataUrl: null, wasCropped: false, cropBox: null, origWidth: 0, origHeight: 0 });
+                resolve({ isQr: false, croppedDataUrl: null, wasCropped: false, cropBox: null, origWidth: 0, origHeight: 0 });
             }
         });
     },
@@ -3655,11 +3677,19 @@ const App = {
      */
     _detectQrFinderPatterns(imgData, width, height) {
         const d = imgData.data;
+        let sumLum = 0, sampleCount = 0;
+        for (let i = 0; i < d.length; i += 24) {
+            sumLum += (d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8;
+            sampleCount++;
+        }
+        const avgLum = sampleCount > 0 ? (sumLum / sampleCount) : 128;
+        const threshold = Math.max(65, Math.min(185, Math.round(avgLum * 0.82)));
+
         const getDark = (x, y) => {
             if (x < 0 || x >= width || y < 0 || y >= height) return false;
             const idx = (y * width + x) * 4;
             const lum = (d[idx] * 77 + d[idx + 1] * 150 + d[idx + 2] * 29) >> 8;
-            return lum < 120;
+            return lum < threshold;
         };
 
         const candidates = [];
@@ -3880,16 +3910,41 @@ const App = {
             }
         }
 
-        if (highCount >= 6 && maxGx > minGx && maxGy > minGy) {
+        if (highCount >= 10 && maxGx > minGx && maxGy > minGy) {
             const rawW = (maxGx - minGx + 1) * blockSize;
             const rawH = (maxGy - minGy + 1) * blockSize;
-            const side = Math.max(rawW, rawH);
-            return {
-                x: minGx * blockSize,
-                y: minGy * blockSize,
-                width: side,
-                height: side
-            };
+            const aspect = Math.min(rawW, rawH) / Math.max(rawW, rawH);
+            if (aspect >= 0.70 && rawW >= 70 && rawH >= 70) {
+                const subX = Math.max(0, minGx * blockSize);
+                const subY = Math.max(0, minGy * blockSize);
+                const subW = Math.min(width - subX, rawW);
+                const subH = Math.min(height - subY, rawH);
+
+                if (typeof jsQR === 'function') {
+                    try {
+                        const tempCanvas = document.createElement('canvas');
+                        tempCanvas.width = subW;
+                        tempCanvas.height = subH;
+                        const tempCtx = tempCanvas.getContext('2d');
+                        const subImgData = tempCtx.createImageData(subW, subH);
+                        for (let y = 0; y < subH; y++) {
+                            for (let x = 0; x < subW; x++) {
+                                const srcIdx = ((subY + y) * width + (subX + x)) * 4;
+                                const dstIdx = (y * subW + x) * 4;
+                                subImgData.data[dstIdx] = d[srcIdx];
+                                subImgData.data[dstIdx + 1] = d[srcIdx + 1];
+                                subImgData.data[dstIdx + 2] = d[srcIdx + 2];
+                                subImgData.data[dstIdx + 3] = d[srcIdx + 3];
+                            }
+                        }
+                        const subCode = jsQR(subImgData.data, subW, subH, { inversionAttempts: 'attemptBoth' });
+                        if (subCode && subCode.location) {
+                            const b = this._boxFromJsQrLocation(subCode.location);
+                            return { x: subX + b.x, y: subY + b.y, width: b.width, height: b.height };
+                        }
+                    } catch (e) {}
+                }
+            }
         }
 
         return null;
