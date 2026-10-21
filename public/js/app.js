@@ -3444,8 +3444,8 @@ const App = {
                     const cy = bbox.y + bbox.height / 2;
                     const qrSide = Math.max(bbox.width, bbox.height);
 
-                    // ~6.5% quiet zone gives the exact 1.14x ratio matching the user reference
-                    const pad = Math.round(qrSide * 0.065);
+                    // Minimal ~1.8% margin ensures finder borders are completely visible and never cut off, with zero excess white
+                    const pad = Math.max(4, Math.round(qrSide * 0.018));
                     const targetSide = Math.min(Math.min(origW, origH), Math.round(qrSide + pad * 2));
 
                     // Center the 1:1 square crop box around the QR code
@@ -3630,15 +3630,13 @@ const App = {
         const maxY = Math.max(...ys);
         const spanW = maxX - minX;
         const spanH = maxY - minY;
-        // jsQR returns finder pattern centers (3.5 modules inward from outer edges).
-        // For standard payment QRs, expanding by ~13% accurately hits the outer module bounds.
-        const padX = spanW * 0.13;
-        const padY = spanH * 0.13;
+        // The outer corners already encompass the QR modules.
+        // Return the exact bounding box of the QR code so crop padding can be applied precisely.
         return {
-            x: Math.max(0, Math.round(minX - padX)),
-            y: Math.max(0, Math.round(minY - padY)),
-            width: Math.round(spanW + padX * 2),
-            height: Math.round(spanH + padY * 2)
+            x: Math.max(0, Math.round(minX)),
+            y: Math.max(0, Math.round(minY)),
+            width: Math.round(spanW),
+            height: Math.round(spanH)
         };
     },
 
@@ -4043,8 +4041,40 @@ const App = {
                 CustomToast.show('Could not read image dimensions.', 'error');
                 return;
             }
+            // Automatically detect the QR code inside the image so default zoom is tightly framed around the QR
+            let detectedCrop = null;
+            try {
+                const detection = await this._detectQrBoundingBox(img, origW, origH);
+                if (detection && detection.box) {
+                    const bbox = detection.box;
+                    const cx = bbox.x + bbox.width / 2;
+                    const cy = bbox.y + bbox.height / 2;
+                    const qrSide = Math.max(bbox.width, bbox.height);
+                    // Minimal margin ~1.8%: edge not cut off, minimal white
+                    const pad = Math.max(4, Math.round(qrSide * 0.018));
+                    const targetSide = Math.min(Math.min(origW, origH), Math.round(qrSide + pad * 2));
+                    detectedCrop = {
+                        x: Math.max(0, Math.min(origW - targetSide, Math.round(cx - targetSide / 2))),
+                        y: Math.max(0, Math.min(origH - targetSide, Math.round(cy - targetSide / 2))),
+                        size: targetSide
+                    };
+                }
+            } catch (e) {
+                console.warn('[QR] Auto-detect crop box error:', e);
+            }
 
             let cropBox = State._lastCropBox && State._lastCropBox[type];
+            if (!cropBox) {
+                cropBox = detectedCrop;
+            } else if (detectedCrop) {
+                // If previous crop box was too loose (e.g. from an old algorithm or uncropped square), use tight detected crop
+                const prevRatio = cropBox.size / origW;
+                const newRatio = detectedCrop.size / origW;
+                if (prevRatio > newRatio * 1.08) {
+                    cropBox = detectedCrop;
+                }
+            }
+
             if (!cropBox) {
                 const isSquare = Math.abs(origW - origH) <= 4;
                 if (isSquare) {
@@ -4054,34 +4084,12 @@ const App = {
                         size: Math.min(origW, origH)
                     };
                 } else {
-                    // Automatically detect the QR code so the default zoom is tightly framed around the QR
-                    try {
-                        const detection = await this._detectQrBoundingBox(img, origW, origH);
-                        if (detection && detection.box) {
-                            const bbox = detection.box;
-                            const cx = bbox.x + bbox.width / 2;
-                            const cy = bbox.y + bbox.height / 2;
-                            const qrSide = Math.max(bbox.width, bbox.height);
-                            const pad = Math.round(qrSide * 0.065);
-                            const targetSide = Math.min(Math.min(origW, origH), Math.round(qrSide + pad * 2));
-                            cropBox = {
-                                x: Math.max(0, Math.min(origW - targetSide, Math.round(cx - targetSide / 2))),
-                                y: Math.max(0, Math.min(origH - targetSide, Math.round(cy - targetSide / 2))),
-                                size: targetSide
-                            };
-                        }
-                    } catch (e) {
-                        console.warn('[QR] Auto-detect crop box error:', e);
-                    }
-
-                    if (!cropBox) {
-                        const initSize = Math.round(Math.min(origW, origH) * 0.40);
-                        cropBox = {
-                            x: Math.round((origW - initSize) / 2),
-                            y: origH > origW * 1.2 ? Math.round(origH * 0.35) : Math.round((origH - initSize) / 2),
-                            size: initSize
-                        };
-                    }
+                    const initSize = Math.round(Math.min(origW, origH) * 0.40);
+                    cropBox = {
+                        x: Math.round((origW - initSize) / 2),
+                        y: origH > origW * 1.2 ? Math.round(origH * 0.35) : Math.round((origH - initSize) / 2),
+                        size: initSize
+                    };
                 }
             }
 
@@ -4495,7 +4503,7 @@ const App = {
             confirmText: 'Close',
             extraHtml: `
                 <div class="mt-4 flex flex-col items-center">
-                    <div class="w-64 h-64 p-3 bg-white rounded-2xl border border-slate-200 shadow-md flex items-center justify-center">
+                    <div class="w-64 h-64 p-1 bg-white rounded-2xl border border-slate-200 shadow-md flex items-center justify-center">
                         <img src="${qrSrc}" class="w-full h-full object-contain aspect-square rounded-lg" alt="${title}">
                     </div>
                     <div class="mt-3 text-center">
