@@ -2799,49 +2799,7 @@ const App = {
     },
 
     handleContainerOptionToggle() {
-        const pourEl = document.getElementById('set_allow_pour');
-        const borrowEl = document.getElementById('set_allow_borrow');
-        const buyEl = document.getElementById('set_allow_buy');
-        const badge = document.getElementById('services_summary_badge');
-        
-        const isPour = pourEl?.checked;
-        const isBorrow = borrowEl?.checked;
-        const isBuy = buyEl?.checked;
-
-        const cardPour = document.getElementById('card_allow_pour');
-        const cardBorrow = document.getElementById('card_allow_borrow');
-        const cardBuy = document.getElementById('card_allow_buy');
-
-        if (cardPour) {
-            cardPour.className = `flex items-start justify-between p-4 rounded-2xl border transition-all cursor-pointer select-none ${isPour ? 'bg-sky-50/50 border-sky-300 ring-1 ring-sky-300/50' : 'bg-slate-50/70 hover:bg-slate-50 border-slate-200'}`;
-        }
-        if (cardBorrow) {
-            cardBorrow.className = `flex items-start justify-between p-4 rounded-2xl border transition-all cursor-pointer select-none ${isBorrow ? 'bg-amber-50/50 border-amber-300 ring-1 ring-amber-300/50' : 'bg-slate-50/70 hover:bg-slate-50 border-slate-200'}`;
-        }
-        if (cardBuy) {
-            cardBuy.className = `flex items-start justify-between p-4 rounded-2xl border transition-all cursor-pointer select-none ${isBuy ? 'bg-purple-50/50 border-purple-300 ring-1 ring-purple-300/50' : 'bg-slate-50/70 hover:bg-slate-50 border-slate-200'}`;
-        }
-
-        if (badge) {
-            const active = [];
-            if (isPour) active.push('Pour');
-            if (isBorrow) active.push('Borrow');
-            if (isBuy) active.push('Buy');
-
-            if (active.length === 0) {
-                badge.innerText = 'None (Invalid)';
-                badge.className = 'text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200';
-            } else if (active.length === 3) {
-                badge.innerText = 'All Options Enabled';
-                badge.className = 'text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200';
-            } else if (active.length === 1) {
-                badge.innerText = `${active[0]} Only`;
-                badge.className = 'text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200';
-            } else {
-                badge.innerText = active.join(' + ');
-                badge.className = 'text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200';
-            }
-        }
+        // State is tracked natively by input checkboxes
     },
     
     async updateSecurity(e) {

@@ -4221,29 +4221,8 @@ const UI = {
             const initBorrow = station.allow_borrow !== 0 && station.allow_borrow !== '0';
             const initBuy = station.allow_buy !== 0 && station.allow_buy !== '0';
 
-            const activeServices = [];
-            if (initPour) activeServices.push('Pour');
-            if (initBorrow) activeServices.push('Borrow');
-            if (initBuy) activeServices.push('Buy');
-
-            let summaryBadgeText = 'All Options Enabled';
-            let summaryBadgeClass = 'bg-blue-50 text-blue-700 border-blue-200';
-            if (activeServices.length === 0) {
-                summaryBadgeText = 'None (Invalid)';
-                summaryBadgeClass = 'bg-red-50 text-red-700 border-red-200';
-            } else if (activeServices.length === 1) {
-                summaryBadgeText = `${activeServices[0]} Only`;
-                summaryBadgeClass = 'bg-amber-50 text-amber-700 border-amber-200';
-            } else if (activeServices.length === 3) {
-                summaryBadgeText = 'All Options Enabled';
-                summaryBadgeClass = 'bg-blue-50 text-blue-700 border-blue-200';
-            } else {
-                summaryBadgeText = activeServices.join(' + ');
-                summaryBadgeClass = 'bg-emerald-50 text-emerald-700 border-emerald-200';
-            }
-
             html += `
-            <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-6 mb-6">
+            <div class="bg-white rounded-3xl shadow-md border border-slate-200 p-6 mb-6">
                 <h3 class="font-bold text-slate-800 mb-4 flex items-center"><i class="fa-solid fa-power-off text-red-500 mr-2"></i> Station Status</h3>
                 <form onsubmit="App.updateStationClosure(event)" class="space-y-4">
                     <label class="flex items-center cursor-pointer p-4 rounded-xl border border-slate-100 hover:bg-slate-50 transition">
@@ -4269,7 +4248,7 @@ const UI = {
                 </form>
             </div>
 
-            <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-6 mb-6">
+            <div class="bg-white rounded-3xl shadow-md border border-slate-200 p-6 mb-6">
                 <h3 class="font-bold text-slate-800 mb-4 flex items-center"><i class="fa-solid fa-clock text-blue-500 mr-2"></i> Operating Hours</h3>
                 <form onsubmit="App.updateHours(event)" class="space-y-4">
                     <div class="grid grid-cols-2 gap-4">
@@ -4286,15 +4265,10 @@ const UI = {
                 </form>
             </div>
 
-            <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-6 mb-6">
-                <div class="flex items-center justify-between mb-2">
-                    <h3 class="font-bold text-slate-800 flex items-center">
-                        <i class="fa-solid fa-boxes-stacked text-blue-500 mr-2"></i> Container & Refill Options
-                    </h3>
-                    <span class="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border transition-all ${summaryBadgeClass}" id="services_summary_badge">
-                        ${summaryBadgeText}
-                    </span>
-                </div>
+            <div class="bg-white rounded-3xl shadow-md border border-slate-200 p-6 mb-6">
+                <h3 class="font-bold text-slate-800 mb-1 flex items-center">
+                    <i class="fa-solid fa-boxes-stacked text-blue-600 mr-2"></i> Container & Refill Options
+                </h3>
                 <p class="text-xs text-slate-500 mb-4">
                     Choose which container options your station provides to customers.
                 </p>
@@ -4303,103 +4277,79 @@ const UI = {
                     <!-- Service Toggles List -->
                     <div class="space-y-2.5">
                         <!-- Direct Pour -->
-                        <label class="flex items-start justify-between p-3.5 rounded-2xl border transition-all cursor-pointer select-none ${initPour ? 'bg-sky-50/50 border-sky-300 ring-1 ring-sky-300/50' : 'bg-slate-50/70 hover:bg-slate-50 border-slate-200'}" id="card_allow_pour">
-                            <div class="flex items-start gap-3 min-w-0 pr-3">
-                                <div class="w-9 h-9 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center text-sm shrink-0 mt-0.5 shadow-xs">
-                                    <i class="fa-solid fa-faucet-drip"></i>
-                                </div>
-                                <div>
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-sm font-bold text-slate-800">Direct Pour / Refill</span>
-                                        <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-sky-100 text-sky-700">Pour</span>
-                                    </div>
-                                    <p class="text-xs text-slate-500 mt-0.5 leading-snug">
-                                        Customer brings or swaps their own container.
-                                    </p>
-                                </div>
+                        <label class="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 hover:border-slate-300 bg-white transition cursor-pointer select-none" id="card_allow_pour">
+                            <div class="pr-3">
+                                <span class="text-sm font-semibold text-slate-800 block">Direct Pour / Refill</span>
+                                <p class="text-xs text-slate-500 mt-0.5">
+                                    Customer brings or swaps their own container.
+                                </p>
                             </div>
-                            <div class="relative shrink-0 mt-1">
+                            <div class="relative shrink-0 ml-4">
                                 <input type="checkbox" id="set_allow_pour" class="sr-only" ${initPour ? 'checked' : ''} onchange="App.handleContainerOptionToggle()">
-                                <div class="block bg-slate-200 w-12 h-7 rounded-full transition-colors duration-300" id="toggle_bg_pour"></div>
-                                <div class="dot absolute left-1 top-1 bg-white w-5 h-5 rounded-full transition-transform duration-300 shadow"></div>
+                                <div class="block bg-slate-200 w-11 h-6 rounded-full transition-colors duration-200" id="toggle_bg_pour"></div>
+                                <div class="dot absolute left-0.5 top-0.5 bg-white w-5 h-5 rounded-full transition-transform duration-200 shadow-xs"></div>
                             </div>
                         </label>
 
                         <!-- Borrow Jug -->
-                        <label class="flex items-start justify-between p-3.5 rounded-2xl border transition-all cursor-pointer select-none ${initBorrow ? 'bg-amber-50/50 border-amber-300 ring-1 ring-amber-300/50' : 'bg-slate-50/70 hover:bg-slate-50 border-slate-200'}" id="card_allow_borrow">
-                            <div class="flex items-start gap-3 min-w-0 pr-3">
-                                <div class="w-9 h-9 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center text-sm shrink-0 mt-0.5 shadow-xs">
-                                    <i class="fa-solid fa-hand-holding-droplet"></i>
-                                </div>
-                                <div>
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-sm font-bold text-slate-800">Borrow Jug (Container Debt)</span>
-                                        <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-700">Borrow</span>
-                                    </div>
-                                    <p class="text-xs text-slate-500 mt-0.5 leading-snug">
-                                        Customer borrows a station container to return later.
-                                    </p>
-                                </div>
+                        <label class="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 hover:border-slate-300 bg-white transition cursor-pointer select-none" id="card_allow_borrow">
+                            <div class="pr-3">
+                                <span class="text-sm font-semibold text-slate-800 block">Borrow Jug (Container Debt)</span>
+                                <p class="text-xs text-slate-500 mt-0.5">
+                                    Customer borrows a station container to return later.
+                                </p>
                             </div>
-                            <div class="relative shrink-0 mt-1">
+                            <div class="relative shrink-0 ml-4">
                                 <input type="checkbox" id="set_allow_borrow" class="sr-only" ${initBorrow ? 'checked' : ''} onchange="App.handleContainerOptionToggle()">
-                                <div class="block bg-slate-200 w-12 h-7 rounded-full transition-colors duration-300" id="toggle_bg_borrow"></div>
-                                <div class="dot absolute left-1 top-1 bg-white w-5 h-5 rounded-full transition-transform duration-300 shadow"></div>
+                                <div class="block bg-slate-200 w-11 h-6 rounded-full transition-colors duration-200" id="toggle_bg_borrow"></div>
+                                <div class="dot absolute left-0.5 top-0.5 bg-white w-5 h-5 rounded-full transition-transform duration-200 shadow-xs"></div>
                             </div>
                         </label>
 
                         <!-- Buy New Jug -->
-                        <label class="flex items-start justify-between p-3.5 rounded-2xl border transition-all cursor-pointer select-none ${initBuy ? 'bg-purple-50/50 border-purple-300 ring-1 ring-purple-300/50' : 'bg-slate-50/70 hover:bg-slate-50 border-slate-200'}" id="card_allow_buy">
-                            <div class="flex items-start gap-3 min-w-0 pr-3">
-                                <div class="w-9 h-9 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center text-sm shrink-0 mt-0.5 shadow-xs">
-                                    <i class="fa-solid fa-cart-shopping"></i>
-                                </div>
-                                <div>
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-sm font-bold text-slate-800">Buy New Jug (Permanent Purchase)</span>
-                                        <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-purple-100 text-purple-700">Buy</span>
-                                    </div>
-                                    <p class="text-xs text-slate-500 mt-0.5 leading-snug">
-                                        Customer buys a brand new container.
-                                    </p>
-                                </div>
+                        <label class="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 hover:border-slate-300 bg-white transition cursor-pointer select-none" id="card_allow_buy">
+                            <div class="pr-3">
+                                <span class="text-sm font-semibold text-slate-800 block">Buy New Jug (Permanent Purchase)</span>
+                                <p class="text-xs text-slate-500 mt-0.5">
+                                    Customer buys a brand new container.
+                                </p>
                             </div>
-                            <div class="relative shrink-0 mt-1">
+                            <div class="relative shrink-0 ml-4">
                                 <input type="checkbox" id="set_allow_buy" class="sr-only" ${initBuy ? 'checked' : ''} onchange="App.handleContainerOptionToggle()">
-                                <div class="block bg-slate-200 w-12 h-7 rounded-full transition-colors duration-300" id="toggle_bg_buy"></div>
-                                <div class="dot absolute left-1 top-1 bg-white w-5 h-5 rounded-full transition-transform duration-300 shadow"></div>
+                                <div class="block bg-slate-200 w-11 h-6 rounded-full transition-colors duration-200" id="toggle_bg_buy"></div>
+                                <div class="dot absolute left-0.5 top-0.5 bg-white w-5 h-5 rounded-full transition-transform duration-200 shadow-xs"></div>
                             </div>
                         </label>
                     </div>
 
                     <style>
-                        #set_allow_pour:checked ~ #toggle_bg_pour { background-color: #0284c7; }
-                        #set_allow_pour:checked ~ .dot { transform: translateX(20px); }
-                        #set_allow_borrow:checked ~ #toggle_bg_borrow { background-color: #d97706; }
-                        #set_allow_borrow:checked ~ .dot { transform: translateX(20px); }
-                        #set_allow_buy:checked ~ #toggle_bg_buy { background-color: #7c3aed; }
+                        #set_allow_pour:checked ~ #toggle_bg_pour,
+                        #set_allow_borrow:checked ~ #toggle_bg_borrow,
+                        #set_allow_buy:checked ~ #toggle_bg_buy { background-color: #2563eb; }
+                        #set_allow_pour:checked ~ .dot,
+                        #set_allow_borrow:checked ~ .dot,
                         #set_allow_buy:checked ~ .dot { transform: translateX(20px); }
                     </style>
 
                     <!-- Logistics Pricing Fields -->
                     <div class="pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1.5">
-                                <i class="fa-solid fa-truck text-blue-500"></i> Standard Delivery Fee (₱)
+                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">
+                                Standard Delivery Fee (₱)
                             </label>
-                            <input type="number" step="0.01" min="0" id="set_shipping" required value="${station.shipping_fee || '0.00'}" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800">
+                            <input type="number" step="0.01" min="0" id="set_shipping" required value="${station.shipping_fee || '0.00'}" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:bg-white focus:border-blue-600 focus:outline-hidden transition">
                         </div>
 
                         <div>
-                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1.5">
-                                <i class="fa-solid fa-tag text-purple-500"></i> Price per New Jug (₱)
+                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">
+                                Price per New Jug (₱)
                             </label>
-                            <input type="number" step="0.01" min="0" id="set_jug_price" required value="${station.new_jug_price || '0.00'}" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-purple-700">
+                            <input type="number" step="0.01" min="0" id="set_jug_price" required value="${station.new_jug_price || '0.00'}" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:bg-white focus:border-blue-600 focus:outline-hidden transition">
                         </div>
                     </div>
 
                     <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-md transition flex justify-center items-center gap-2 cursor-pointer active:scale-[0.99]">
-                        <i class="fa-solid fa-floppy-disk"></i> Save Container & Logistics Configuration
+                        Save Container Options
                     </button>
                 </form>
             </div>
