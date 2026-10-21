@@ -3446,8 +3446,8 @@ const App = {
                     const cy = bbox.y + bbox.height / 2;
                     const qrSide = Math.max(bbox.width, bbox.height);
 
-                    // Subtle breathing room (around 3.5%) so modules and finder patterns are clearly visible and not clipped
-                    const pad = Math.round(qrSide * 0.035);
+                    // ~6.5% quiet zone gives the exact 1.14x ratio matching the user reference
+                    const pad = Math.round(qrSide * 0.065);
                     const targetSide = Math.min(Math.min(origW, origH), Math.round(qrSide + pad * 2));
 
                     // Center the 1:1 square crop box around the QR code
@@ -3466,7 +3466,7 @@ const App = {
                         size: targetSide
                     };
 
-                    // 2. Render into a clean, crisp 1:1 square canvas (600x600) with subtle white margin
+                    // 2. Render into a clean, crisp 1:1 square canvas (600x600)
                     const result = this._cropImageToSquare(img, cropBox.x, cropBox.y, cropBox.size, origW, origH, 600);
                     cleanup();
 
@@ -3978,16 +3978,24 @@ const App = {
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
 
-        // Subtle white border (16px on 600px canvas = ~2.6%) so QR modules/corners are fully visible
-        const margin = 16;
-        const drawSide = outputSize - (margin * 2);
+        // Clamp to original image bounds
+        const sx = Math.max(0, Math.min(origW, cropX));
+        const sy = Math.max(0, Math.min(origH, cropY));
+        const sWidth = Math.max(0, Math.min(origW - sx, cropSize));
+        const sHeight = Math.max(0, Math.min(origH - sy, cropSize));
 
-        // Draw image sub-rectangle with subtle white border
-        ctx.drawImage(
-            img,
-            cropX, cropY, cropSize, cropSize,
-            margin, margin, drawSide, drawSide
-        );
+        const dx = Math.round(((sx - cropX) / cropSize) * outputSize);
+        const dy = Math.round(((sy - cropY) / cropSize) * outputSize);
+        const dWidth = Math.round((sWidth / cropSize) * outputSize);
+        const dHeight = Math.round((sHeight / cropSize) * outputSize);
+
+        if (sWidth > 0 && sHeight > 0) {
+            ctx.drawImage(
+                img,
+                sx, sy, sWidth, sHeight,
+                dx, dy, dWidth, dHeight
+            );
+        }
 
         let format = 'image/jpeg';
         try {
@@ -4027,7 +4035,7 @@ const App = {
             img.crossOrigin = 'anonymous';
         }
         let ready = false;
-        const onImageReady = () => {
+        const onImageReady = async () => {
             if (ready) return;
             ready = true;
             const origW = img.naturalWidth || img.width;
@@ -4041,12 +4049,42 @@ const App = {
             let cropBox = State._lastCropBox && State._lastCropBox[type];
             if (!cropBox) {
                 const isSquare = Math.abs(origW - origH) <= 4;
-                const initSize = isSquare ? Math.min(origW, origH) : Math.round(Math.min(origW, origH) * 0.85);
-                cropBox = {
-                    x: isSquare ? 0 : Math.round((origW - initSize) / 2),
-                    y: isSquare ? 0 : (origH > origW * 1.2 ? Math.round(origH * 0.35) : Math.round((origH - initSize) / 2)),
-                    size: initSize
-                };
+                if (isSquare) {
+                    cropBox = {
+                        x: 0,
+                        y: 0,
+                        size: Math.min(origW, origH)
+                    };
+                } else {
+                    // Automatically detect the QR code so the default zoom is tightly framed around the QR
+                    try {
+                        const detection = await this._detectQrBoundingBox(img, origW, origH);
+                        if (detection && detection.box) {
+                            const bbox = detection.box;
+                            const cx = bbox.x + bbox.width / 2;
+                            const cy = bbox.y + bbox.height / 2;
+                            const qrSide = Math.max(bbox.width, bbox.height);
+                            const pad = Math.round(qrSide * 0.065);
+                            const targetSide = Math.min(Math.min(origW, origH), Math.round(qrSide + pad * 2));
+                            cropBox = {
+                                x: Math.max(0, Math.min(origW - targetSide, Math.round(cx - targetSide / 2))),
+                                y: Math.max(0, Math.min(origH - targetSide, Math.round(cy - targetSide / 2))),
+                                size: targetSide
+                            };
+                        }
+                    } catch (e) {
+                        console.warn('[QR] Auto-detect crop box error:', e);
+                    }
+
+                    if (!cropBox) {
+                        const initSize = Math.round(Math.min(origW, origH) * 0.40);
+                        cropBox = {
+                            x: Math.round((origW - initSize) / 2),
+                            y: origH > origW * 1.2 ? Math.round(origH * 0.35) : Math.round((origH - initSize) / 2),
+                            size: initSize
+                        };
+                    }
+                }
             }
 
             this._cropperState = {
@@ -4259,12 +4297,10 @@ const App = {
             liveCtx.fillRect(0, 0, liveCanvas.width, liveCanvas.height);
             liveCtx.imageSmoothingEnabled = true;
             liveCtx.imageSmoothingQuality = 'high';
-            const previewMargin = 2;
-            const previewSide = liveCanvas.width - (previewMargin * 2);
             liveCtx.drawImage(
                 state.img,
                 state.cropX, state.cropY, state.cropSize, state.cropSize,
-                previewMargin, previewMargin, previewSide, previewSide
+                0, 0, liveCanvas.width, liveCanvas.height
             );
         }
     },
@@ -4385,7 +4421,7 @@ const App = {
         if (!state) return;
 
         state.cropX = Math.round((state.origW - state.cropSize) / 2);
-        state.cropY = Math.round((state.origH - state.cropSize) / 2);
+        state.cropY = state.origH > state.origW * 1.2 ? Math.round(state.origH * 0.35) : Math.round((state.origH - state.cropSize) / 2);
         this._renderCropperCanvas();
     },
 
