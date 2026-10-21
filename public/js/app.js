@@ -2964,7 +2964,8 @@ const App = {
                 if (State._rawQrData) delete State._rawQrData[type];
                 if (State._lastCropBox) delete State._lastCropBox[type];
 
-                const existingQr = State.station && (type === 'gcash' ? State.station.gcash_qr : State.station.maya_qr);
+                const currentStation = (State.adminData && State.adminData.station) || State.station;
+                const existingQr = currentStation && (type === 'gcash' ? currentStation.gcash_qr : currentStation.maya_qr);
                 if (existingQr) {
                     if (img) img.src = existingQr;
                     if (statusEl) statusEl.innerText = 'Current QR Code';
@@ -2995,7 +2996,8 @@ const App = {
         } catch (err) {
             console.error('[QR] Preview extraction failed:', err);
             event.target.value = '';
-            const existingQr = State.station && (type === 'gcash' ? State.station.gcash_qr : State.station.maya_qr);
+            const currentStation = (State.adminData && State.adminData.station) || State.station;
+            const existingQr = currentStation && (type === 'gcash' ? currentStation.gcash_qr : currentStation.maya_qr);
             if (existingQr) {
                 if (img) img.src = existingQr;
                 if (statusEl) statusEl.innerText = 'Current QR Code';
@@ -4005,8 +4007,15 @@ const App = {
      * to visually reposition, zoom, scale, or center the square crop box.
      */
     async openQrCropperModal(type) {
+        const previewImg = document.getElementById(`img_preview_${type}`);
+        const domSrc = (previewImg && previewImg.getAttribute('src') && previewImg.getAttribute('src').trim()) ? previewImg.getAttribute('src').trim() : null;
+        const currentStation = (State.adminData && State.adminData.station) || State.station || {};
+        const stationQr = (type === 'gcash' ? currentStation.gcash_qr : currentStation.maya_qr) || null;
+
         const rawSrc = (State._rawQrData && State._rawQrData[type]) ||
-            (type === 'gcash' ? (State._croppedQrGcash || (State.station && State.station.gcash_qr)) : (State._croppedQrMaya || (State.station && State.station.maya_qr)));
+            (type === 'gcash' ? State._croppedQrGcash : State._croppedQrMaya) ||
+            stationQr ||
+            domSrc;
 
         if (!rawSrc) {
             CustomToast.show('Please choose a QR image first.', 'warning');
@@ -4017,16 +4026,25 @@ const App = {
         if (typeof rawSrc === 'string' && rawSrc.startsWith('http') && !rawSrc.includes(window.location.host)) {
             img.crossOrigin = 'anonymous';
         }
-        img.onload = () => {
+        let ready = false;
+        const onImageReady = () => {
+            if (ready) return;
+            ready = true;
             const origW = img.naturalWidth || img.width;
             const origH = img.naturalHeight || img.height;
 
+            if (!origW || !origH) {
+                CustomToast.show('Could not read image dimensions.', 'error');
+                return;
+            }
+
             let cropBox = State._lastCropBox && State._lastCropBox[type];
             if (!cropBox) {
-                const initSize = Math.round(Math.min(origW, origH) * 0.85);
+                const isSquare = Math.abs(origW - origH) <= 4;
+                const initSize = isSquare ? Math.min(origW, origH) : Math.round(Math.min(origW, origH) * 0.85);
                 cropBox = {
-                    x: Math.round((origW - initSize) / 2),
-                    y: origH > origW * 1.2 ? Math.round(origH * 0.35) : Math.round((origH - initSize) / 2),
+                    x: isSquare ? 0 : Math.round((origW - initSize) / 2),
+                    y: isSquare ? 0 : (origH > origW * 1.2 ? Math.round(origH * 0.35) : Math.round((origH - initSize) / 2)),
                     size: initSize
                 };
             }
@@ -4051,10 +4069,15 @@ const App = {
             this._mountCropperModalDom();
             this._renderCropperCanvas();
         };
+
+        img.onload = onImageReady;
         img.onerror = () => {
             CustomToast.show('Failed to load image for cropping.', 'error');
         };
         img.src = rawSrc;
+        if (img.complete && img.naturalWidth > 0) {
+            onImageReady();
+        }
     },
 
     _mountCropperModalDom() {
@@ -4415,13 +4438,21 @@ const App = {
      * Previews the full size 1:1 QR code in a high-resolution dialog.
      */
     viewQrFull(type) {
-        const qrSrc = type === 'gcash' ? (State._croppedQrGcash || (State.station && State.station.gcash_qr)) : (State._croppedQrMaya || (State.station && State.station.maya_qr));
+        const previewImg = document.getElementById(`img_preview_${type}`);
+        const domSrc = (previewImg && previewImg.getAttribute('src') && previewImg.getAttribute('src').trim()) ? previewImg.getAttribute('src').trim() : null;
+        const currentStation = (State.adminData && State.adminData.station) || State.station || {};
+        const stationQr = (type === 'gcash' ? currentStation.gcash_qr : currentStation.maya_qr) || null;
+
+        const qrSrc = (type === 'gcash' ? State._croppedQrGcash : State._croppedQrMaya) ||
+            stationQr ||
+            domSrc;
+
         if (!qrSrc) {
             CustomToast.show('No QR code available to preview.', 'warning');
             return;
         }
-        const name = type === 'gcash' ? (document.getElementById('set_gcash_name')?.value || State.station?.gcash_name || 'Account') : (document.getElementById('set_maya_name')?.value || State.station?.maya_name || 'Account');
-        const num = type === 'gcash' ? (document.getElementById('set_gcash_num')?.value || State.station?.gcash_number || '') : (document.getElementById('set_maya_num')?.value || State.station?.maya_number || '');
+        const name = type === 'gcash' ? (document.getElementById('set_gcash_name')?.value || currentStation.gcash_name || 'Account') : (document.getElementById('set_maya_name')?.value || currentStation.maya_name || 'Account');
+        const num = type === 'gcash' ? (document.getElementById('set_gcash_num')?.value || currentStation.gcash_number || '') : (document.getElementById('set_maya_num')?.value || currentStation.maya_number || '');
         const title = type === 'gcash' ? 'GCash QR Code (1:1)' : 'Maya QR Code (1:1)';
 
         CustomDialog.show({

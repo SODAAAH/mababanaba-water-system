@@ -4523,7 +4523,7 @@ const UI = {
                             <input type="file" id="set_gcash_qr" accept="image/*" onchange="App.handleQrUploadPreview(event, 'gcash')" class="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-100 file:text-blue-700 file:font-bold hover:file:bg-blue-200 cursor-pointer transition">
                             <div id="preview_gcash_wrap" class="${station.gcash_qr ? '' : 'hidden'} mt-3 p-3 bg-white rounded-xl border border-slate-200 flex items-center justify-between gap-3">
                                 <div class="flex items-center gap-3 min-w-0">
-                                    <img id="img_preview_gcash" src="${station.gcash_qr || ''}" class="w-16 h-16 object-contain rounded-lg border border-slate-200 shadow-sm bg-white p-0.5 shrink-0 aspect-square">
+                                    <img id="img_preview_gcash" src="${station.gcash_qr || ''}" onclick="App.viewQrFull('gcash')" class="w-16 h-16 object-contain rounded-lg border border-slate-200 shadow-sm bg-white p-0.5 shrink-0 aspect-square cursor-pointer hover:opacity-90 transition" title="Click to view full size">
                                     <div class="min-w-0">
                                         <p id="status_preview_gcash" class="text-xs font-bold text-slate-800">${station.gcash_qr ? 'Current QR Code' : 'New QR Code'}</p>
                                         <p id="sub_preview_gcash" class="text-[11px] text-slate-500">Ready to accept payments</p>
@@ -4547,7 +4547,7 @@ const UI = {
                             <input type="file" id="set_maya_qr" accept="image/*" onchange="App.handleQrUploadPreview(event, 'maya')" class="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-blue-100 file:text-blue-700 file:font-bold hover:file:bg-blue-200 cursor-pointer transition">
                             <div id="preview_maya_wrap" class="${station.maya_qr ? '' : 'hidden'} mt-3 p-3 bg-white rounded-xl border border-slate-200 flex items-center justify-between gap-3">
                                 <div class="flex items-center gap-3 min-w-0">
-                                    <img id="img_preview_maya" src="${station.maya_qr || ''}" class="w-16 h-16 object-contain rounded-lg border border-slate-200 shadow-sm bg-white p-0.5 shrink-0 aspect-square">
+                                    <img id="img_preview_maya" src="${station.maya_qr || ''}" onclick="App.viewQrFull('maya')" class="w-16 h-16 object-contain rounded-lg border border-slate-200 shadow-sm bg-white p-0.5 shrink-0 aspect-square cursor-pointer hover:opacity-90 transition" title="Click to view full size">
                                     <div class="min-w-0">
                                         <p id="status_preview_maya" class="text-xs font-bold text-slate-800">${station.maya_qr ? 'Current QR Code' : 'New QR Code'}</p>
                                         <p id="sub_preview_maya" class="text-[11px] text-slate-500">Ready to accept payments</p>
