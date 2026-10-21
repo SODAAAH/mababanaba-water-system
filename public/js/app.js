@@ -3697,32 +3697,41 @@ const App = {
 
         for (let y = 0; y < height; y += step) {
             let runs = [0, 0, 0, 0, 0];
-            let state = getDark(0, y) ? 0 : 1;
+            let currentState = 0;
 
             for (let x = 0; x < width; x++) {
-                const dark = getDark(x, y);
-                if (dark === (state % 2 === 0)) {
-                    runs[state]++;
+                if (getDark(x, y)) {
+                    if ((currentState & 1) === 1) {
+                        currentState++;
+                    }
+                    runs[currentState]++;
                 } else {
-                    if (state === 4) {
-                        if (this._checkFinderRatio(runs)) {
-                            const total = runs[0] + runs[1] + runs[2] + runs[3] + runs[4];
-                            const modSize = total / 7;
-                            const cx = Math.round(x - runs[4] - runs[3] - runs[2] / 2);
-                            const vResult = this._checkVerticalFinder(cx, y, height, modSize, getDark);
-                            if (vResult) {
-                                candidates.push({ x: cx, y: vResult.cy, size: total });
+                    if ((currentState & 1) === 0) {
+                        if (currentState === 4) {
+                            if (this._checkFinderRatio(runs)) {
+                                const total = runs[0] + runs[1] + runs[2] + runs[3] + runs[4];
+                                const modSize = total / 7;
+                                const cx = Math.round(x - runs[4] - runs[3] - runs[2] / 2);
+                                const vResult = this._checkVerticalFinder(cx, y, height, modSize, getDark);
+                                if (vResult) {
+                                    candidates.push({ x: cx, y: vResult.cy, size: total });
+                                }
+                            }
+                            runs[0] = runs[2];
+                            runs[1] = runs[3];
+                            runs[2] = runs[4];
+                            runs[3] = 1;
+                            runs[4] = 0;
+                            currentState = 3;
+                            continue;
+                        } else {
+                            if (currentState > 0 || runs[0] > 0) {
+                                currentState++;
                             }
                         }
-                        runs[0] = runs[2];
-                        runs[1] = runs[3];
-                        runs[2] = runs[4];
-                        runs[3] = 1;
-                        runs[4] = 0;
-                        state = 3;
-                    } else {
-                        state++;
-                        runs[state] = 1;
+                    }
+                    if (currentState > 0) {
+                        runs[currentState]++;
                     }
                 }
             }
@@ -4005,7 +4014,9 @@ const App = {
         }
 
         const img = new Image();
-        img.crossOrigin = 'anonymous';
+        if (typeof rawSrc === 'string' && rawSrc.startsWith('http') && !rawSrc.includes(window.location.host)) {
+            img.crossOrigin = 'anonymous';
+        }
         img.onload = () => {
             const origW = img.naturalWidth || img.width;
             const origH = img.naturalHeight || img.height;

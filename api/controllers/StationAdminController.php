@@ -274,8 +274,12 @@ class StationAdminController {
                 return $dataUrl;
             }
 
-            $uploadDir = dirname(__DIR__, 2) . '/public/uploads/qr';
-            if (!is_dir($uploadDir)) {
+            // Determine web root on production vs local development
+            $docRoot = !empty($_SERVER['DOCUMENT_ROOT']) ? rtrim($_SERVER['DOCUMENT_ROOT'], '/\\') : dirname(__DIR__, 2);
+            $uploadDir = $docRoot . '/uploads/qr';
+            if (!is_dir($uploadDir) && is_dir($docRoot . '/public/uploads/qr')) {
+                $uploadDir = $docRoot . '/public/uploads/qr';
+            } elseif (!is_dir($uploadDir)) {
                 @mkdir($uploadDir, 0755, true);
             }
 
