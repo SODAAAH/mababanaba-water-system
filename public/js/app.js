@@ -3393,8 +3393,9 @@ const App = {
                         const cy = bbox.y + bbox.height / 2;
                         const qrSide = Math.max(bbox.width, bbox.height);
 
-                        // Edge-to-edge crop: frame the QR code bounds tightly without padding
-                        const targetSide = Math.min(Math.min(origW, origH), Math.round(qrSide));
+                        // Subtle breathing room (around 3.5%) so modules and finder patterns are clearly visible and not clipped
+                        const pad = Math.round(qrSide * 0.035);
+                        const targetSide = Math.min(Math.min(origW, origH), Math.round(qrSide + pad * 2));
 
                         // Center the 1:1 square crop box around the QR code
                         let cropLeft = Math.round(cx - targetSide / 2);
@@ -3911,11 +3912,15 @@ const App = {
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
 
-        // Draw image sub-rectangle edge-to-edge into outputSize x outputSize
+        // Subtle white border (16px on 600px canvas = ~2.6%) so QR modules/corners are fully visible
+        const margin = 16;
+        const drawSide = outputSize - (margin * 2);
+
+        // Draw image sub-rectangle with subtle white border
         ctx.drawImage(
             img,
             cropX, cropY, cropSize, cropSize,
-            0, 0, outputSize, outputSize
+            margin, margin, drawSide, drawSide
         );
 
         let format = 'image/jpeg';
@@ -4165,10 +4170,12 @@ const App = {
             liveCtx.fillRect(0, 0, liveCanvas.width, liveCanvas.height);
             liveCtx.imageSmoothingEnabled = true;
             liveCtx.imageSmoothingQuality = 'high';
+            const previewMargin = 2;
+            const previewSide = liveCanvas.width - (previewMargin * 2);
             liveCtx.drawImage(
                 state.img,
                 state.cropX, state.cropY, state.cropSize, state.cropSize,
-                0, 0, liveCanvas.width, liveCanvas.height
+                previewMargin, previewMargin, previewSide, previewSide
             );
         }
     },
