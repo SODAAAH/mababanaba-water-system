@@ -199,16 +199,17 @@ class WebPush {
     }
 
     public static function flushFastResponse($responseData = ['success' => true]) {
-        if (headers_sent()) return;
         $json = json_encode($responseData);
-        header('Content-Type: application/json; charset=utf-8');
-        header('Content-Length: ' . strlen($json));
-        header('Connection: close');
+        if (!headers_sent()) {
+            header('Content-Type: application/json; charset=utf-8');
+            header('Content-Length: ' . strlen($json));
+            header('Connection: close');
+        }
         echo $json;
         if (ob_get_level() > 0) {
-            ob_end_flush();
+            @ob_end_flush();
         }
-        flush();
+        @flush();
         if (function_exists('fastcgi_finish_request')) {
             fastcgi_finish_request();
         }

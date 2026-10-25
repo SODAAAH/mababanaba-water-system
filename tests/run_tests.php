@@ -326,19 +326,57 @@ $pdo->exec("INSERT INTO DELIVERIES (order_id, admin_id, quantity) VALUES (201, 2
 
 // Rider 2 (admin_id 3) tries to mark order 201 delivered
 $rider2Id = 3;
-$stmtDel = $pdo->prepare("SELECT admin_id FROM DELIVERIES WHERE order_id = ? ORDER BY delivery_id DESC LIMIT 1");
+$stmtDel = $pdo->prepare("
+    SELECT d.admin_id, a.role 
+    FROM DELIVERIES d 
+    LEFT JOIN ADMIN a ON d.admin_id = a.admin_id 
+    WHERE d.order_id = ? 
+    ORDER BY d.delivery_id DESC 
+    LIMIT 1
+");
 $stmtDel->execute([201]);
-$assignedStaff = $stmtDel->fetchColumn();
+$delRecord = $stmtDel->fetch();
 
 $rider2Blocked = false;
-if ($assignedStaff && (int)$assignedStaff !== $rider2Id) {
+if ($delRecord && ($delRecord['role'] ?? '') === 'Delivery Staff' && (int)$delRecord['admin_id'] !== $rider2Id) {
     $rider2Blocked = true;
 }
 assertTest("authorization: rider 2 blocked from delivering rider 1's assigned order", $rider2Blocked === true);
 
 // Rider 1 (admin_id 2) allowed
-$rider1Allowed = ($assignedStaff && (int)$assignedStaff === 2);
+$rider1Allowed = ($delRecord && ($delRecord['role'] ?? '') === 'Delivery Staff' && (int)$delRecord['admin_id'] === 2);
 assertTest("authorization: assigned rider 1 allowed to deliver assigned order", $rider1Allowed === true);
+
+// Create order 202 'To Deliver' dispatched by Station Admin (admin_id 4)
+$pdo->exec("INSERT INTO ORDERS (order_id, station_id, customer_id, product_id, quantity, jug_type, container_option, order_status, total_price) 
+    VALUES (202, 1, 1, 1, 1, 'Round', 'pour', 'To Deliver', 30.00)");
+$pdo->exec("INSERT INTO DELIVERIES (order_id, admin_id, quantity) VALUES (202, 4, 1)");
+
+// Rider 1 (admin_id 2) delivers order dispatched by Station Admin (admin_id 4)
+$stmtDel202 = $pdo->prepare("
+    SELECT d.admin_id, a.role 
+    FROM DELIVERIES d 
+    LEFT JOIN ADMIN a ON d.admin_id = a.admin_id 
+    WHERE d.order_id = ? 
+    ORDER BY d.delivery_id DESC 
+    LIMIT 1
+");
+$stmtDel202->execute([202]);
+$delRecord202 = $stmtDel202->fetch();
+
+$rider1CanDeliverAdminDispatched = false;
+// Since admin_id 4 is role 'Admin', it should NOT block Delivery Staff
+if (!($delRecord202 && ($delRecord202['role'] ?? '') === 'Delivery Staff' && (int)$delRecord202['admin_id'] !== 2)) {
+    $rider1CanDeliverAdminDispatched = true;
+}
+assertTest("authorization: delivery staff allowed to deliver order dispatched by station admin", $rider1CanDeliverAdminDispatched === true);
+
+// Simulate delivery completion: DELIVERIES record updated to Rider 1 with Completed status
+$pdo->prepare("UPDATE DELIVERIES SET delivery_status = 'Completed', delivery_date = CURRENT_TIMESTAMP, admin_id = ? WHERE order_id = ?")->execute([2, 202]);
+$stmtVerifyCompleted = $pdo->prepare("SELECT delivery_status, admin_id FROM DELIVERIES WHERE order_id = 202");
+$stmtVerifyCompleted->execute();
+$completedRow = $stmtVerifyCompleted->fetch();
+assertTest("delivery completion: record marked Completed with rider 1 as delivering staff", $completedRow['delivery_status'] === 'Completed' && (int)$completedRow['admin_id'] === 2);
 
 // =========================================================================
 // TEST GROUP 10: SUPER ADMIN DEFENSE & STATION DELETION INTEGRITY (SEC-11)

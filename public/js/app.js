@@ -2645,7 +2645,8 @@ const App = {
             if (!res.success) throw new Error(res.error || 'Failed to update order status');
         } catch (e) {
             console.error('Order status update error:', e);
-            CustomToast.show('Failed to update status on server. Reverting...', 'error');
+            const errMsg = (e && e.message) ? e.message.replace(/^API_ERR:\s*/, '') : 'Failed to update status on server.';
+            CustomToast.show(`${errMsg} Reverting...`, 'error');
             if (prevStatus) {
                 if (State.adminData?.orders) {
                     State.adminData.orders.forEach(o => {

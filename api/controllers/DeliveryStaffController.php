@@ -97,10 +97,17 @@ class DeliveryStaffController {
             }
 
             if ($admin['role'] === 'Delivery Staff' && $oInfo['order_status'] === 'To Deliver') {
-                $stmtDel = $this->pdo->prepare("SELECT admin_id FROM DELIVERIES WHERE order_id = ? ORDER BY delivery_id DESC LIMIT 1");
+                $stmtDel = $this->pdo->prepare("
+                    SELECT d.admin_id, a.role 
+                    FROM DELIVERIES d 
+                    LEFT JOIN ADMIN a ON d.admin_id = a.admin_id 
+                    WHERE d.order_id = ? 
+                    ORDER BY d.delivery_id DESC 
+                    LIMIT 1
+                ");
                 $stmtDel->execute([$oid]);
-                $assignedStaff = $stmtDel->fetchColumn();
-                if ($assignedStaff && (int)$assignedStaff !== (int)$aid) {
+                $delRecord = $stmtDel->fetch();
+                if ($delRecord && ($delRecord['role'] ?? '') === 'Delivery Staff' && (int)$delRecord['admin_id'] !== (int)$aid) {
                     $this->pdo->rollBack();
                     SecurityContext::jsonResponse(403, ['error' => 'Forbidden: This order is assigned to another delivery staff member.']);
                 }
@@ -148,16 +155,25 @@ class DeliveryStaffController {
             }
             
             if ($status === 'To Deliver') {
+                $assignStaffId = $aid;
+                if (!empty($_POST['staff_id'])) {
+                    $reqStaffId = (int)$_POST['staff_id'];
+                    $stmtCheckStaff = $this->pdo->prepare("SELECT admin_id FROM ADMIN WHERE admin_id = ? AND station_id = ? AND role = 'Delivery Staff' AND status = 'Active'");
+                    $stmtCheckStaff->execute([$reqStaffId, $sid]);
+                    if ($stmtCheckStaff->fetchColumn()) {
+                        $assignStaffId = $reqStaffId;
+                    }
+                }
                 if (!empty($son)) {
-                    $this->pdo->prepare("INSERT INTO DELIVERIES (order_id, admin_id, quantity) SELECT order_id, ?, quantity FROM ORDERS WHERE station_order_number = ? AND customer_id = ? AND station_id = ?")->execute([$aid, $son, $oInfo['customer_id'], $sid]);
+                    $this->pdo->prepare("INSERT INTO DELIVERIES (order_id, admin_id, quantity) SELECT order_id, ?, quantity FROM ORDERS WHERE station_order_number = ? AND customer_id = ? AND station_id = ?")->execute([$assignStaffId, $son, $oInfo['customer_id'], $sid]);
                 } else {
-                    $this->pdo->prepare("INSERT INTO DELIVERIES (order_id, admin_id, quantity) SELECT order_id, ?, quantity FROM ORDERS WHERE order_id = ? AND station_id = ?")->execute([$aid, $oid, $sid]);
+                    $this->pdo->prepare("INSERT INTO DELIVERIES (order_id, admin_id, quantity) SELECT order_id, ?, quantity FROM ORDERS WHERE order_id = ? AND station_id = ?")->execute([$assignStaffId, $oid, $sid]);
                 }
             } elseif ($status === 'Delivered') {
                 $jugs_returned = isset($_POST['jugs_returned']) ? filter_var($_POST['jugs_returned'], FILTER_VALIDATE_BOOLEAN) : true;
                 
                 if ($jugs_returned) {
-                    if ($grp['container_option'] === 'owned') {
+                    if (in_array($grp['container_option'], ['owned', 'pour'], true)) {
                         $this->pdo->prepare("UPDATE INVENTORY SET stock_level = stock_level + ?, round_jugs = round_jugs + ?, slim_jugs = slim_jugs + ? WHERE station_id = ?")
                             ->execute([$grp['tot_qty'], $grp['tot_round'], $grp['tot_slim'], $sid]);
                     }
@@ -176,22 +192,34 @@ class DeliveryStaffController {
                         }
                     }
                 } else {
-                    if ($grp['container_option'] === 'owned') {
+                    if (in_array($grp['container_option'], ['owned', 'pour'], true)) {
                         if (!empty($son)) {
-                            $this->pdo->prepare("UPDATE ORDERS SET container_option = 'borrow', borrow_round = IF(jug_type='Round', quantity, 0), borrow_slim = IF(jug_type='Slim', quantity, 0), borrow_status = 'Pending' WHERE station_order_number = ? AND customer_id = ? AND station_id = ? AND container_option = 'owned'")
+                            $this->pdo->prepare("UPDATE ORDERS SET container_option = 'borrow', borrow_round = IF(jug_type='Round', quantity, 0), borrow_slim = IF(jug_type='Slim', quantity, 0), borrow_status = 'Pending' WHERE station_order_number = ? AND customer_id = ? AND station_id = ? AND (container_option = 'owned' OR container_option = 'pour')")
                                 ->execute([$son, $oInfo['customer_id'], $sid]);
                         } else {
-                            $this->pdo->prepare("UPDATE ORDERS SET container_option = 'borrow', borrow_round = IF(jug_type='Round', quantity, 0), borrow_slim = IF(jug_type='Slim', quantity, 0), borrow_status = 'Pending' WHERE order_id = ? AND station_id = ? AND container_option = 'owned'")
+                            $this->pdo->prepare("UPDATE ORDERS SET container_option = 'borrow', borrow_round = IF(jug_type='Round', quantity, 0), borrow_slim = IF(jug_type='Slim', quantity, 0), borrow_status = 'Pending' WHERE order_id = ? AND station_id = ? AND (container_option = 'owned' OR container_option = 'pour')")
                                 ->execute([$oid, $sid]);
                         }
                     }
                 }
 
                 if (!empty($son)) {
-                    $this->pdo->prepare("UPDATE DELIVERIES d JOIN ORDERS o ON d.order_id = o.order_id SET d.delivery_status = 'Completed', d.delivery_date = CURRENT_TIMESTAMP WHERE o.station_order_number = ? AND o.customer_id = ? AND o.station_id = ?")->execute([$son, $oInfo['customer_id'], $sid]);
+                    $this->pdo->prepare("UPDATE DELIVERIES d JOIN ORDERS o ON d.order_id = o.order_id SET d.delivery_status = 'Completed', d.delivery_date = CURRENT_TIMESTAMP, d.admin_id = ? WHERE o.station_order_number = ? AND o.customer_id = ? AND o.station_id = ?")->execute([$aid, $son, $oInfo['customer_id'], $sid]);
                 } else {
-                    $this->pdo->prepare("UPDATE DELIVERIES SET delivery_status = 'Completed', delivery_date = CURRENT_TIMESTAMP WHERE order_id = ?")->execute([$oid]);
+                    $this->pdo->prepare("UPDATE DELIVERIES SET delivery_status = 'Completed', delivery_date = CURRENT_TIMESTAMP, admin_id = ? WHERE order_id = ?")->execute([$aid, $oid]);
                 }
+
+                // If no DELIVERIES record existed, ensure one is recorded
+                $stmtCheckDel = $this->pdo->prepare("SELECT delivery_id FROM DELIVERIES WHERE order_id = ? LIMIT 1");
+                $stmtCheckDel->execute([$oid]);
+                if (!$stmtCheckDel->fetchColumn()) {
+                    if (!empty($son)) {
+                        $this->pdo->prepare("INSERT INTO DELIVERIES (order_id, admin_id, quantity, delivery_status, delivery_date) SELECT order_id, ?, quantity, 'Completed', CURRENT_TIMESTAMP FROM ORDERS WHERE station_order_number = ? AND customer_id = ? AND station_id = ?")->execute([$aid, $son, $oInfo['customer_id'], $sid]);
+                    } else {
+                        $this->pdo->prepare("INSERT INTO DELIVERIES (order_id, admin_id, quantity, delivery_status, delivery_date) SELECT order_id, ?, quantity, 'Completed', CURRENT_TIMESTAMP FROM ORDERS WHERE order_id = ? AND station_id = ?")->execute([$aid, $oid, $sid]);
+                    }
+                }
+
                 $redeemPointsEarned = (int)$grp['tot_qty'] * 2;
                 $rankPointsEarned = (int)$grp['tot_qty'] * 3;
                 if ($rankPointsEarned > 0 || $redeemPointsEarned > 0) { 
@@ -208,19 +236,20 @@ class DeliveryStaffController {
             SecurityContext::jsonResponse(500, ['error' => 'Failed to update order status. Please try again.']);
         }
 
-        $pushTitle = "Order #{$son} Update";
+        $displaySon = !empty($son) ? $son : $oid;
+        $pushTitle = "Order #{$displaySon} Update";
         $pushBody = "Your order status has been updated to {$status}.";
         if ($status === 'Preparing') {
-            $pushTitle = "Order #{$son} Being Prepared";
+            $pushTitle = "Order #{$displaySon} Being Prepared";
             $pushBody = "Your water refilling order is now being prepared.";
         } elseif ($status === 'To Deliver') {
-            $pushTitle = "Order #{$son} Out for Delivery!";
+            $pushTitle = "Order #{$displaySon} Out for Delivery!";
             $pushBody = "Your delivery is on its way! Please expect the driver shortly.";
         } elseif ($status === 'Delivered') {
-            $pushTitle = "Order #{$son} Delivered!";
+            $pushTitle = "Order #{$displaySon} Delivered!";
             $pushBody = "Your water has been delivered. Thank You!";
         } elseif ($status === 'Cancelled') {
-            $pushTitle = "Order #{$son} Cancelled";
+            $pushTitle = "Order #{$displaySon} Cancelled";
             $pushBody = "Your order has been cancelled by the station.";
         }
 
@@ -228,9 +257,9 @@ class DeliveryStaffController {
 
         WebPush::sendToCustomer($this->pdo, $oInfo['customer_id'], $pushTitle, $pushBody, '/#customer_orders');
         if ($status === 'To Deliver') {
-            WebPush::sendToStationAdmins($this->pdo, $sid, "Order #{$son} Out for Delivery", "Order #{$son} has been dispatched for delivery.", '/#delivery_dashboard');
+            WebPush::sendToStationAdmins($this->pdo, $sid, "Order #{$displaySon} Out for Delivery", "Order #{$displaySon} has been dispatched for delivery.", '/#delivery_dashboard');
         } elseif (($admin['role'] ?? '') === 'Delivery Staff' && in_array($status, ['Delivered', 'Cancelled'], true)) {
-            WebPush::sendToStationAdmins($this->pdo, $sid, "Order #{$son} {$status}", "Order was marked {$status} by {$admin['username']}.", '/#admin_dashboard');
+            WebPush::sendToStationAdmins($this->pdo, $sid, "Order #{$displaySon} {$status}", "Order was marked {$status} by {$admin['username']}.", '/#admin_dashboard');
         }
         exit;
     }
