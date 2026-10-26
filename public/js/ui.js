@@ -1223,16 +1223,6 @@ const UI = {
             }
         });
 
-        // If no open station was eligible for nearest, fall back to closest regardless of closure
-        if (!nearestStationId && hasUserLoc) {
-            (stations || []).forEach(s => {
-                if (s._distanceKm !== null && !isNaN(s._distanceKm) && s._distanceKm < minDistance) {
-                    minDistance = s._distanceKm;
-                    nearestStationId = s.station_id;
-                }
-            });
-        }
-
         // Arrange available stations from nearest to farthest (top to bottom)
         (stations || []).sort((a, b) => {
             const isClosedA = a.status !== 'Active' || a.is_manually_closed == 1;
@@ -1246,53 +1236,6 @@ const UI = {
             if (b._distanceKm !== null) return 1;
             return a.station_id - b.station_id;
         });
-
-        let locationWidgetHtml = '';
-        if (hasUserLoc) {
-            locationWidgetHtml = `
-                <div class="bg-blue-50/80 rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 border border-blue-200 shadow-sm mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div class="flex items-center gap-2.5 min-w-0">
-                        <div class="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center text-xs shrink-0 shadow-sm shadow-blue-500/20">
-                            <i class="fa-solid fa-location-crosshairs"></i>
-                        </div>
-                        <div class="min-w-0">
-                            <div class="text-[10px] font-black uppercase tracking-wider text-blue-600">Your Current Location</div>
-                            <div class="text-xs font-bold text-slate-800 truncate">${escapeHtml(State.userLocation.address || 'Location Pinned on Map')}</div>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-2 self-end sm:self-center shrink-0">
-                        <button type="button" onclick="App.locateCustomer(true)" class="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs border border-slate-200 transition active:scale-95 flex items-center gap-1.5 cursor-pointer">
-                            <i class="fa-solid fa-satellite-dish text-blue-500"></i> Refresh GPS
-                        </button>
-                        <button type="button" onclick="App.openMapLocationModal({ title: 'Set Delivery Location', initialLat: State.userLocation.lat, initialLng: State.userLocation.lng, initialAddress: State.userLocation.address, onSave: (pos) => App.saveCustomerLocation(pos.lat, pos.lng, pos.address) })" class="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition active:scale-95 shadow-sm shadow-blue-500/20 flex items-center gap-1.5 cursor-pointer">
-                            <i class="fa-solid fa-map-pin"></i> Pin on Map
-                        </button>
-                    </div>
-                </div>
-            `;
-        } else {
-            locationWidgetHtml = `
-                <div class="bg-blue-50/80 rounded-2xl sm:rounded-3xl p-4 border border-blue-200/80 shadow-sm mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div class="flex items-center gap-3 min-w-0">
-                        <div class="w-9 h-9 rounded-xl bg-blue-500/20 text-blue-600 flex items-center justify-center text-sm shrink-0">
-                            <i class="fa-solid fa-map-location-dot"></i>
-                        </div>
-                        <div>
-                            <h4 class="text-xs font-black text-slate-800">Find the Nearest Water Station</h4>
-                            <p class="text-[11px] text-slate-500">Enable GPS or pin your location to arrange stations by nearest distance</p>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-2 self-end sm:self-center shrink-0">
-                        <button type="button" onclick="App.locateCustomer(true)" class="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition active:scale-95 shadow-sm shadow-blue-500/20 flex items-center gap-1.5 cursor-pointer">
-                            <i class="fa-solid fa-location-arrow"></i> Detect Nearest Station
-                        </button>
-                        <button type="button" onclick="App.openMapLocationModal({ title: 'Pin Your Location', initialLat: 15.5056, initialLng: 120.4462, initialAddress: 'Mababanaba, San Jose, Tarlac', onSave: (pos) => App.saveCustomerLocation(pos.lat, pos.lng, pos.address) })" class="px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs border border-slate-200 transition active:scale-95 cursor-pointer">
-                            <i class="fa-solid fa-map-pin"></i> Pin Map
-                        </button>
-                    </div>
-                </div>
-            `;
-        }
 
         let html = `
             <div onclick="UI.navigate('customer_loyalty')" class="bg-gradient-to-r ${rank.color} rounded-3xl p-5 sm:p-6 text-white shadow-md mb-6 sm:mb-8 relative overflow-hidden cursor-pointer hover:shadow-lg hover:scale-[1.01] active:scale-[0.99] transition-all group">
@@ -1323,13 +1266,9 @@ const UI = {
 
             ${pushBannerHtml}
             ${smartHubHtml}
-            ${locationWidgetHtml}
             
             <div class="flex justify-between items-end mb-4">
-                <div>
-                    <h2 class="text-xl font-black text-slate-800">Available Stations</h2>
-                    ${hasUserLoc ? '<p class="text-[11px] text-slate-500 font-medium">Arranged from nearest to farthest</p>' : ''}
-                </div>
+                <h2 class="text-xl font-black text-slate-800">Available Stations</h2>
                 <button onclick="UI.navigate('customer_orders')" class="text-sm font-bold text-blue-600 hover:underline relative cursor-pointer">
                     My Orders <i class="fa-solid fa-arrow-right"></i>
                     <span id="dashboard-orders-badge" class="hidden absolute -top-1 -right-2 flex h-3 w-3">
@@ -1375,27 +1314,16 @@ const UI = {
                 s.user_lifetime_points = stLifePts;
 
                 const stRank = App.getLoyaltyRank(stLifePts || stPts);
-                const isNearest = (s.station_id === nearestStationId);
 
                 let distanceBadgeHtml = '';
                 if (s._distanceKm !== null && !isNaN(s._distanceKm)) {
                     const formattedKm = s._distanceKm < 0.1 ? '< 0.1' : (s._distanceKm < 10 ? s._distanceKm.toFixed(1) : s._distanceKm.toFixed(0));
-                    if (isNearest) {
-                        distanceBadgeHtml = `
-                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200/90 shrink-0">
-                                <i class="fa-solid fa-location-arrow text-[9px] text-emerald-600"></i>
-                                <span>${formattedKm} km away</span>
-                                <span class="bg-emerald-600 text-white text-[9px] font-bold px-1 py-0.2 rounded uppercase tracking-wider ml-0.5">Nearest</span>
-                            </span>
-                        `;
-                    } else {
-                        distanceBadgeHtml = `
-                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200/90 shrink-0">
-                                <i class="fa-solid fa-route text-[9px] text-slate-500"></i>
-                                <span>${formattedKm} km away</span>
-                            </span>
-                        `;
-                    }
+                    distanceBadgeHtml = `
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200/90 shrink-0">
+                            <i class="fa-solid fa-route text-[9px] text-slate-500"></i>
+                            <span>${formattedKm} km away</span>
+                        </span>
+                    `;
                 }
 
                 let ratingHtml = `<span class="text-slate-400 text-xs font-medium">No ratings</span>`;
@@ -1404,25 +1332,19 @@ const UI = {
                 }
 
                 html += `
-                    <div onclick="${isClosed ? '' : `App.selectStation(${s.station_id})`}" class="bg-white rounded-2xl sm:rounded-3xl shadow-md border ${isNearest ? 'border-emerald-300 ring-2 ring-emerald-500/25 shadow-emerald-500/5' : 'border-blue-200/80 ring-2 ring-blue-500/20 shadow-blue-500/5'} py-2.5 px-3.5 sm:py-3 sm:px-4 flex items-center gap-3 sm:gap-4 ${isClosed ? 'opacity-65 cursor-not-allowed bg-slate-50/60' : 'cursor-pointer active:scale-[0.98] active:bg-blue-50/40 active:border-blue-300'} transition-all relative overflow-hidden group">
-                        <div class="w-12 h-12 ${isNearest ? 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600' : 'bg-blue-50 text-blue-600 group-hover:bg-blue-600'} rounded-2xl flex items-center justify-center text-xl shrink-0 group-hover:scale-105 group-hover:text-white transition-all shadow-inner">
+                    <div onclick="${isClosed ? '' : `App.selectStation(${s.station_id})`}" class="bg-white rounded-2xl sm:rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 py-2.5 px-3.5 sm:py-3 sm:px-4 flex items-center gap-3 sm:gap-4 ${isClosed ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer active:scale-[0.98] active:bg-blue-50/40 active:border-blue-300'} transition-all relative overflow-hidden group">
+                        <div class="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600 text-xl shrink-0 group-hover:scale-105 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-inner">
                             <i class="fa-solid fa-store"></i>
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center justify-between gap-2 mb-1">
                                 <h4 class="font-black text-slate-800 text-base leading-tight truncate group-hover:text-blue-600 transition-colors">${escapeHtml(s.station_name)}</h4>
-                                ${isClosed ? `
-                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-100 text-red-700 border border-red-200 shrink-0">
-                                        <i class="fa-solid fa-door-closed mr-1"></i>Closed
-                                    </span>
-                                ` : `
-                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border shrink-0 ${stRank.badgeBg}">
-                                        <i class="fa-solid ${stRank.icon} mr-1"></i>${stRank.name}
-                                    </span>
-                                `}
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border shrink-0 ${stRank.badgeBg}">
+                                    <i class="fa-solid ${stRank.icon} mr-1"></i>${stRank.name}
+                                </span>
                             </div>
-                            <div class="flex flex-wrap sm:flex-nowrap items-center justify-between gap-1.5 text-xs text-slate-500 mb-2">
-                                <p class="font-medium truncate flex items-center gap-1 min-w-0 flex-1">
+                            <div class="flex items-center justify-between gap-2 text-xs text-slate-500 mb-2">
+                                <p class="font-medium truncate flex items-center gap-1 min-w-0">
                                     <i class="fa-solid fa-location-dot text-slate-400 text-[10px] shrink-0"></i>
                                     <span class="truncate">${escapeHtml(s.address)}</span>
                                 </p>
