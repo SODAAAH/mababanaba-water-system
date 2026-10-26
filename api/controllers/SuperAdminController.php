@@ -55,11 +55,26 @@ class SuperAdminController {
 
     public function toggleStation() {
         $this->requireSuperAdmin();
-        $this->pdo->prepare("UPDATE STATION SET status = ? WHERE station_id = ?")->execute([$_POST['status'], $_POST['station_id']]);
-        if (class_exists('CustomerController')) {
-            CustomerController::clearStationsCache();
+        $sid = (int)($_POST['station_id'] ?? 0);
+        $statusRaw = trim($_POST['status'] ?? '');
+        $status = ($statusRaw === 'Suspend' || $statusRaw === 'Suspended') ? 'Suspended' : 'Active';
+
+        if ($sid <= 0) {
+            echo json_encode(['error' => 'Invalid station ID.']);
+            exit;
         }
-        echo json_encode(['success' => true]); 
+
+        try {
+            $stmt = $this->pdo->prepare("UPDATE STATION SET status = ? WHERE station_id = ?");
+            $stmt->execute([$status, $sid]);
+            if (class_exists('CustomerController')) {
+                CustomerController::clearStationsCache();
+            }
+            echo json_encode(['success' => true, 'status' => $status]); 
+        } catch (Exception $e) {
+            error_log("saToggleStation error: " . $e->getMessage());
+            echo json_encode(['error' => 'Failed to update station status: ' . $e->getMessage()]);
+        }
         exit;
     }
 
@@ -263,15 +278,26 @@ class SuperAdminController {
     public function toggleAdminStatus() {
         $this->requireSuperAdmin();
         $adminId = (int)($_POST['admin_id'] ?? 0);
-        $status = $_POST['status'] ?? 'Active';
+        $statusRaw = trim($_POST['status'] ?? '');
+        $status = ($statusRaw === 'Suspend' || $statusRaw === 'Suspended' || $statusRaw === 'Revoked') ? 'Revoked' : 'Active';
+
+        if ($adminId <= 0) {
+            echo json_encode(['error' => 'Invalid staff or admin ID.']);
+            exit;
+        }
 
         if ($adminId == ($_SESSION['admin_id'] ?? 0)) {
             echo json_encode(['error' => 'You cannot suspend your own Super Admin account.']);
             exit;
         }
 
-        $this->pdo->prepare("UPDATE ADMIN SET status = ? WHERE admin_id = ?")->execute([$status, $adminId]);
-        echo json_encode(['success' => true]);
+        try {
+            $this->pdo->prepare("UPDATE ADMIN SET status = ? WHERE admin_id = ?")->execute([$status, $adminId]);
+            echo json_encode(['success' => true, 'status' => $status]);
+        } catch (Exception $e) {
+            error_log("saToggleAdminStatus error: " . $e->getMessage());
+            echo json_encode(['error' => 'Failed to update admin status: ' . $e->getMessage()]);
+        }
         exit;
     }
 

@@ -3,6 +3,16 @@ ini_set('display_errors', 0);
 error_reporting(E_ALL);
 date_default_timezone_set('Asia/Manila'); 
 
+set_exception_handler(function(Throwable $e) {
+    error_log("Uncaught API Exception: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
+    if (!headers_sent()) {
+        http_response_code(500);
+        header('Content-Type: application/json; charset=utf-8');
+    }
+    echo json_encode(['error' => 'An unexpected server error occurred.']);
+    exit;
+}); 
+
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/ResponseHelper.php';
 require_once __DIR__ . '/SecurityContext.php';

@@ -5137,7 +5137,7 @@ const UI = {
                                     <button onclick="App.openEditStationModal(JSON.parse(decodeURIComponent('${encodeURIComponent(JSON.stringify(s))}')))" class="px-3 py-2 rounded-xl text-xs font-bold bg-blue-50 text-blue-600 hover:bg-blue-100 transition cursor-pointer flex items-center gap-1.5" title="Rename or Edit Station">
                                         <i class="fa-solid fa-pen-to-square"></i> Rename / Edit
                                     </button>
-                                    <button onclick="App.toggleStationStatus(${s.station_id}, '${isActive ? 'Suspend' : 'Active'}')" class="px-3.5 py-2 rounded-xl text-xs font-bold ${isActive ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'} transition cursor-pointer">
+                                    <button onclick="App.toggleStationStatus(${s.station_id}, '${isActive ? 'Suspended' : 'Active'}')" class="px-3.5 py-2 rounded-xl text-xs font-bold ${isActive ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'} transition cursor-pointer">
                                         ${isActive ? 'Suspend' : 'Activate'}
                                     </button>
                                     ${!isActive ? `

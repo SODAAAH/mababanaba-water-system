@@ -3273,11 +3273,24 @@ const App = {
     },
 
     async toggleStationStatus(id, newStatus) {
-        const data = new FormData();
-        data.append('station_id', id);
-        data.append('status', newStatus);
-        await API.request('sa_toggle_station', 'POST', data);
-        UI.renderSuperAdminDashboard();
+        try {
+            const data = new FormData();
+            data.append('station_id', id);
+            const formattedStatus = (newStatus === 'Suspend' || newStatus === 'Suspended') ? 'Suspended' : 'Active';
+            data.append('status', formattedStatus);
+            const res = await API.request('sa_toggle_station', 'POST', data);
+            if (res && res.error) {
+                CustomToast.show(res.error, 'error');
+            } else {
+                CustomToast.show(`Station ${formattedStatus === 'Suspended' ? 'suspended' : 'activated'} successfully.`, 'success');
+                try { localStorage.removeItem('cache_get_stations'); } catch(e) {}
+                try { localStorage.removeItem('cache_sa_get_stations'); } catch(e) {}
+            }
+            UI.renderSuperAdminDashboard();
+        } catch(e) {
+            console.error("toggleStationStatus error:", e);
+            CustomToast.show("Failed to update station status.", "error");
+        }
     },
 
     async deleteStation(id) {
@@ -3285,9 +3298,18 @@ const App = {
             const data = new FormData();
             data.append('station_id', id);
             try {
-                await API.request('sa_delete_station', 'POST', data);
+                const res = await API.request('sa_delete_station', 'POST', data);
+                if (res && res.error) {
+                    CustomToast.show(res.error, 'error');
+                } else {
+                    CustomToast.show('Station deleted successfully.', 'success');
+                    try { localStorage.removeItem('cache_get_stations'); } catch(e) {}
+                    try { localStorage.removeItem('cache_sa_get_stations'); } catch(e) {}
+                }
                 UI.renderSuperAdminDashboard();
-            } catch(e) {}
+            } catch(e) {
+                CustomToast.show('Failed to delete station.', 'error');
+            }
         }
     },
 
