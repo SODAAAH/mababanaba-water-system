@@ -245,9 +245,10 @@ const App = {
                         } catch (e) {}
                     }
 
+                    try { localStorage.setItem('mbbnb_user_location', JSON.stringify(State.userLocation)); } catch (e) {}
                     CustomToast.show("Location detected successfully!", "success");
-                    if (UI._currentView === 'customer_home') {
-                        UI.renderCustomerHome();
+                    if (UI._currentView === 'customer_home' || UI._currentView === 'customer_dashboard') {
+                        UI.renderCustomerDashboard();
                     }
                     resolve(State.userLocation);
                 },
@@ -712,13 +713,14 @@ const App = {
             if (res && res.success) {
                 CustomToast.show("Delivery pin saved successfully!", "success");
                 State.userLocation = { lat, lng, address: address || State.userLocation?.address || '' };
+                try { localStorage.setItem('mbbnb_user_location', JSON.stringify(State.userLocation)); } catch (e) {}
                 if (State.user && State.user.data) {
                     State.user.data.latitude = lat;
                     State.user.data.longitude = lng;
                     if (address) State.user.data.address = address;
                 }
-                if (UI._currentView === 'customer_home') {
-                    UI.renderCustomerHome();
+                if (UI._currentView === 'customer_home' || UI._currentView === 'customer_dashboard') {
+                    UI.renderCustomerDashboard();
                 }
             } else {
                 CustomToast.show(res?.error || "Failed to save delivery location.", "error");
@@ -1387,6 +1389,14 @@ const App = {
 
                 if (window.UI && window.UI._prefetchCache) window.UI._prefetchCache = {};
                 State.user = { type, data: type === 'customer' ? res : res.admin };
+                if (type === 'customer' && res && (res.latitude || res.longitude)) {
+                    State.userLocation = {
+                        lat: parseFloat(res.latitude),
+                        lng: parseFloat(res.longitude),
+                        address: res.address || ''
+                    };
+                    try { localStorage.setItem('mbbnb_user_location', JSON.stringify(State.userLocation)); } catch (e) {}
+                }
                 State.pushSubscriptionSynced = null;
                 if (type === 'admin' && res.admin?.role === 'Super Admin') {
                     if (State.saCustomerInterval) clearInterval(State.saCustomerInterval);
@@ -5055,6 +5065,7 @@ async function boot() {
                         lng: parseFloat(res.data.longitude),
                         address: res.data.address || ''
                     };
+                    try { localStorage.setItem('mbbnb_user_location', JSON.stringify(State.userLocation)); } catch (e) {}
                 }
             } else if (res.type === 'admin' && res.data?.role === 'Super Admin') {
                 App.checkSuperAdminNewCustomers();

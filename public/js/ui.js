@@ -1159,6 +1159,40 @@ const UI = {
             `;
         }
 
+        if ((!State.userLocation || !State.userLocation.lat) && State.user?.data?.latitude && State.user?.data?.longitude) {
+            State.userLocation = {
+                lat: parseFloat(State.user.data.latitude),
+                lng: parseFloat(State.user.data.longitude),
+                address: State.user.data.address || ''
+            };
+        }
+        if (!State.userLocation || !State.userLocation.lat) {
+            try {
+                const saved = localStorage.getItem('mbbnb_user_location');
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    if (parsed && parsed.lat && parsed.lng) State.userLocation = parsed;
+                }
+            } catch(e) {}
+        }
+
+        if ((!State.userLocation || !State.userLocation.lat) && typeof navigator !== 'undefined' && 'geolocation' in navigator && !State._hasAttemptedAutoLocate) {
+            State._hasAttemptedAutoLocate = true;
+            navigator.geolocation.getCurrentPosition((pos) => {
+                if (pos?.coords) {
+                    State.userLocation = {
+                        lat: pos.coords.latitude,
+                        lng: pos.coords.longitude,
+                        address: State.user?.data?.address || ''
+                    };
+                    try { localStorage.setItem('mbbnb_user_location', JSON.stringify(State.userLocation)); } catch(e){}
+                    if (UI._currentView === 'customer_dashboard') {
+                        UI.renderCustomerDashboard();
+                    }
+                }
+            }, () => {}, { timeout: 6000, maximumAge: 300000 });
+        }
+
         const hasUserLoc = !!(State.userLocation && State.userLocation.lat && State.userLocation.lng);
         let nearestStationId = null;
         let minDistance = Infinity;
@@ -1175,6 +1209,20 @@ const UI = {
                     }
                 }
             }
+        });
+
+        // Arrange available stations from nearest to farthest (top to bottom)
+        (stations || []).sort((a, b) => {
+            const isClosedA = a.status !== 'Active';
+            const isClosedB = b.status !== 'Active';
+            if (isClosedA !== isClosedB) return isClosedA ? 1 : -1;
+
+            if (a._distanceKm !== null && b._distanceKm !== null) {
+                return a._distanceKm - b._distanceKm;
+            }
+            if (a._distanceKm !== null) return -1;
+            if (b._distanceKm !== null) return 1;
+            return a.station_id - b.station_id;
         });
 
         let locationWidgetHtml = '';
@@ -1209,7 +1257,7 @@ const UI = {
                         </div>
                         <div>
                             <h4 class="text-xs font-black text-slate-800">Find the Nearest Water Station</h4>
-                            <p class="text-[11px] text-slate-500">Enable GPS or pin your location to see distances (km) and prioritized order ETAs</p>
+                            <p class="text-[11px] text-slate-500">Enable GPS or pin your location to arrange stations by nearest distance</p>
                         </div>
                     </div>
                     <div class="flex items-center gap-2 self-end sm:self-center shrink-0">
@@ -1253,9 +1301,13 @@ const UI = {
 
             ${pushBannerHtml}
             ${smartHubHtml}
+            ${locationWidgetHtml}
             
             <div class="flex justify-between items-end mb-4">
-                <h2 class="text-xl font-black text-slate-800">Available Stations</h2>
+                <div>
+                    <h2 class="text-xl font-black text-slate-800">Available Stations</h2>
+                    ${hasUserLoc ? '<p class="text-[11px] text-slate-500 font-medium">Arranged from nearest to farthest</p>' : ''}
+                </div>
                 <button onclick="UI.navigate('customer_orders')" class="text-sm font-bold text-blue-600 hover:underline relative cursor-pointer">
                     My Orders <i class="fa-solid fa-arrow-right"></i>
                     <span id="dashboard-orders-badge" class="hidden absolute -top-1 -right-2 flex h-3 w-3">
@@ -1302,7 +1354,27 @@ const UI = {
 
                 const stRank = App.getLoyaltyRank(stLifePts || stPts);
                 const isNearest = (s.station_id === nearestStationId);
-                const eta = App.calculateDynamicETA(s._distanceKm, s.active_queue_count || 0, stLifePts || stPts);
+
+                let distanceBadgeHtml = '';
+                if (s._distanceKm !== null && !isNaN(s._distanceKm)) {
+                    const formattedKm = s._distanceKm < 10 ? s._distanceKm.toFixed(1) : s._distanceKm.toFixed(0);
+                    if (isNearest) {
+                        distanceBadgeHtml = `
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200/90 shrink-0">
+                                <i class="fa-solid fa-location-arrow text-[9px] text-emerald-600"></i>
+                                <span>${formattedKm} km away</span>
+                                <span class="bg-emerald-600 text-white text-[9px] font-bold px-1 py-0.2 rounded uppercase tracking-wider ml-0.5">Nearest</span>
+                            </span>
+                        `;
+                    } else {
+                        distanceBadgeHtml = `
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200/90 shrink-0">
+                                <i class="fa-solid fa-route text-[9px] text-slate-500"></i>
+                                <span>${formattedKm} km away</span>
+                            </span>
+                        `;
+                    }
+                }
 
                 let ratingHtml = `<span class="text-slate-400 text-xs font-medium">No ratings</span>`;
                 if(s.avg_rating > 0) {
@@ -1310,8 +1382,8 @@ const UI = {
                 }
 
                 html += `
-                    <div onclick="${isClosed ? '' : `App.selectStation(${s.station_id})`}" class="bg-white rounded-2xl sm:rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 py-2.5 px-3.5 sm:py-3 sm:px-4 flex items-center gap-3 sm:gap-4 ${isClosed ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer active:scale-[0.98] active:bg-blue-50/40 active:border-blue-300'} transition-all relative overflow-hidden group">
-                        <div class="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600 text-xl shrink-0 group-hover:scale-105 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-inner">
+                    <div onclick="${isClosed ? '' : `App.selectStation(${s.station_id})`}" class="bg-white rounded-2xl sm:rounded-3xl shadow-md border ${isNearest ? 'border-emerald-300 ring-2 ring-emerald-500/25 shadow-emerald-500/5' : 'border-blue-200/80 ring-2 ring-blue-500/20 shadow-blue-500/5'} py-2.5 px-3.5 sm:py-3 sm:px-4 flex items-center gap-3 sm:gap-4 ${isClosed ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer active:scale-[0.98] active:bg-blue-50/40 active:border-blue-300'} transition-all relative overflow-hidden group">
+                        <div class="w-12 h-12 ${isNearest ? 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600' : 'bg-blue-50 text-blue-600 group-hover:bg-blue-600'} rounded-2xl flex items-center justify-center text-xl shrink-0 group-hover:scale-105 group-hover:text-white transition-all shadow-inner">
                             <i class="fa-solid fa-store"></i>
                         </div>
                         <div class="flex-1 min-w-0">
@@ -1321,10 +1393,13 @@ const UI = {
                                     <i class="fa-solid ${stRank.icon} mr-1"></i>${stRank.name}
                                 </span>
                             </div>
-                            <p class="text-xs text-slate-500 font-medium truncate mb-2 flex items-center gap-1">
-                                <i class="fa-solid fa-location-dot text-slate-400 text-[10px] shrink-0"></i>
-                                <span class="truncate">${escapeHtml(s.address)}</span>
-                            </p>
+                            <div class="flex items-center justify-between gap-2 text-xs text-slate-500 mb-2">
+                                <p class="font-medium truncate flex items-center gap-1 min-w-0">
+                                    <i class="fa-solid fa-location-dot text-slate-400 text-[10px] shrink-0"></i>
+                                    <span class="truncate">${escapeHtml(s.address)}</span>
+                                </p>
+                                ${distanceBadgeHtml}
+                            </div>
                             <div class="flex items-center justify-between gap-2 text-xs pt-1.5 border-t border-slate-100">
                                 <div class="flex items-center gap-2 text-xs text-slate-600 min-w-0">
                                     ${ratingHtml}
@@ -1403,7 +1478,8 @@ const UI = {
             }
 
             const oldHash = State.lastDataHash;
-            const newHash = JSON.stringify((newStations || []).map(s => `${s.station_id}_${s.user_points}_${s.user_lifetime_points}_${s.is_manually_closed}`));
+            const userLocKey = State.userLocation ? `${State.userLocation.lat}_${State.userLocation.lng}` : 'no_loc';
+            const newHash = JSON.stringify((newStations || []).map(s => `${s.station_id}_${s.user_points}_${s.user_lifetime_points}_${s.is_manually_closed}`)) + `_${userLocKey}`;
             const oldOrdersHash = State.lastCustomerOrdersHash;
             const newOrdersHash = JSON.stringify((State.myOrders || []).map(o => o.order_id + o.order_status));
 
