@@ -38,10 +38,7 @@ scripts/*
 !scripts/migrate.php
 deploy/
 scratch/
-extras/paper/
-extras/docs/
-extras/logs/
-extras/scripts/
+extras/
 
 # OS & IDE metadata
 .DS_Store
@@ -54,6 +51,5 @@ docs/
 *.pdf
 *MANUSCRIPT*
 *CAPSTONE*
-
-
-
+*.zip
+database/backup_local_data.sql

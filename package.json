@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "description": "Multi-tenant PWA for water refilling station management",
   "scripts": {
+    "start": "start-local.bat",
+    "import-db": "start-local.bat --import",
     "build:css": "tailwindcss -i ./public/css/input.css -o ./public/css/tailwind.css --minify && node ./scripts/fix-css.js",
     "watch:css": "tailwindcss -i ./public/css/input.css -o ./public/css/tailwind.css --watch"
   },

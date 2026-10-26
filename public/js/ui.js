@@ -989,13 +989,14 @@ const UI = {
     },
 
     renderResetPassword() {
+        const contactNum = State.tempContact || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('mbbnb_temp_contact') : '') || 'your number';
         this.html(`
             <div class="max-w-md w-full mx-auto bg-white rounded-3xl shadow-xl p-8 border border-slate-100 text-center">
                 <div class="text-left mb-4">
                     <button onclick="UI.goBack('login')" class="text-sm font-bold text-slate-500 hover:text-slate-800 flex items-center transition"><i class="fa-solid fa-arrow-left mr-2"></i> Back</button>
                 </div>
                 <h2 class="text-2xl font-black text-slate-800 mb-2">Create New Password</h2>
-                <p class="text-sm text-slate-500 mb-6 leading-relaxed">Enter the 6-digit code sent to <strong>${State.tempContact || 'your number'}</strong> and your new password.</p>
+                <p class="text-sm text-slate-500 mb-6 leading-relaxed">Enter the 6-digit code sent to <strong>${contactNum}</strong> and your new password.</p>
                 
                 <form onsubmit="App.handlePasswordResetSubmit(event)" class="space-y-4 text-left">
                     <div>
@@ -1011,7 +1012,7 @@ const UI = {
                             </button>
                         </div>
                     </div>
-                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-md transition active:scale-95 text-lg flex justify-center items-center mt-2">Update Password</button>
+                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-md transition active:scale-95 text-lg flex justify-center items-center mt-2">Update Password & Log In</button>
                 </form>
             </div>
         `);
@@ -1396,8 +1397,7 @@ const UI = {
                 State.myOrders = orders;
                 if (!State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses = new Map();
                 orders.forEach(o => {
-                    State.knownCustomerOrderStatuses.set(String(o.order_id), o.order_status);
-                    if (o.station_order_number) State.knownCustomerOrderStatuses.set(String(o.station_order_number), o.order_status);
+                    State.knownCustomerOrderStatuses.set(`order_${o.order_id}`, o.order_status);
                 });
                 State.customerPollingInitialized = true;
             }
@@ -1450,21 +1450,23 @@ const UI = {
                         if (!State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses = new Map();
                         if (!State.customerPollingInitialized) {
                             polledOrders.forEach(o => {
-                                State.knownCustomerOrderStatuses.set(String(o.order_id), o.order_status);
-                                if (o.station_order_number) State.knownCustomerOrderStatuses.set(String(o.station_order_number), o.order_status);
+                                State.knownCustomerOrderStatuses.set(`order_${o.order_id}`, o.order_status);
                             });
                             State.customerPollingInitialized = true;
                             return;
                         }
                         const changed = [];
                         polledOrders.forEach(o => {
-                            const k = String(o.order_id);
+                            const k = `order_${o.order_id}`;
                             const prev = State.knownCustomerOrderStatuses.get(k);
                             if (prev && prev !== o.order_status) {
-                                changed.push(o);
+                                const wasTerminal = (prev === 'Delivered' || prev === 'Cancelled');
+                                const isTerminal = (o.order_status === 'Delivered' || o.order_status === 'Cancelled');
+                                if (!(wasTerminal && isTerminal)) {
+                                    changed.push(o);
+                                }
                             }
                             State.knownCustomerOrderStatuses.set(k, o.order_status);
-                            if (o.station_order_number) State.knownCustomerOrderStatuses.set(String(o.station_order_number), o.order_status);
                         });
                         if (changed.length > 0) {
                             const seenKeys = new Set();
@@ -1510,7 +1512,7 @@ const UI = {
                     }
                 } catch(e) {}
             };
-            this._setupInterval(pollDashboard, 1000);
+            this._setupInterval(pollDashboard, 3000);
 
         } catch (e) {
             console.error(e);
@@ -2356,7 +2358,7 @@ const UI = {
                 const newHash = JSON.stringify(State.myOrders.map(o => o.order_id + o.order_status + (o.rating || '')));
                 
                 if (!State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses = new Map();
-                data.forEach(o => State.knownCustomerOrderStatuses.set(String(o.order_id), o.order_status));
+                data.forEach(o => State.knownCustomerOrderStatuses.set(`order_${o.order_id}`, o.order_status));
                 State.customerPollingInitialized = true;
                 State.customerSessionStartTime = State.customerSessionStartTime || Date.now();
 
@@ -2637,8 +2639,7 @@ const UI = {
         if (!State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses = new Map();
         if (State.myOrders && Array.isArray(State.myOrders)) {
             State.myOrders.forEach(o => {
-                State.knownCustomerOrderStatuses.set(String(o.order_id), o.order_status);
-                if (o.station_order_number) State.knownCustomerOrderStatuses.set(String(o.station_order_number), o.order_status);
+                State.knownCustomerOrderStatuses.set(`order_${o.order_id}`, o.order_status);
             });
             State.customerPollingInitialized = true;
         }
@@ -2651,8 +2652,7 @@ const UI = {
 
                 if (!State.customerPollingInitialized) {
                     newData.forEach(o => {
-                        State.knownCustomerOrderStatuses.set(String(o.order_id), o.order_status);
-                        if (o.station_order_number) State.knownCustomerOrderStatuses.set(String(o.station_order_number), o.order_status);
+                        State.knownCustomerOrderStatuses.set(`order_${o.order_id}`, o.order_status);
                     });
                     State.customerPollingInitialized = true;
                     State.customerSessionStartTime = Date.now();
@@ -2663,13 +2663,16 @@ const UI = {
 
                 const changedOrders = [];
                 newData.forEach(newOrder => {
-                    const orderKey = String(newOrder.order_id);
+                    const orderKey = `order_${newOrder.order_id}`;
                     const oldStatus = State.knownCustomerOrderStatuses.get(orderKey);
                     if (oldStatus && oldStatus !== newOrder.order_status) {
-                        changedOrders.push(newOrder);
+                        const wasTerminal = (oldStatus === 'Delivered' || oldStatus === 'Cancelled');
+                        const isTerminal = (newOrder.order_status === 'Delivered' || newOrder.order_status === 'Cancelled');
+                        if (!(wasTerminal && isTerminal)) {
+                            changedOrders.push(newOrder);
+                        }
                     }
                     State.knownCustomerOrderStatuses.set(orderKey, newOrder.order_status);
-                    if (newOrder.station_order_number) State.knownCustomerOrderStatuses.set(String(newOrder.station_order_number), newOrder.order_status);
                 });
 
                 if (changedOrders.length > 0) {
@@ -2714,7 +2717,7 @@ const UI = {
             } catch(e) {}
         };
 
-        this._setupInterval(pollFn, 1000);
+        this._setupInterval(pollFn, 3000);
     },
 
     async renderAdminDashboard() {
@@ -2746,8 +2749,7 @@ const UI = {
             if (data.orders && Array.isArray(data.orders)) {
                 data.orders.forEach(o => {
                     State.knownAdminOrderIds.add(String(o.order_id));
-                    State.knownAdminOrderStatuses.set(String(o.order_id), o.order_status);
-                    if (o.station_order_number) State.knownAdminOrderStatuses.set(String(o.station_order_number), o.order_status);
+                    State.knownAdminOrderStatuses.set(`order_${o.order_id}`, o.order_status);
                 });
                 State.adminPollingInitialized = true;
                 State.adminSessionStartTime = State.adminSessionStartTime || Date.now();
@@ -3367,8 +3369,7 @@ const UI = {
         if (State.adminData?.orders && Array.isArray(State.adminData.orders)) {
             State.adminData.orders.forEach(o => {
                 State.knownAdminOrderIds.add(String(o.order_id));
-                State.knownAdminOrderStatuses.set(String(o.order_id), o.order_status);
-                if (o.station_order_number) State.knownAdminOrderStatuses.set(String(o.station_order_number), o.order_status);
+                State.knownAdminOrderStatuses.set(`order_${o.order_id}`, o.order_status);
             });
             State.adminPollingInitialized = true;
             State.adminSessionStartTime = State.adminSessionStartTime || Date.now();
@@ -3384,8 +3385,7 @@ const UI = {
                 if (!State.adminPollingInitialized) {
                     newOrders.forEach(o => {
                         State.knownAdminOrderIds.add(String(o.order_id));
-                        State.knownAdminOrderStatuses.set(String(o.order_id), o.order_status);
-                        if (o.station_order_number) State.knownAdminOrderStatuses.set(String(o.station_order_number), o.order_status);
+                        State.knownAdminOrderStatuses.set(`order_${o.order_id}`, o.order_status);
                     });
                     State.adminPollingInitialized = true;
                     State.adminSessionStartTime = Date.now();
@@ -3412,10 +3412,14 @@ const UI = {
                 if (!State.knownAdminOrderStatuses) State.knownAdminOrderStatuses = new Map();
                 const statusChangedOrders = [];
                 newOrders.forEach(o => {
-                    const k = String(o.order_id);
+                    const k = `order_${o.order_id}`;
                     const prevSt = State.knownAdminOrderStatuses.get(k);
                     if (prevSt && prevSt !== o.order_status) {
-                        statusChangedOrders.push({ order: o, oldStatus: prevSt });
+                        const wasTerminal = (prevSt === 'Delivered' || prevSt === 'Cancelled');
+                        const isTerminal = (o.order_status === 'Delivered' || o.order_status === 'Cancelled');
+                        if (!(wasTerminal && isTerminal)) {
+                            statusChangedOrders.push({ order: o, oldStatus: prevSt });
+                        }
                     }
                     State.knownAdminOrderStatuses.set(k, o.order_status);
                 });
@@ -3490,7 +3494,7 @@ const UI = {
                 }
             } catch(e) {}
         };
-        this._setupInterval(pollAdmin, 1000);
+        this._setupInterval(pollAdmin, 3000);
     },
 
     async renderAdminInventory() {
@@ -4945,7 +4949,7 @@ const UI = {
                 }
             } catch(e) {}
         };
-        this._setupInterval(pollDelivery, 1000);
+        this._setupInterval(pollDelivery, 3000);
     },
     
     async renderSuperAdminDashboard() {

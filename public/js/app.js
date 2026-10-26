@@ -1022,20 +1022,18 @@ const App = {
                 const son = data.station_order_number;
                 const newStatus = data.status;
 
-                if (State.knownAdminOrderStatuses) {
-                    if (oid) State.knownAdminOrderStatuses.set(String(oid), newStatus);
-                    if (son) State.knownAdminOrderStatuses.set(String(son), newStatus);
+                if (State.knownAdminOrderStatuses && oid) {
+                    State.knownAdminOrderStatuses.set(`order_${oid}`, newStatus);
                 }
-                if (State.knownCustomerOrderStatuses) {
-                    if (oid) State.knownCustomerOrderStatuses.set(String(oid), newStatus);
-                    if (son) State.knownCustomerOrderStatuses.set(String(son), newStatus);
+                if (State.knownCustomerOrderStatuses && oid) {
+                    State.knownCustomerOrderStatuses.set(`order_${oid}`, newStatus);
                 }
 
                 if (State.adminData?.orders) {
                     State.adminData.orders.forEach(o => {
                         if ((son && o.station_order_number === son) || (oid && o.order_id == oid)) {
                             o.order_status = newStatus;
-                            if (State.knownAdminOrderStatuses) State.knownAdminOrderStatuses.set(String(o.order_id), newStatus);
+                            if (State.knownAdminOrderStatuses) State.knownAdminOrderStatuses.set(`order_${o.order_id}`, newStatus);
                         }
                     });
                 }
@@ -1051,7 +1049,7 @@ const App = {
                     State.myOrders.forEach(o => {
                         if ((son && o.station_order_number === son) || (oid && o.order_id == oid)) {
                             o.order_status = newStatus;
-                            if (State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses.set(String(o.order_id), newStatus);
+                            if (State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses.set(`order_${o.order_id}`, newStatus);
                         }
                     });
                 }
@@ -2131,6 +2129,9 @@ const App = {
             const res = await API.request('forgot_password_request', 'POST', data);
             if (res.success) {
                 State.tempContact = res.contact_number;
+                try {
+                    sessionStorage.setItem('mbbnb_temp_contact', res.contact_number);
+                } catch (ign) {}
                 UI.navigate('reset_password');
             } else {
                 CustomToast.show(res.error || 'Failed to send OTP.', 'error');
@@ -2161,27 +2162,76 @@ const App = {
         }
 
         const btn = e.target.querySelector('button[type="submit"]');
-        this.setLoading(btn, true, 'Update Password');
+        this.setLoading(btn, true, 'Update Password & Log In');
         
+        const contactNum = State.tempContact || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('mbbnb_temp_contact') : null);
+        if (!contactNum) {
+            CustomToast.show('Session expired. Please request a new OTP.', 'error');
+            UI.navigate('forgot_password');
+            return;
+        }
+
         const data = new FormData();
-        data.append('contact_number', State.tempContact);
+        data.append('contact_number', contactNum);
         data.append('otp_code', code);
         data.append('new_password', pass);
 
         try {
             const res = await API.request('reset_password_submit', 'POST', data);
             if (res.success) {
-                CustomToast.show('Password successfully reset. Please log in.', 'success');
+                CustomToast.show('Password updated successfully! Logging you in...', 'success');
                 State.tempContact = null;
-                UI.navigate('login');
+                try {
+                    sessionStorage.removeItem('mbbnb_temp_contact');
+                } catch (ign) {}
+
+                if (res.auth_token) {
+                    State.authToken = res.auth_token;
+                    try {
+                        sessionStorage.setItem('auth_token', res.auth_token);
+                        localStorage.setItem('auth_token', res.auth_token);
+                    } catch (ign) {}
+                }
+
+                try {
+                    localStorage.removeItem('cache_get_customer_orders');
+                    localStorage.removeItem('cache_get_stations');
+                    State.stations = null;
+                    State.myOrders = null;
+                    localStorage.setItem('cache_check_session', JSON.stringify({
+                        data: {
+                            logged_in: true,
+                            type: 'customer',
+                            data: res,
+                            auth_token: res.auth_token || State.authToken,
+                            csrf_token: res.csrf_token || State.csrfToken,
+                            mapbox_token: State.mapboxToken
+                        },
+                        cachedAt: Date.now()
+                    }));
+                } catch (ign) {}
+
+                if (window.API && window.API.clearCache) API.clearCache();
+                if (window.UI && window.UI._prefetchCache) window.UI._prefetchCache = {};
+                State.user = { type: 'customer', data: res };
+                if (res.latitude && res.longitude) {
+                    State.userLocation = {
+                        lat: parseFloat(res.latitude),
+                        lng: parseFloat(res.longitude),
+                        address: res.address || ''
+                    };
+                }
+                State.pushSubscriptionSynced = null;
+                this.initPushNotifications();
+                UI.goHome('replace');
             } else {
                 CustomToast.show(res.error || 'Password reset failed.', 'error');
-                this.setLoading(btn, false, 'Update Password');
+                this.setLoading(btn, false, 'Update Password & Log In');
             }
         } catch (e) {
             console.error("Password reset error:", e);
             CustomToast.show(e.message || 'Password reset failed.', 'error');
-            this.setLoading(btn, false, 'Update Password');
+            this.setLoading(btn, false, 'Update Password & Log In');
         }
     },
 
@@ -2678,7 +2728,7 @@ const App = {
         }
 
         // 4. Update known status maps so local polling won't re-trigger self-notification
-        const orderKey = String(orderId);
+        const orderKey = `order_${orderId}`;
         if (State.knownAdminOrderStatuses) State.knownAdminOrderStatuses.set(orderKey, status);
         if (State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses.set(orderKey, status);
 
@@ -2686,7 +2736,7 @@ const App = {
             State.adminData.orders.forEach(o => {
                 if ((targetSon && o.station_order_number === targetSon) || o.order_id == orderId) {
                     o.order_status = status;
-                    if (State.knownAdminOrderStatuses) State.knownAdminOrderStatuses.set(String(o.order_id), status);
+                    if (State.knownAdminOrderStatuses) State.knownAdminOrderStatuses.set(`order_${o.order_id}`, status);
                 }
             });
         }
@@ -2694,7 +2744,7 @@ const App = {
             State.myOrders.forEach(o => {
                 if ((targetSon && o.station_order_number === targetSon) || o.order_id == orderId) {
                     o.order_status = status;
-                    if (State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses.set(String(o.order_id), status);
+                    if (State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses.set(`order_${o.order_id}`, status);
                 }
             });
         }
@@ -4887,8 +4937,8 @@ App.Auth = {
     handleAdminLogin: (...args) => App.handleAdminLogin(...args),
     handleRegister: (...args) => App.handleRegister(...args),
     handleOTPVerify: (...args) => App.handleOTPVerify(...args),
-    handleForgotPassword: (...args) => App.handleForgotPassword(...args),
-    handleResetPassword: (...args) => App.handleResetPassword(...args),
+    handleForgotPassword: (...args) => (App.handleForgotPasswordRequest || App.handleForgotPassword)(...args),
+    handleResetPassword: (...args) => (App.handlePasswordResetSubmit || App.handleResetPassword)(...args),
     logout: (...args) => UI.logout(...args)
 };
 
@@ -5193,6 +5243,11 @@ if ('serviceWorker' in navigator) {
         if (event.data && event.data.type === 'ORDER_PUSH_RECEIVED') {
             const payload = event.data.payload || {};
             
+            // Check if this is a test/verification push (e.g. upon enabling notifications)
+            const isTestPush = payload.test === true || 
+                /notifications enabled|push notifications activated|lock screen/i.test(payload.title || '') ||
+                /lock screen/i.test(payload.body || '');
+
             const orderNumMatch = (payload.title || '').match(/#(\d+)/) || (payload.body || '').match(/#(\d+)/);
             const extractedSon = orderNumMatch ? orderNumMatch[1] : null;
 
@@ -5211,8 +5266,8 @@ if ('serviceWorker' in navigator) {
                 window.App._recentNotifs.set(`native-mbbnb-order-${extractedSon}`, Date.now());
             }
 
-            // Deduplicate: if this order alert was already emitted or handled locally, suppress duplicate
-            const shouldAlert = window.App && window.App.shouldNotify ? window.App.shouldNotify(notifKey, 14000) : true;
+            // Deduplicate & filter: suppress toast for test pushes (already shown in UI) and recently handled alerts
+            const shouldAlert = !isTestPush && (window.App && window.App.shouldNotify ? window.App.shouldNotify(notifKey, 14000) : true);
 
             if (shouldAlert && extractedSon && window.App && window.App.suppressOrder) {
                 window.App.suppressOrder(extractedSon, extractedStatus, 14000);
@@ -5247,14 +5302,11 @@ if ('serviceWorker' in navigator) {
             }
 
             if (extractedStatus && extractedSon) {
-                if (State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses.set(String(extractedSon), extractedStatus);
-                if (State.knownAdminOrderStatuses) State.knownAdminOrderStatuses.set(String(extractedSon), extractedStatus);
-
                 if (State.myOrders && Array.isArray(State.myOrders)) {
                     State.myOrders.forEach(o => {
                         if (o.station_order_number == extractedSon || o.order_id == extractedSon) {
                             o.order_status = extractedStatus;
-                            if (State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses.set(String(o.order_id), extractedStatus);
+                            if (State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses.set(`order_${o.order_id}`, extractedStatus);
                         }
                     });
                     if (window.UI && window.UI._currentView === 'customer_orders') window.UI._updateOrdersList();
@@ -5266,7 +5318,7 @@ if ('serviceWorker' in navigator) {
                     State.adminData.orders.forEach(o => {
                         if (o.station_order_number == extractedSon || o.order_id == extractedSon) {
                             o.order_status = extractedStatus;
-                            if (State.knownAdminOrderStatuses) State.knownAdminOrderStatuses.set(String(o.order_id), extractedStatus);
+                            if (State.knownAdminOrderStatuses) State.knownAdminOrderStatuses.set(`order_${o.order_id}`, extractedStatus);
                         }
                     });
                     if (window.UI && window.UI._currentView === 'admin_dashboard') window.UI._updateAdminOrdersList();

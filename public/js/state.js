@@ -20,7 +20,7 @@ const State = {
     showAllTopCustomers: false,
     adminLoyaltyData: null,
     selectedOrders: new Set(),
-    tempContact: null, 
+    tempContact: (typeof sessionStorage !== 'undefined' ? (sessionStorage.getItem('mbbnb_temp_contact') || null) : null), 
     csrfToken: (typeof sessionStorage !== 'undefined' ? (sessionStorage.getItem('csrf_token') || localStorage.getItem('csrf_token')) : null),
     authToken: (typeof sessionStorage !== 'undefined' ? (sessionStorage.getItem('auth_token') || localStorage.getItem('auth_token')) : null),
     knownAdminOrderIds: new Set(),

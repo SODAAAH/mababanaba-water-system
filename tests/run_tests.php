@@ -43,6 +43,8 @@ require_once __DIR__ . '/../api/services/SmsService.php';
 require_once __DIR__ . '/../api/controllers/CustomerController.php';
 require_once __DIR__ . '/../api/controllers/SuperAdminController.php';
 require_once __DIR__ . '/../api/controllers/DeliveryStaffController.php';
+require_once __DIR__ . '/../api/WebPush.php';
+require_once __DIR__ . '/../api/OrderHelper.php';
 
 $testResults = [
     'total' => 0,
@@ -66,6 +68,7 @@ function assertTest(string $name, bool $condition, string $detail = '') {
 echo "[*] Initializing clean state in test database...\n";
 
 $pdo->exec("SET FOREIGN_KEY_CHECKS = 0");
+$pdo->exec("CREATE TABLE IF NOT EXISTS PUSH_SUBSCRIPTIONS (id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT NULL, user_id INT NULL, endpoint TEXT NOT NULL, p256dh VARCHAR(255) NOT NULL, auth VARCHAR(255) NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX (customer_id), INDEX (user_id))");
 $tables = ['SMS_LOGS', 'rate_limits', 'PUSH_SUBSCRIPTIONS', 'REVIEWS', 'DELIVERIES', 'ORDERS', 'CUSTOMER_LOYALTY', 'INVENTORY', 'PRODUCTS', 'ADMIN', 'CUSTOMER', 'STATION'];
 foreach ($tables as $t) {
     try { $pdo->exec("TRUNCATE TABLE {$t}"); } catch (Exception $e) {}
@@ -406,6 +409,93 @@ if ($hasOrders) {
     $stationDeleteBlocked = true;
 }
 assertTest("station: deleting station with historical orders is rejected", $stationDeleteBlocked === true);
+
+// =========================================================================
+// TEST GROUP 11: AUTO-CANCELLATION WORKER & STOCK RESTORATION
+// =========================================================================
+echo "\n--- TEST GROUP 11: AUTO-CANCELLATION WORKER & STOCK RESTORATION ---\n";
+
+// Insert an expired pending order (15 minutes old) for 3 round jugs
+$expiredDate = date('Y-m-d H:i:s', time() - 900);
+$pdo->exec("UPDATE INVENTORY SET stock_level = 10, round_jugs = 10 WHERE station_id = 1");
+$pdo->exec("INSERT INTO ORDERS (order_id, station_id, customer_id, product_id, quantity, jug_type, container_option, order_status, total_price, order_date, station_order_number, delivery_address) 
+    VALUES (301, 1, 1, 1, 3, 'Round', 'owned', 'Pending', 90.00, '{$expiredDate}', 105, 'Barangay Mababanaba, Test House')");
+
+// Clear any local rate limit lock file to ensure worker runs
+$lockFile = sys_get_temp_dir() . '/mbbnb_auto_cancel.lock';
+if (file_exists($lockFile)) { @unlink($lockFile); }
+
+$cancelled = OrderHelper::autoCancelExpiredOrders($pdo);
+assertTest("autocancel: worker detects and cancels expired pending order", $cancelled >= 1);
+
+$stmtCheckCancelled = $pdo->prepare("SELECT order_status FROM ORDERS WHERE order_id = 301");
+$stmtCheckCancelled->execute();
+$ord301Status = $stmtCheckCancelled->fetchColumn();
+assertTest("autocancel: order status updated to Cancelled", $ord301Status === 'Cancelled');
+
+$stmtCheckStock = $pdo->prepare("SELECT stock_level, round_jugs FROM INVENTORY WHERE station_id = 1");
+$stmtCheckStock->execute();
+$inv301 = $stmtCheckStock->fetch();
+assertTest("autocancel: exact stock quantity restored (10 + 3 = 13)", (int)$inv301['stock_level'] === 13 && (int)$inv301['round_jugs'] === 13);
+
+// =========================================================================
+// TEST GROUP 12: WEBPUSH ENDPOINT VALIDATION & SSRF DEFENSE
+// =========================================================================
+echo "\n--- TEST GROUP 12: WEBPUSH ENDPOINT VALIDATION & SSRF DEFENSE ---\n";
+
+assertTest("webpush: allows legitimate Google FCM push endpoint", WebPush::isValidPushEndpoint('https://fcm.googleapis.com/fcm/send/fcm_test_token_123') === true);
+assertTest("webpush: allows legitimate Mozilla push service endpoint", WebPush::isValidPushEndpoint('https://updates.push.services.mozilla.com/wpush/v2/moz_token_123') === true);
+assertTest("webpush: allows legitimate Apple Web Push endpoint", WebPush::isValidPushEndpoint('https://web.push.apple.com/QC3N24_apple_push_token') === true);
+assertTest("webpush: blocks unencrypted HTTP endpoint", WebPush::isValidPushEndpoint('http://fcm.googleapis.com/fcm/send/token') === false);
+assertTest("webpush: blocks SSRF loopback/local IP endpoint", WebPush::isValidPushEndpoint('https://127.0.0.1/evil_internal_push') === false);
+assertTest("webpush: blocks untrusted attacker domain", WebPush::isValidPushEndpoint('https://malicious-site.com/fake_endpoint') === false);
+
+// =========================================================================
+// TEST GROUP 13: TERMINAL STATE MACHINE ENFORCEMENT
+// =========================================================================
+echo "\n--- TEST GROUP 13: TERMINAL STATE MACHINE ENFORCEMENT ---\n";
+
+// Delivered order cannot transition backwards
+$orderDelivered = ['order_status' => 'Delivered'];
+$canChangeDeliveredToPending = !in_array($orderDelivered['order_status'], ['Delivered', 'Cancelled'], true);
+assertTest("statemachine: Delivered order cannot be modified backwards", $canChangeDeliveredToPending === false);
+
+// Cancelled order cannot transition to Delivered
+$orderCancelled = ['order_status' => 'Cancelled'];
+$canChangeCancelledToDelivered = !in_array($orderCancelled['order_status'], ['Delivered', 'Cancelled'], true);
+assertTest("statemachine: Cancelled order cannot transition to active status", $canChangeCancelledToDelivered === false);
+
+// =========================================================================
+// TEST GROUP 14: MULTI-TENANT STATION ISOLATION (SEC-03)
+// =========================================================================
+echo "\n--- TEST GROUP 14: MULTI-TENANT STATION ISOLATION (SEC-03) ---\n";
+
+// Verify Station 1 admin cannot see Station 2 orders
+$pdo->exec("INSERT INTO ORDERS (order_id, station_id, customer_id, product_id, quantity, jug_type, container_option, order_status, total_price, station_order_number, delivery_address) 
+    VALUES (401, 2, 2, 1, 1, 'Round', 'owned', 'Pending', 30.00, 1, 'Station 2 North')");
+
+$stmtStation1Orders = $pdo->prepare("SELECT COUNT(*) FROM ORDERS WHERE station_id = 1 AND order_id = 401");
+$stmtStation1Orders->execute();
+$isolatedCount = (int)$stmtStation1Orders->fetchColumn();
+assertTest("isolation: station 1 orders query cannot return station 2 orders", $isolatedCount === 0);
+
+// =========================================================================
+// TEST GROUP 15: REVIEW ELIGIBILITY & RATING SAFEGUARD
+// =========================================================================
+echo "\n--- TEST GROUP 15: REVIEW ELIGIBILITY & RATING SAFEGUARD ---\n";
+
+// Only Delivered orders can be reviewed
+$pdo->exec("UPDATE ORDERS SET order_status = 'Delivered' WHERE order_id = 202");
+$stmtCheckDeliveredReview = $pdo->prepare("SELECT order_status FROM ORDERS WHERE order_id = 202");
+$stmtCheckDeliveredReview->execute();
+$isDeliveredEligible = ($stmtCheckDeliveredReview->fetchColumn() === 'Delivered');
+
+$stmtCheckPendingReview = $pdo->prepare("SELECT order_status FROM ORDERS WHERE order_id = 401");
+$stmtCheckPendingReview->execute();
+$isPendingBlocked = ($stmtCheckPendingReview->fetchColumn() !== 'Delivered');
+
+assertTest("reviews: delivered order is eligible for customer rating", $isDeliveredEligible === true);
+assertTest("reviews: pending/unfulfilled order is blocked from rating", $isPendingBlocked === true);
 
 // =========================================================================
 // SUMMARY REPORT

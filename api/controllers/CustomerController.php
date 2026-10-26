@@ -368,9 +368,52 @@ class CustomerController {
         }
 
         $hp = password_hash($new_pass, PASSWORD_DEFAULT);
-        $this->pdo->prepare("UPDATE CUSTOMER SET password = ?, otp_code = NULL, otp_expiry = NULL, failed_otp_attempts = 0 WHERE customer_id = ?")->execute([$hp, $u['customer_id']]);
-        SecurityContext::clearRateLimits($this->pdo, ['forgot_password_request', 'reset_password_submit', 'customer_login']);
-        echo json_encode(['success' => true]);
+        $this->pdo->prepare("UPDATE CUSTOMER SET password = ?, otp_code = NULL, otp_expiry = NULL, failed_otp_attempts = 0, is_verified = 1, last_active = CURRENT_TIMESTAMP WHERE customer_id = ?")->execute([$hp, $u['customer_id']]);
+        
+        session_regenerate_id(true);
+        unset($_SESSION['admin_id'], $_SESSION['station_id'], $_SESSION['role']);
+        $_SESSION['customer_id'] = $u['customer_id'];
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+        SecurityContext::clearRateLimits($this->pdo, ['forgot_password_request', 'reset_password_submit', 'customer_login', 'customer_register', 'verify_registration_otp']);
+
+        $stmtCust = $this->pdo->prepare("SELECT customer_id, full_name, contact_number, address, is_verified, latitude, longitude, created_at FROM CUSTOMER WHERE customer_id = ?");
+        $stmtCust->execute([$u['customer_id']]);
+        $cust = $stmtCust->fetch();
+
+        $loyaltyStmt = $this->pdo->prepare("SELECT IFNULL(SUM(points), 0) as total_points, IFNULL(SUM(lifetime_points), 0) as lifetime_points FROM CUSTOMER_LOYALTY WHERE customer_id = ?");
+        $loyaltyStmt->execute([$u['customer_id']]);
+        $loyaltyData = $loyaltyStmt->fetch();
+        $totPts = (int)($loyaltyData['total_points'] ?? 0);
+        $totLife = (int)($loyaltyData['lifetime_points'] ?? 0);
+
+        if ($totPts === 0) {
+            $orderPtsStmt = $this->pdo->prepare("SELECT GREATEST(0, (IFNULL(SUM(quantity), 0) * 2) - IFNULL(SUM(points_used), 0)) as tot_pts, (IFNULL(SUM(quantity), 0) * 3) as tot_life FROM ORDERS WHERE customer_id = ? AND order_status = 'Delivered'");
+            $orderPtsStmt->execute([$u['customer_id']]);
+            if ($ordPts = $orderPtsStmt->fetch()) {
+                $totPts = max($totPts, (int)($ordPts['tot_pts'] ?? 0));
+                $totLife = max($totLife, (int)($ordPts['tot_life'] ?? 0));
+            }
+        }
+
+        $authToken = SecurityContext::generateAuthToken((int)$u['customer_id'], 'customer');
+        $csrfToken = $_SESSION['csrf_token'] ?? null;
+        session_write_close();
+
+        echo json_encode([
+            'success' => true, 
+            'customer_id' => $cust['customer_id'], 
+            'full_name' => $cust['full_name'], 
+            'contact_number' => $cust['contact_number'], 
+            'address' => $cust['address'],
+            'is_verified' => (int)$cust['is_verified'],
+            'latitude' => $cust['latitude'],
+            'longitude' => $cust['longitude'],
+            'created_at' => $cust['created_at'],
+            'total_points' => $totPts,
+            'lifetime_points' => $totLife,
+            'auth_token' => $authToken,
+            'csrf_token' => $csrfToken
+        ]);
         exit;
     }
 

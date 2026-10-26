@@ -36,6 +36,11 @@ class SmsService {
             error_log("SmsService cURL error: " . $curlErr);
         }
 
+        $clientIp = $_SERVER['REMOTE_ADDR'] ?? '';
+        if (in_array($clientIp, ['127.0.0.1', '::1'])) {
+            error_log("[LOCAL DEV OTP] Recipient: {$cleanNumber} | Message: {$message}");
+        }
+
         try {
             $maskedMessage = preg_replace('/\b\d{6}\b/', '******', $message);
             $maskedNumber = strlen($cleanNumber) >= 7 ? substr($cleanNumber, 0, 4) . '****' . substr($cleanNumber, -3) : '***********';
