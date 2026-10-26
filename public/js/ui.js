@@ -1175,6 +1175,17 @@ const UI = {
                 }
             } catch(e) {}
         }
+        if ((!State.userLocation || !State.userLocation.lat) && orders && orders.length > 0) {
+            const recentWithCoords = orders.find(o => o.delivery_latitude && o.delivery_longitude);
+            if (recentWithCoords) {
+                State.userLocation = {
+                    lat: parseFloat(recentWithCoords.delivery_latitude),
+                    lng: parseFloat(recentWithCoords.delivery_longitude),
+                    address: recentWithCoords.delivery_address || State.user?.data?.address || ''
+                };
+                try { localStorage.setItem('mbbnb_user_location', JSON.stringify(State.userLocation)); } catch(e) {}
+            }
+        }
 
         if ((!State.userLocation || !State.userLocation.lat) && typeof navigator !== 'undefined' && 'geolocation' in navigator && !State._hasAttemptedAutoLocate) {
             State._hasAttemptedAutoLocate = true;
@@ -1203,7 +1214,8 @@ const UI = {
                 const d = App.calculateDistanceKm(State.userLocation.lat, State.userLocation.lng, s.latitude, s.longitude);
                 if (d !== null && !isNaN(d)) {
                     s._distanceKm = d;
-                    if (s.status === 'Active' && d < minDistance) {
+                    const isClosed = s.status !== 'Active' || s.is_manually_closed == 1;
+                    if (!isClosed && d < minDistance) {
                         minDistance = d;
                         nearestStationId = s.station_id;
                     }
@@ -1211,10 +1223,20 @@ const UI = {
             }
         });
 
+        // If no open station was eligible for nearest, fall back to closest regardless of closure
+        if (!nearestStationId && hasUserLoc) {
+            (stations || []).forEach(s => {
+                if (s._distanceKm !== null && !isNaN(s._distanceKm) && s._distanceKm < minDistance) {
+                    minDistance = s._distanceKm;
+                    nearestStationId = s.station_id;
+                }
+            });
+        }
+
         // Arrange available stations from nearest to farthest (top to bottom)
         (stations || []).sort((a, b) => {
-            const isClosedA = a.status !== 'Active';
-            const isClosedB = b.status !== 'Active';
+            const isClosedA = a.status !== 'Active' || a.is_manually_closed == 1;
+            const isClosedB = b.status !== 'Active' || b.is_manually_closed == 1;
             if (isClosedA !== isClosedB) return isClosedA ? 1 : -1;
 
             if (a._distanceKm !== null && b._distanceKm !== null) {
@@ -1250,7 +1272,7 @@ const UI = {
             `;
         } else {
             locationWidgetHtml = `
-                <div class="bg-gradient-to-r from-blue-50 to-indigo-50/60 rounded-2xl sm:rounded-3xl p-4 border border-blue-200/80 shadow-sm mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div class="bg-blue-50/80 rounded-2xl sm:rounded-3xl p-4 border border-blue-200/80 shadow-sm mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div class="flex items-center gap-3 min-w-0">
                         <div class="w-9 h-9 rounded-xl bg-blue-500/20 text-blue-600 flex items-center justify-center text-sm shrink-0">
                             <i class="fa-solid fa-map-location-dot"></i>
@@ -1323,7 +1345,7 @@ const UI = {
             html += this.emptyState('fa-store-slash', 'No Stations Active', 'There are no water stations currently available in your area.');
         } else {
             stations.forEach(s => {
-                const isClosed = s.status !== 'Active';
+                const isClosed = s.status !== 'Active' || s.is_manually_closed == 1;
                 let stPts = parseInt(s.user_points || 0);
                 let stLifePts = parseInt(s.user_lifetime_points || s.user_points || 0);
 
@@ -1357,7 +1379,7 @@ const UI = {
 
                 let distanceBadgeHtml = '';
                 if (s._distanceKm !== null && !isNaN(s._distanceKm)) {
-                    const formattedKm = s._distanceKm < 10 ? s._distanceKm.toFixed(1) : s._distanceKm.toFixed(0);
+                    const formattedKm = s._distanceKm < 0.1 ? '< 0.1' : (s._distanceKm < 10 ? s._distanceKm.toFixed(1) : s._distanceKm.toFixed(0));
                     if (isNearest) {
                         distanceBadgeHtml = `
                             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200/90 shrink-0">
@@ -1382,19 +1404,25 @@ const UI = {
                 }
 
                 html += `
-                    <div onclick="${isClosed ? '' : `App.selectStation(${s.station_id})`}" class="bg-white rounded-2xl sm:rounded-3xl shadow-md border ${isNearest ? 'border-emerald-300 ring-2 ring-emerald-500/25 shadow-emerald-500/5' : 'border-blue-200/80 ring-2 ring-blue-500/20 shadow-blue-500/5'} py-2.5 px-3.5 sm:py-3 sm:px-4 flex items-center gap-3 sm:gap-4 ${isClosed ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer active:scale-[0.98] active:bg-blue-50/40 active:border-blue-300'} transition-all relative overflow-hidden group">
+                    <div onclick="${isClosed ? '' : `App.selectStation(${s.station_id})`}" class="bg-white rounded-2xl sm:rounded-3xl shadow-md border ${isNearest ? 'border-emerald-300 ring-2 ring-emerald-500/25 shadow-emerald-500/5' : 'border-blue-200/80 ring-2 ring-blue-500/20 shadow-blue-500/5'} py-2.5 px-3.5 sm:py-3 sm:px-4 flex items-center gap-3 sm:gap-4 ${isClosed ? 'opacity-65 cursor-not-allowed bg-slate-50/60' : 'cursor-pointer active:scale-[0.98] active:bg-blue-50/40 active:border-blue-300'} transition-all relative overflow-hidden group">
                         <div class="w-12 h-12 ${isNearest ? 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600' : 'bg-blue-50 text-blue-600 group-hover:bg-blue-600'} rounded-2xl flex items-center justify-center text-xl shrink-0 group-hover:scale-105 group-hover:text-white transition-all shadow-inner">
                             <i class="fa-solid fa-store"></i>
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center justify-between gap-2 mb-1">
                                 <h4 class="font-black text-slate-800 text-base leading-tight truncate group-hover:text-blue-600 transition-colors">${escapeHtml(s.station_name)}</h4>
-                                <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border shrink-0 ${stRank.badgeBg}">
-                                    <i class="fa-solid ${stRank.icon} mr-1"></i>${stRank.name}
-                                </span>
+                                ${isClosed ? `
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-100 text-red-700 border border-red-200 shrink-0">
+                                        <i class="fa-solid fa-door-closed mr-1"></i>Closed
+                                    </span>
+                                ` : `
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border shrink-0 ${stRank.badgeBg}">
+                                        <i class="fa-solid ${stRank.icon} mr-1"></i>${stRank.name}
+                                    </span>
+                                `}
                             </div>
-                            <div class="flex items-center justify-between gap-2 text-xs text-slate-500 mb-2">
-                                <p class="font-medium truncate flex items-center gap-1 min-w-0">
+                            <div class="flex flex-wrap sm:flex-nowrap items-center justify-between gap-1.5 text-xs text-slate-500 mb-2">
+                                <p class="font-medium truncate flex items-center gap-1 min-w-0 flex-1">
                                     <i class="fa-solid fa-location-dot text-slate-400 text-[10px] shrink-0"></i>
                                     <span class="truncate">${escapeHtml(s.address)}</span>
                                 </p>
@@ -1852,6 +1880,19 @@ const UI = {
 
         const stRank = App.getLoyaltyRank(stLifePts || stPts);
 
+        let stationDistHtml = '';
+        if (State.userLocation?.lat && station.latitude && station.longitude) {
+            const d = App.calculateDistanceKm(State.userLocation.lat, State.userLocation.lng, station.latitude, station.longitude);
+            if (d !== null && !isNaN(d)) {
+                const formatted = d < 0.1 ? '< 0.1' : (d < 10 ? d.toFixed(1) : d.toFixed(0));
+                stationDistHtml = `
+                    <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                        <i class="fa-solid fa-location-dot text-slate-500 text-[10px]"></i> ${formatted} km away
+                    </span>
+                `;
+            }
+        }
+
         let html = `
             <button onclick="UI.goBack('customer_dashboard')" class="text-sm font-bold text-slate-500 hover:text-slate-800 mb-6 flex items-center transition"><i class="fa-solid fa-arrow-left mr-2"></i> Back to Stations</button>
             <div class="flex items-center gap-4 mb-4 pb-4 border-b border-slate-100">
@@ -1862,6 +1903,7 @@ const UI = {
                         <span class="px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider border ${stRank.badgeBg}">
                             <i class="fa-solid ${stRank.icon} mr-1"></i>${stRank.name} Member
                         </span>
+                        ${stationDistHtml}
                         <span class="text-xs text-slate-500 font-medium">• <strong>${stPts}</strong> pts available</span>
                         <button onclick="State.selectedLoyaltyStation=${station.station_id}; UI.navigate('customer_loyalty')" class="text-xs font-bold text-blue-600 hover:underline ml-1 flex items-center gap-1">
                             View Progress <i class="fa-solid fa-chevron-right text-[9px]"></i>
