@@ -5118,10 +5118,19 @@ const UI = {
 
             if (State.saTab === 'stations') {
                 html += `<div class="space-y-4">`;
-                if (stations.length === 0) {
+                const uniqueStations = [];
+                const seenStationIds = new Set();
+                (stations || []).forEach(s => {
+                    if (!seenStationIds.has(s.station_id)) {
+                        seenStationIds.add(s.station_id);
+                        uniqueStations.push(s);
+                    }
+                });
+
+                if (uniqueStations.length === 0) {
                     html += this.emptyState('fa-store-slash', 'No Stations', 'No water stations found in the system.');
                 } else {
-                    stations.forEach(s => {
+                    uniqueStations.forEach(s => {
                         const isActive = s.status === 'Active';
                         html += `
                             <div class="bg-white rounded-3xl shadow-md border border-blue-200/80 ring-2 ring-blue-500/30 shadow-blue-500/5 transition-all p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">

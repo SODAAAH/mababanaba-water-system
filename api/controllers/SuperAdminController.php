@@ -14,7 +14,7 @@ class SuperAdminController {
 
     public function getStations() {
         $this->requireSuperAdmin();
-        $stmt = $this->pdo->query("SELECT s.*, a.username as admin_username FROM STATION s LEFT JOIN ADMIN a ON s.station_id = a.station_id AND a.role = 'Admin' ORDER BY s.station_id DESC");
+        $stmt = $this->pdo->query("SELECT s.*, COALESCE(GROUP_CONCAT(DISTINCT a.username ORDER BY a.admin_id ASC SEPARATOR ', '), 'None') as admin_username FROM STATION s LEFT JOIN ADMIN a ON s.station_id = a.station_id AND a.role = 'Admin' GROUP BY s.station_id ORDER BY s.station_id DESC");
         echo json_encode($stmt->fetchAll());
         exit;
     }
