@@ -761,7 +761,10 @@ const App = {
 
                 if (res.new_customers.length > prevCount && prevCount > 0) {
                     const newest = res.new_customers[0];
-                    CustomToast.show(`New Customer Registered: ${newest.full_name || 'Customer'} (${newest.contact_number})`, 'info', 7000);
+                    const notifKey = `new-cust-${newest.customer_id || newest.contact_number}`;
+                    if (this.shouldNotify(notifKey, 30000)) {
+                        CustomToast.show(`New Customer Registered: ${newest.full_name || 'Customer'} (${newest.contact_number})`, 'info', 7000, null, notifKey);
+                    }
                     if (UI._currentView === 'sa_dashboard') {
                         UI.renderSuperAdminDashboard();
                     }
@@ -788,21 +791,34 @@ const App = {
         }
         if (!("Notification" in window)) return;
         if (Notification.permission === "granted") {
+            let normalizedTag = tag;
+            const match = String(tag || '').match(/(\d+)/);
+            if (match) {
+                normalizedTag = 'mbbnb-order-' + match[1];
+            } else if (!normalizedTag) {
+                normalizedTag = 'mbbnb-' + Date.now();
+            }
+
+            // Deduplicate native OS notifications: suppress if sent within last 18 seconds
+            if (!this.shouldNotify('native-' + normalizedTag, 18000)) {
+                return;
+            }
+
             try {
                 navigator.serviceWorker.ready.then(function(registration) {
                     registration.showNotification(title, {
                         body: body,
                         icon: './logo.png',
                         badge: './logo.png',
-                        tag: tag || ('mbbnb-order-' + Date.now()),
+                        tag: normalizedTag,
                         vibrate: [200, 100, 200, 100, 200]
                     });
                 }).catch(() => {
-                    new Notification(title, { body: body, icon: './logo.png', tag: tag || undefined });
+                    new Notification(title, { body: body, icon: './logo.png', tag: normalizedTag });
                 });
             } catch (e) {
                 try {
-                    new Notification(title, { body: body, icon: './logo.png', tag: tag || undefined });
+                    new Notification(title, { body: body, icon: './logo.png', tag: normalizedTag });
                 } catch(err) {}
             }
         }
@@ -819,8 +835,23 @@ const App = {
                 return false;
             }
         }
+
+        // Cross-key check for order updates: if base order was notified in last 3.5s, throttle subkey
+        const orderMatch = String(key).match(/^order-(\d+)(?:-(.+))?$/);
+        if (orderMatch) {
+            const orderNum = orderMatch[1];
+            const baseKey = `order-${orderNum}`;
+            if (key !== baseKey && this._recentNotifs.has(baseKey)) {
+                const baseLast = this._recentNotifs.get(baseKey);
+                if (now - baseLast < 3500) {
+                    return false;
+                }
+            }
+            this._recentNotifs.set(baseKey, now);
+        }
+
         this._recentNotifs.set(key, now);
-        if (this._recentNotifs.size > 100) {
+        if (this._recentNotifs.size > 150) {
             for (const [k, v] of this._recentNotifs.entries()) {
                 if (now - v > 60000) this._recentNotifs.delete(k);
             }
@@ -828,8 +859,28 @@ const App = {
         return true;
     },
 
+    suppressOrder(orderNum, status = null, ttlMs = 16000) {
+        if (!orderNum) return;
+        const num = String(orderNum).replace(/^#/, '');
+        const now = Date.now();
+        this._recentNotifs.set(`order-${num}`, now);
+        if (status) {
+            this._recentNotifs.set(`order-${num}-${status}`, now);
+        }
+        this._recentNotifs.set(`native-mbbnb-order-${num}`, now);
+        this._recentNotifs.set(`chime-order-${num}`, now);
+    },
+
     playNotificationChime(key = null) {
-        if (key && !this.shouldNotify('chime-' + key, 4000)) return;
+        const chimeKey = key ? ('chime-' + key) : 'chime-general';
+        if (!this.shouldNotify(chimeKey, 3000)) return;
+
+        if (key) {
+            const m = String(key).match(/order-(\d+)/);
+            if (m && !this.shouldNotify('chime-order-' + m[1], 3500)) {
+                return;
+            }
+        }
         try {
             const AudioCtx = window.AudioContext || window.webkitAudioContext;
             if (!AudioCtx) return;
@@ -891,31 +942,44 @@ const App = {
 
     broadcastOrderUpdate(payload) {
         if (!payload) return;
-        // 1. BroadcastChannel
+        const msgId = 'bcast_' + Math.random().toString(36).slice(2) + Date.now();
+        const eventPayload = { ...payload, _msgId: msgId, _ts: Date.now() };
+
+        // 1. BroadcastChannel (primary modern channel)
         if (this.broadcastChannel) {
             try {
-                this.broadcastChannel.postMessage(payload);
+                this.broadcastChannel.postMessage(eventPayload);
             } catch (e) {
                 console.warn('BroadcastChannel postMessage error:', e);
             }
         }
-        // 2. LocalStorage event (fires immediately in 0ms on all other tabs on this device)
+        // 2. LocalStorage event (fallback / cross-process sync)
         try {
-            const eventPayload = JSON.stringify({ ...payload, _ts: Date.now() });
-            localStorage.setItem('mbbnb_orders_sync_event', eventPayload);
+            localStorage.setItem('mbbnb_orders_sync_event', JSON.stringify(eventPayload));
         } catch(e) {}
     },
 
     async handleBroadcastMessage(data) {
         if (!data || !data.type) return;
 
+        // Message-level deduplication: guarantees only 1 execution even if both BroadcastChannel and storage fire
+        if (data._msgId) {
+            if (!this.shouldNotify('bcast_msg_' + data._msgId, 30000)) {
+                return;
+            }
+        }
+
         if (data.type === 'ORDER_STATUS_CHANGED' || data.type === 'NEW_ORDER_PLACED') {
             const rawSon = data.station_order_number || data.orderId || data.order_id;
-            const notifKey = rawSon ? (data.type === 'ORDER_STATUS_CHANGED' ? `order-${rawSon}-${data.status || 'chg'}` : `order-${rawSon}`) : null;
+            const notifKey = rawSon ? (data.type === 'ORDER_STATUS_CHANGED' ? `order-${rawSon}-${data.status || 'chg'}` : `order-${rawSon}-placed`) : null;
             const shouldAlert = !notifKey || this.shouldNotify(notifKey, 14000);
             const orderLabel = data.station_order_number ? `#${data.station_order_number}` : (data.orderId || data.order_id ? `#${data.orderId || data.order_id}` : 'Order');
             
             if (shouldAlert) {
+                if (rawSon) {
+                    this.suppressOrder(rawSon, data.status, 14000);
+                }
+
                 // 1. In-app audible chime
                 this.playNotificationChime(notifKey);
 
@@ -924,7 +988,10 @@ const App = {
                     if (data.type === 'ORDER_STATUS_CHANGED') {
                         CustomToast.show(`Order ${orderLabel} status is now ${data.status || 'Updated'}`, 'info', 5000, null, notifKey);
                     } else if (data.type === 'NEW_ORDER_PLACED') {
-                        CustomToast.show(`New Order ${orderLabel} has been placed!`, 'info', 5000, null, notifKey);
+                        // Only show toast notification for station admins
+                        if (State.user?.type === 'admin') {
+                            CustomToast.show(`New Order ${orderLabel} has been placed!`, 'info', 5000, null, notifKey);
+                        }
                     }
                 }
 
@@ -934,7 +1001,9 @@ const App = {
                     const body = data.type === 'ORDER_STATUS_CHANGED' 
                         ? `Order ${orderLabel} status is now ${data.status || 'Updated'}` 
                         : `New Order ${orderLabel} placed!`;
-                    this.sendNativeNotification(title, body, notifKey || ('sync-' + Date.now()), false);
+                    if (data.type !== 'NEW_ORDER_PLACED' || State.user?.type === 'admin') {
+                        this.sendNativeNotification(title, body, rawSon ? `mbbnb-order-${rawSon}` : null, false);
+                    }
                 }
             }
 
@@ -953,10 +1022,20 @@ const App = {
                 const son = data.station_order_number;
                 const newStatus = data.status;
 
+                if (State.knownAdminOrderStatuses) {
+                    if (oid) State.knownAdminOrderStatuses.set(String(oid), newStatus);
+                    if (son) State.knownAdminOrderStatuses.set(String(son), newStatus);
+                }
+                if (State.knownCustomerOrderStatuses) {
+                    if (oid) State.knownCustomerOrderStatuses.set(String(oid), newStatus);
+                    if (son) State.knownCustomerOrderStatuses.set(String(son), newStatus);
+                }
+
                 if (State.adminData?.orders) {
                     State.adminData.orders.forEach(o => {
                         if ((son && o.station_order_number === son) || (oid && o.order_id == oid)) {
                             o.order_status = newStatus;
+                            if (State.knownAdminOrderStatuses) State.knownAdminOrderStatuses.set(String(o.order_id), newStatus);
                         }
                     });
                 }
@@ -972,6 +1051,7 @@ const App = {
                     State.myOrders.forEach(o => {
                         if ((son && o.station_order_number === son) || (oid && o.order_id == oid)) {
                             o.order_status = newStatus;
+                            if (State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses.set(String(o.order_id), newStatus);
                         }
                     });
                 }
@@ -1310,6 +1390,10 @@ const App = {
                 if (window.UI && window.UI._prefetchCache) window.UI._prefetchCache = {};
                 State.user = { type, data: type === 'customer' ? res : res.admin };
                 State.pushSubscriptionSynced = null;
+                if (type === 'admin' && res.admin?.role === 'Super Admin') {
+                    if (State.saCustomerInterval) clearInterval(State.saCustomerInterval);
+                    State.saCustomerInterval = setInterval(() => App.checkSuperAdminNewCustomers(), 45000);
+                }
                 this.initPushNotifications();
                 UI.goHome('replace');
             } else {
@@ -2170,8 +2254,8 @@ const App = {
                     State.customerOrderTab = 'active';
                     const placedOrderNum = res.station_order_number || res.order_id;
                     if (placedOrderNum) {
-                        this.shouldNotify(`order-${placedOrderNum}`, 18000);
-                        this.shouldNotify(`order-${placedOrderNum}-Placed`, 18000);
+                        this.suppressOrder(placedOrderNum, 'Placed', 18000);
+                        this.suppressOrder(placedOrderNum, 'Pending', 18000);
                     }
                     this.playNotificationChime(`order-${placedOrderNum}`);
                     CustomToast.show('Quick Reorder placed successfully!', 'success', 3000, `placed-${placedOrderNum}`);
@@ -2447,8 +2531,8 @@ const App = {
                 State.customerOrderTab = 'active';
                 const placedOrderNum = res.station_order_number || res.order_id;
                 if (placedOrderNum) {
-                    this.shouldNotify(`order-${placedOrderNum}`, 18000);
-                    this.shouldNotify(`order-${placedOrderNum}-Placed`, 18000);
+                    this.suppressOrder(placedOrderNum, 'Placed', 18000);
+                    this.suppressOrder(placedOrderNum, 'Pending', 18000);
                 }
                 this.playNotificationChime(`order-${placedOrderNum}`);
                 CustomToast.show('Your order has been placed successfully.', 'success', 3000, `placed-${placedOrderNum}`);
@@ -2598,6 +2682,28 @@ const App = {
         if (State.knownAdminOrderStatuses) State.knownAdminOrderStatuses.set(orderKey, status);
         if (State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses.set(orderKey, status);
 
+        if (State.adminData?.orders) {
+            State.adminData.orders.forEach(o => {
+                if ((targetSon && o.station_order_number === targetSon) || o.order_id == orderId) {
+                    o.order_status = status;
+                    if (State.knownAdminOrderStatuses) State.knownAdminOrderStatuses.set(String(o.order_id), status);
+                }
+            });
+        }
+        if (State.myOrders && Array.isArray(State.myOrders)) {
+            State.myOrders.forEach(o => {
+                if ((targetSon && o.station_order_number === targetSon) || o.order_id == orderId) {
+                    o.order_status = status;
+                    if (State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses.set(String(o.order_id), status);
+                }
+            });
+        }
+
+        // Suppress order alerts across polling and push for this action
+        const activeSon = targetSon || orderId;
+        const notifKey = `order-${activeSon}-${status}`;
+        this.suppressOrder(activeSon, status, 18000);
+
         // 5. Invalidate prefetch caches
         if (UI._prefetchCache) {
             delete UI._prefetchCache['admin_dashboard_data'];
@@ -2621,9 +2727,9 @@ const App = {
         }
 
         // 7. Instant user feedback (toast + chime)
-        this.playNotificationChime();
+        this.playNotificationChime(notifKey);
         const displayNum = targetSon ? `#${targetSon}` : `#${orderId}`;
-        CustomToast.show(`Order ${displayNum} status updated to ${status}`, 'success', 3000);
+        CustomToast.show(`Order ${displayNum} status updated to ${status}`, 'success', 3000, null, notifKey);
 
         // 8. Instant cross-tab broadcast
         this.broadcastOrderUpdate({
@@ -4902,7 +5008,8 @@ async function boot() {
                 }
             } else if (res.type === 'admin' && res.data?.role === 'Super Admin') {
                 App.checkSuperAdminNewCustomers();
-                setInterval(() => App.checkSuperAdminNewCustomers(), 45000);
+                if (State.saCustomerInterval) clearInterval(State.saCustomerInterval);
+                State.saCustomerInterval = setInterval(() => App.checkSuperAdminNewCustomers(), 45000);
             }
             App.initPushNotifications();
             
@@ -4997,6 +5104,7 @@ boot();
 window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     window.deferredPrompt = e;
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('mbbnb_pwa_banner_dismissed')) return;
     const banner = document.getElementById('pwa-install-banner');
     if (banner) banner.classList.remove('hidden');
 });
@@ -5067,6 +5175,7 @@ setTimeout(() => {
     const isIos = /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
     const isInStandaloneMode = ('standalone' in window.navigator) && (window.navigator.standalone);
     if (isIos && !isInStandaloneMode) {
+        if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('mbbnb_pwa_banner_dismissed')) return;
         const banner = document.getElementById('pwa-install-banner');
         if (banner) banner.classList.remove('hidden');
     }
@@ -5086,10 +5195,28 @@ if ('serviceWorker' in navigator) {
             
             const orderNumMatch = (payload.title || '').match(/#(\d+)/) || (payload.body || '').match(/#(\d+)/);
             const extractedSon = orderNumMatch ? orderNumMatch[1] : null;
-            const notifKey = extractedSon ? `order-${extractedSon}` : (payload.title || 'push-order');
+
+            // 0ms instant optimistic update directly from push notification payload
+            let extractedStatus = null;
+            const textToInspect = `${payload.title || ''} ${payload.body || ''}`;
+            if (/being prepared|preparing/i.test(textToInspect)) extractedStatus = 'Preparing';
+            else if (/out for delivery|to deliver|delivery is on its way/i.test(textToInspect)) extractedStatus = 'To Deliver';
+            else if (/delivered/i.test(textToInspect)) extractedStatus = 'Delivered';
+            else if (/cancelled/i.test(textToInspect)) extractedStatus = 'Cancelled';
+
+            const notifKey = extractedSon ? (extractedStatus ? `order-${extractedSon}-${extractedStatus}` : `order-${extractedSon}`) : (payload.title || 'push-order');
+
+            // Suppress OS notification tag since Service Worker already displayed it to the user
+            if (extractedSon && window.App && window.App.suppressOrder) {
+                window.App._recentNotifs.set(`native-mbbnb-order-${extractedSon}`, Date.now());
+            }
 
             // Deduplicate: if this order alert was already emitted or handled locally, suppress duplicate
             const shouldAlert = window.App && window.App.shouldNotify ? window.App.shouldNotify(notifKey, 14000) : true;
+
+            if (shouldAlert && extractedSon && window.App && window.App.suppressOrder) {
+                window.App.suppressOrder(extractedSon, extractedStatus, 14000);
+            }
 
             if (shouldAlert) {
                 // Audible chime feedback
@@ -5119,19 +5246,15 @@ if ('serviceWorker' in navigator) {
                 delete window.UI._prefetchCache['delivery_dashboard'];
             }
 
-            // 0ms instant optimistic update directly from push notification payload
-            let extractedStatus = null;
-            const textToInspect = `${payload.title || ''} ${payload.body || ''}`;
-            if (/being prepared|preparing/i.test(textToInspect)) extractedStatus = 'Preparing';
-            else if (/out for delivery|to deliver|delivery is on its way/i.test(textToInspect)) extractedStatus = 'To Deliver';
-            else if (/delivered/i.test(textToInspect)) extractedStatus = 'Delivered';
-            else if (/cancelled/i.test(textToInspect)) extractedStatus = 'Cancelled';
-
             if (extractedStatus && extractedSon) {
+                if (State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses.set(String(extractedSon), extractedStatus);
+                if (State.knownAdminOrderStatuses) State.knownAdminOrderStatuses.set(String(extractedSon), extractedStatus);
+
                 if (State.myOrders && Array.isArray(State.myOrders)) {
                     State.myOrders.forEach(o => {
                         if (o.station_order_number == extractedSon || o.order_id == extractedSon) {
                             o.order_status = extractedStatus;
+                            if (State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses.set(String(o.order_id), extractedStatus);
                         }
                     });
                     if (window.UI && window.UI._currentView === 'customer_orders') window.UI._updateOrdersList();
@@ -5143,6 +5266,7 @@ if ('serviceWorker' in navigator) {
                     State.adminData.orders.forEach(o => {
                         if (o.station_order_number == extractedSon || o.order_id == extractedSon) {
                             o.order_status = extractedStatus;
+                            if (State.knownAdminOrderStatuses) State.knownAdminOrderStatuses.set(String(o.order_id), extractedStatus);
                         }
                     });
                     if (window.UI && window.UI._currentView === 'admin_dashboard') window.UI._updateAdminOrdersList();

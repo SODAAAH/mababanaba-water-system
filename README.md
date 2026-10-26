@@ -6,7 +6,7 @@ The frontend is built as an installable Progressive Web App (PWA) with full offl
 
 ## Tech Stack
 
-- **Frontend:** Vanilla JavaScript (ES6+), Tailwind CSS, Font Awesome, Flatpickr
+- **Frontend:** Vanilla JavaScript (ES6+), Tailwind CSS, Font Awesome, Flatpickr, jsQR
 - **Backend:** PHP 8.0+ (PDO MySQL, OpenSSL for native VAPID Web Push, cURL for SMS)
 - **Database:** MySQL / MariaDB (composite indexes, foreign key constraints)
 - **PWA & Offline:** Service Worker (offline asset caching, background push notifications)
@@ -25,19 +25,23 @@ The frontend is built as an installable Progressive Web App (PWA) with full offl
 │   ├── config.php        # Environment configuration loader
 │   ├── cron.php          # Background maintenance worker (order expiry & rate limits)
 │   └── migrations.php    # Automated database schema evolution & dev data seeder
-├── database/             # Database schema and documentation
-│   ├── ROW_SECURITY.md   # Multi-tenant row-level access control matrix
+├── database/             # Database schema
 │   └── schema.sql        # Baseline database schema
 ├── public/               # Frontend web root and static assets
 │   ├── css/              # Application styles and compiled Tailwind CSS
 │   ├── fonts/            # Local Inter font files
-│   ├── js/               # Frontend application logic (app.js, ui.js, api.js)
+│   ├── js/               # Frontend application logic (app.js, ui.js, api.js, state.js, jsqr)
 │   ├── webfonts/         # Font Awesome icon assets
 │   ├── 404.html          # Not found fallback page
 │   ├── index.html        # Single Page Application root
 │   ├── manifest.json     # PWA manifest
 │   ├── offline.html      # Offline fallback page
 │   └── sw.js             # Service worker with offline caching & push listeners
+├── scripts/              # Build and database CLI helpers
+│   ├── fix-css.js        # Post-CSS compatibility processor (called during build:css)
+│   └── migrate.php       # CLI migration runner
+├── tests/                # Automated test runner
+│   └── run_tests.php     # Comprehensive security, auth & regression test suite
 ├── .env.example          # Environment variable template
 ├── .htaccess             # Production Apache request routing & hardening
 ├── local_router.php      # Development server routing script for PHP built-in server
@@ -123,3 +127,13 @@ The system includes `api/cron.php` to automatically cancel expired pending order
   ```bash
   curl "http://127.0.0.1:8000/api/cron.php?token=YOUR_CRON_SECRET"
   ```
+
+### 6. Automated Testing
+
+Run the security and regression test suite:
+
+```bash
+php tests/run_tests.php
+```
+
+

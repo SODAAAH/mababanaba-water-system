@@ -172,6 +172,7 @@ const CustomDialog = {
 
 const CustomToast = {
     _activeToasts: new Map(),
+    _recentShown: new Map(),
 
     show(message, type = 'success', duration = 2500, actionOrCallbackOrKey = null, explicitKey = null) {
         let container = document.getElementById('toast-container');
@@ -203,7 +204,34 @@ const CustomToast = {
             }
         }
 
+        const orderMatch = (toastKey || '').match(/order-(\d+)/) || (typeof message === 'string' ? message.match(/#(\d+)/) : null);
+        const orderNum = orderMatch ? orderMatch[1] : null;
+        const dedupKey = orderNum ? `toast-order-${orderNum}` : toastKey;
+        const now = Date.now();
+        const lastShown = this._recentShown.get(dedupKey);
+
         let toast = this._activeToasts.get(toastKey);
+        if (!toast && orderNum) {
+            // Re-use active toast for the same order even if subkey differs
+            for (const [k, t] of this._activeToasts.entries()) {
+                if (k.startsWith(`order-${orderNum}`) || k.startsWith(`placed-${orderNum}`)) {
+                    toast = t;
+                    toastKey = k;
+                    break;
+                }
+            }
+        }
+
+        // Suppress duplicate flashing if exact same order toast was shown under 1.8s and a toast is visible
+        if (!toast && lastShown && (now - lastShown < 1800) && container.children.length > 0) {
+            return;
+        }
+        this._recentShown.set(dedupKey, now);
+        if (this._recentShown.size > 50) {
+            for (const [k, v] of this._recentShown.entries()) {
+                if (now - v > 30000) this._recentShown.delete(k);
+            }
+        }
 
         let icon = '<i class="fa-solid fa-circle-info text-blue-500"></i>';
         if (type === 'success') {
@@ -637,6 +665,10 @@ const UI = {
             if(State.heartbeatInterval) {
                 clearInterval(State.heartbeatInterval);
                 State.heartbeatInterval = null;
+            }
+            if(State.saCustomerInterval) {
+                clearInterval(State.saCustomerInterval);
+                State.saCustomerInterval = null;
             }
             if (window.API && window.API.clearCache) API.clearCache();
             if ('caches' in window) {
@@ -1105,10 +1137,12 @@ const UI = {
         }
 
         let pushBannerHtml = '';
-        if ('Notification' in window && Notification.permission === 'default') {
+        const pushDismissed = (typeof sessionStorage !== 'undefined') && sessionStorage.getItem('mbbnb_push_banner_dismissed');
+        if (!pushDismissed && 'Notification' in window && Notification.permission === 'default') {
             pushBannerHtml = `
-                <div id="push-permission-banner" class="bg-gradient-to-r from-slate-900 to-blue-950 text-white rounded-2xl sm:rounded-3xl p-4 mb-6 flex items-center justify-between gap-3 shadow-md border border-white/10">
-                    <div class="flex items-center gap-3 min-w-0">
+                <div id="push-permission-banner" class="bg-gradient-to-r from-slate-900 to-blue-950 text-white rounded-2xl sm:rounded-3xl p-4 mb-6 flex items-center justify-between gap-3 shadow-md border border-white/10 relative">
+                    <button onclick="document.getElementById('push-permission-banner')?.remove(); try{sessionStorage.setItem('mbbnb_push_banner_dismissed','1')}catch(e){}" class="absolute top-2.5 right-2.5 text-slate-400 hover:text-white p-1 text-xs cursor-pointer transition" title="Dismiss"><i class="fa-solid fa-xmark"></i></button>
+                    <div class="flex items-center gap-3 min-w-0 pr-6">
                         <div class="w-9 h-9 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center text-base shrink-0">
                             <i class="fa-solid fa-bell animate-pulse"></i>
                         </div>
@@ -1117,7 +1151,7 @@ const UI = {
                             <p class="text-[11px] text-slate-300 truncate">Get instant delivery alerts even when the app is closed</p>
                         </div>
                     </div>
-                    <button onclick="App.subscribeToPush(true).then(ok => { if(ok) document.getElementById('push-permission-banner')?.remove(); })" class="bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-black px-3.5 py-2 rounded-xl transition shadow-md whitespace-nowrap shrink-0 cursor-pointer">
+                    <button onclick="App.subscribeToPush(true).then(ok => { if(ok) { document.getElementById('push-permission-banner')?.remove(); try{sessionStorage.setItem('mbbnb_push_banner_dismissed','1')}catch(e){} } })" class="bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-black px-3.5 py-2 rounded-xl transition shadow-md whitespace-nowrap shrink-0 cursor-pointer">
                         Enable
                     </button>
                 </div>
@@ -1358,7 +1392,15 @@ const UI = {
                 : Promise.resolve(State.myOrders);
 
             const [newStations, orders] = await Promise.all([stationsPromise, ordersPromise]);
-            if (orders && Array.isArray(orders)) State.myOrders = orders;
+            if (orders && Array.isArray(orders)) {
+                State.myOrders = orders;
+                if (!State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses = new Map();
+                orders.forEach(o => {
+                    State.knownCustomerOrderStatuses.set(String(o.order_id), o.order_status);
+                    if (o.station_order_number) State.knownCustomerOrderStatuses.set(String(o.station_order_number), o.order_status);
+                });
+                State.customerPollingInitialized = true;
+            }
 
             const oldHash = State.lastDataHash;
             const newHash = JSON.stringify((newStations || []).map(s => `${s.station_id}_${s.user_points}_${s.user_lifetime_points}_${s.is_manually_closed}`));
@@ -1406,6 +1448,14 @@ const UI = {
                     const polledOrders = await API.request('get_customer_orders', 'GET', null, true);
                     if (polledOrders && Array.isArray(polledOrders)) {
                         if (!State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses = new Map();
+                        if (!State.customerPollingInitialized) {
+                            polledOrders.forEach(o => {
+                                State.knownCustomerOrderStatuses.set(String(o.order_id), o.order_status);
+                                if (o.station_order_number) State.knownCustomerOrderStatuses.set(String(o.station_order_number), o.order_status);
+                            });
+                            State.customerPollingInitialized = true;
+                            return;
+                        }
                         const changed = [];
                         polledOrders.forEach(o => {
                             const k = String(o.order_id);
@@ -1414,6 +1464,7 @@ const UI = {
                                 changed.push(o);
                             }
                             State.knownCustomerOrderStatuses.set(k, o.order_status);
+                            if (o.station_order_number) State.knownCustomerOrderStatuses.set(String(o.station_order_number), o.order_status);
                         });
                         if (changed.length > 0) {
                             const seenKeys = new Set();
@@ -1422,14 +1473,31 @@ const UI = {
                                 if (!seenKeys.has(gKey)) {
                                     seenKeys.add(gKey);
                                     const orderNum = o.station_order_number || o.order_id;
+                                    const notifKey = `order-${orderNum}-${o.order_status}`;
+
+                                    // Deduplicate: suppress if already handled by WebPush, broadcast or local action
+                                    if (window.App && window.App.shouldNotify && !window.App.shouldNotify(notifKey, 14000)) {
+                                        return;
+                                    }
+
                                     const msg = `Your Order #${orderNum} is now ${o.order_status}!`;
-                                    if (window.App && window.App.playNotificationChime) window.App.playNotificationChime();
-                                    if (typeof CustomToast !== 'undefined') CustomToast.show(msg, 'info', 6000);
+                                    if (window.App && window.App.playNotificationChime) {
+                                        window.App.playNotificationChime(notifKey);
+                                    }
+                                    if (typeof CustomToast !== 'undefined') {
+                                        CustomToast.show(msg, 'info', 6000, null, notifKey);
+                                    }
                                     if (document.hidden && window.App && window.App.sendNativeNotification) {
-                                        App.sendNativeNotification('Order Update', msg, 'order-' + orderNum);
+                                        App.sendNativeNotification('Order Update', msg, `mbbnb-order-${orderNum}`, false);
                                     }
                                 }
                             });
+                        }
+                        const active = polledOrders.filter(o => o.order_status !== 'Delivered' && o.order_status !== 'Cancelled');
+                        const badge = document.getElementById('dashboard-orders-badge');
+                        if (badge) {
+                            if (active.length > 0) badge.classList.remove('hidden');
+                            else badge.classList.add('hidden');
                         }
                         const ordersHash = JSON.stringify(polledOrders.map(o => o.order_id + o.order_status));
                         if (ordersHash !== State.lastCustomerOrdersHash) {
@@ -2568,7 +2636,10 @@ const UI = {
         
         if (!State.knownCustomerOrderStatuses) State.knownCustomerOrderStatuses = new Map();
         if (State.myOrders && Array.isArray(State.myOrders)) {
-            State.myOrders.forEach(o => State.knownCustomerOrderStatuses.set(String(o.order_id), o.order_status));
+            State.myOrders.forEach(o => {
+                State.knownCustomerOrderStatuses.set(String(o.order_id), o.order_status);
+                if (o.station_order_number) State.knownCustomerOrderStatuses.set(String(o.station_order_number), o.order_status);
+            });
             State.customerPollingInitialized = true;
         }
         State.lastDataHash = JSON.stringify((State.myOrders || []).map(o => o.order_id + o.order_status + (o.rating || '')));
@@ -2578,8 +2649,11 @@ const UI = {
                 const newData = await API.request('get_customer_orders', 'GET', null, true);
                 if (!newData || !Array.isArray(newData)) return;
 
-                if (!State.customerPollingInitialized || State.knownCustomerOrderStatuses.size === 0) {
-                    newData.forEach(o => State.knownCustomerOrderStatuses.set(String(o.order_id), o.order_status));
+                if (!State.customerPollingInitialized) {
+                    newData.forEach(o => {
+                        State.knownCustomerOrderStatuses.set(String(o.order_id), o.order_status);
+                        if (o.station_order_number) State.knownCustomerOrderStatuses.set(String(o.station_order_number), o.order_status);
+                    });
                     State.customerPollingInitialized = true;
                     State.customerSessionStartTime = Date.now();
                     State.myOrders = newData;
@@ -2595,6 +2669,7 @@ const UI = {
                         changedOrders.push(newOrder);
                     }
                     State.knownCustomerOrderStatuses.set(orderKey, newOrder.order_status);
+                    if (newOrder.station_order_number) State.knownCustomerOrderStatuses.set(String(newOrder.station_order_number), newOrder.order_status);
                 });
 
                 if (changedOrders.length > 0) {
@@ -2623,7 +2698,7 @@ const UI = {
                             }
                             // 3. Trigger OS notification if tab is hidden
                             if (document.hidden && window.App && window.App.sendNativeNotification) {
-                                App.sendNativeNotification('Order Update', notifyMsg, `order-${orderNum}`, false);
+                                App.sendNativeNotification('Order Update', notifyMsg, `mbbnb-order-${orderNum}`, false);
                             }
                         }
                     });
@@ -2667,8 +2742,13 @@ const UI = {
             State.adminData = data;
             
             if (!State.knownAdminOrderIds) State.knownAdminOrderIds = new Set();
+            if (!State.knownAdminOrderStatuses) State.knownAdminOrderStatuses = new Map();
             if (data.orders && Array.isArray(data.orders)) {
-                data.orders.forEach(o => State.knownAdminOrderIds.add(String(o.order_id)));
+                data.orders.forEach(o => {
+                    State.knownAdminOrderIds.add(String(o.order_id));
+                    State.knownAdminOrderStatuses.set(String(o.order_id), o.order_status);
+                    if (o.station_order_number) State.knownAdminOrderStatuses.set(String(o.station_order_number), o.order_status);
+                });
                 State.adminPollingInitialized = true;
                 State.adminSessionStartTime = State.adminSessionStartTime || Date.now();
             }
@@ -3283,8 +3363,13 @@ const UI = {
         if(State.pollingInterval) clearInterval(State.pollingInterval);
         
         if (!State.knownAdminOrderIds) State.knownAdminOrderIds = new Set();
+        if (!State.knownAdminOrderStatuses) State.knownAdminOrderStatuses = new Map();
         if (State.adminData?.orders && Array.isArray(State.adminData.orders)) {
-            State.adminData.orders.forEach(o => State.knownAdminOrderIds.add(String(o.order_id)));
+            State.adminData.orders.forEach(o => {
+                State.knownAdminOrderIds.add(String(o.order_id));
+                State.knownAdminOrderStatuses.set(String(o.order_id), o.order_status);
+                if (o.station_order_number) State.knownAdminOrderStatuses.set(String(o.station_order_number), o.order_status);
+            });
             State.adminPollingInitialized = true;
             State.adminSessionStartTime = State.adminSessionStartTime || Date.now();
         }
@@ -3296,8 +3381,12 @@ const UI = {
                 if (!newData || !newData.orders || !Array.isArray(newData.orders)) return;
                 const newOrders = newData.orders;
                 
-                if (!State.adminPollingInitialized || State.knownAdminOrderIds.size === 0) {
-                    newOrders.forEach(o => State.knownAdminOrderIds.add(String(o.order_id)));
+                if (!State.adminPollingInitialized) {
+                    newOrders.forEach(o => {
+                        State.knownAdminOrderIds.add(String(o.order_id));
+                        State.knownAdminOrderStatuses.set(String(o.order_id), o.order_status);
+                        if (o.station_order_number) State.knownAdminOrderStatuses.set(String(o.station_order_number), o.order_status);
+                    });
                     State.adminPollingInitialized = true;
                     State.adminSessionStartTime = Date.now();
                     State.adminData = newData;
@@ -3338,7 +3427,7 @@ const UI = {
                         if (!seenGroupKeys.has(gKey)) {
                             seenGroupKeys.add(gKey);
                             const orderNum = firstNew.station_order_number || firstNew.order_id;
-                            const notifKey = `order-${orderNum}`;
+                            const notifKey = `order-${orderNum}-placed`;
                             
                             // Deduplicate: suppress duplicate if already alerted by WebPush or broadcast
                             if (window.App && window.App.shouldNotify && !window.App.shouldNotify(notifKey, 14000)) {
@@ -3354,7 +3443,7 @@ const UI = {
                                 CustomToast.show(notifyMsg, 'info', 6000, null, notifKey);
                             }
                             if (document.hidden && window.App && window.App.sendNativeNotification) {
-                                App.sendNativeNotification('New Order', notifyMsg, notifKey, false);
+                                App.sendNativeNotification('New Order', notifyMsg, `mbbnb-order-${orderNum}`, false);
                             }
                         }
                     });
@@ -3381,7 +3470,7 @@ const UI = {
                                 CustomToast.show(statusMsg, 'info', 5000, null, notifKey);
                             }
                             if (document.hidden && window.App && window.App.sendNativeNotification) {
-                                App.sendNativeNotification('Order Status Update', statusMsg, `order-${orderNum}`, false);
+                                App.sendNativeNotification('Order Status Update', statusMsg, `mbbnb-order-${orderNum}`, false);
                             }
                         }
                     });
@@ -4621,7 +4710,7 @@ const UI = {
     _renderDeliveryDashboardPage(showSkeleton) {
         let deliveriesCount = 0;
         if (!showSkeleton && State.deliveryData) {
-            const deliveries = (State.deliveryData.orders || []).filter(o => o.order_status === 'To Deliver' || o.order_status === 'Delivered');
+            const deliveries = (State.deliveryData.orders || []).filter(o => o.order_status === 'To Deliver');
             const keys = new Set();
             deliveries.forEach(o => keys.add(o.station_order_number ? `${o.customer_id}-${o.station_order_number}` : `solo-${o.order_id}`));
             deliveriesCount = keys.size;
@@ -4796,7 +4885,7 @@ const UI = {
                 if (!newData || !newData.orders || !Array.isArray(newData.orders)) return;
                 const newDelivs = newData.orders.filter(o => o.order_status === 'To Deliver' || o.order_status === 'Delivered');
 
-                if (!State.deliveryPollingInitialized || State.knownDeliveryOrderIds.size === 0) {
+                if (!State.deliveryPollingInitialized) {
                     newDelivs.filter(o => o.order_status === 'To Deliver').forEach(o => State.knownDeliveryOrderIds.add(String(o.order_id)));
                     State.deliveryPollingInitialized = true;
                     State.deliverySessionStartTime = Date.now();
@@ -4841,7 +4930,7 @@ const UI = {
                                 CustomToast.show(notifyMsg, 'info', 6000, null, notifKey);
                             }
                             if (document.hidden && window.App && window.App.sendNativeNotification) {
-                                App.sendNativeNotification('Delivery Assignment', notifyMsg, `order-${orderNum}`, false);
+                                App.sendNativeNotification('Delivery Assignment', notifyMsg, `mbbnb-order-${orderNum}`, false);
                             }
                         }
                     });

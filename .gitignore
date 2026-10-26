@@ -38,6 +38,10 @@ scripts/*
 !scripts/migrate.php
 deploy/
 scratch/
+extras/paper/
+extras/docs/
+extras/logs/
+extras/scripts/
 
 # OS & IDE metadata
 .DS_Store

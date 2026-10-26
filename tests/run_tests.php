@@ -73,10 +73,10 @@ foreach ($tables as $t) {
 $pdo->exec("SET FOREIGN_KEY_CHECKS = 1");
 
 // Seed Stations
-$pdo->exec("INSERT INTO STATION (station_id, station_name, address, status, shipping_fee, new_jug_price) VALUES 
-    (1, 'Station 1 Central', 'Mababanaba Central', 'Active', 30.00, 170.00),
-    (2, 'Station 2 North', 'Mababanaba North', 'Active', 30.00, 170.00),
-    (3, 'Station 3 South', 'Mababanaba South', 'Suspended', 30.00, 170.00)
+$pdo->exec("INSERT INTO STATION (station_id, station_name, address, contact_number, status, shipping_fee, new_jug_price) VALUES 
+    (1, 'Station 1 Central', 'Mababanaba Central', '09123456789', 'Active', 30.00, 170.00),
+    (2, 'Station 2 North', 'Mababanaba North', '09123456788', 'Active', 30.00, 170.00),
+    (3, 'Station 3 South', 'Mababanaba South', '09123456787', 'Suspended', 30.00, 170.00)
 ");
 
 // Seed Products
@@ -104,9 +104,9 @@ $pdo->exec("INSERT INTO ADMIN (admin_id, station_id, username, password, role, s
 ");
 
 // Seed Customers
-$pdo->exec("INSERT INTO CUSTOMER (customer_id, contact_number, full_name, password, is_verified) VALUES 
-    (1, '09123456789', 'Verified Customer 1', '{$pHash}', 1),
-    (2, '09987654321', 'Unverified Customer 2', '{$pHash}', 0)
+$pdo->exec("INSERT INTO CUSTOMER (customer_id, contact_number, full_name, address, password, is_verified) VALUES 
+    (1, '09123456789', 'Verified Customer 1', 'Barangay Mababanaba, House 1', '{$pHash}', 1),
+    (2, '09987654321', 'Unverified Customer 2', 'Barangay Mababanaba, House 2', '{$pHash}', 0)
 ");
 
 echo "[+] Database seeded successfully.\n\n";
@@ -269,8 +269,8 @@ assertTest("inventory: stock remains uncorrupted at 5 round jugs", (int)$invAfte
 echo "\n--- TEST GROUP 7: CONTAINER DEBT SAFEGUARD (PHASE 4D) ---\n";
 
 // Insert an unreturned borrowed order for Customer 1 at Station 1
-$pdo->exec("INSERT INTO ORDERS (station_id, customer_id, product_id, quantity, jug_type, container_option, borrow_round, borrow_status, order_status, total_price) 
-    VALUES (1, 1, 1, 2, 'Round', 'borrow', 2, 'Pending', 'Delivered', 60.00)");
+$pdo->exec("INSERT INTO ORDERS (station_id, customer_id, product_id, quantity, jug_type, container_option, borrow_round, borrow_status, order_status, total_price, delivery_address) 
+    VALUES (1, 1, 1, 2, 'Round', 'borrow', 2, 'Pending', 'Delivered', 60.00, 'Barangay Mababanaba, Test House')");
 
 $stmtDebt = $pdo->prepare("SELECT COUNT(*) FROM ORDERS WHERE customer_id = ? AND station_id = ? AND borrow_status = 'Pending' AND (borrow_round > 0 OR borrow_slim > 0)");
 $stmtDebt->execute([1, 1]);
@@ -291,8 +291,8 @@ echo "\n--- TEST GROUP 8: CANCELLATION & STOCK IDEMPOTENCY (PHASE 4C) ---\n";
 
 // Place an active order: 2 slim jugs at Station 1
 $pdo->exec("UPDATE INVENTORY SET stock_level = stock_level - 2, slim_jugs = slim_jugs - 2 WHERE station_id = 1");
-$pdo->exec("INSERT INTO ORDERS (order_id, station_id, customer_id, product_id, quantity, jug_type, container_option, order_status, total_price, station_order_number) 
-    VALUES (101, 1, 1, 1, 2, 'Slim', 'owned', 'Pending', 60.00, 99)");
+$pdo->exec("INSERT INTO ORDERS (order_id, station_id, customer_id, product_id, quantity, jug_type, container_option, order_status, total_price, station_order_number, delivery_address) 
+    VALUES (101, 1, 1, 1, 2, 'Slim', 'owned', 'Pending', 60.00, 99, 'Barangay Mababanaba, Test House')");
 
 // Get inventory before cancel
 $invBefore = $pdo->query("SELECT slim_jugs FROM INVENTORY WHERE station_id = 1")->fetchColumn();
@@ -320,8 +320,8 @@ assertTest("cancellation: repeated cancellation on already cancelled order rejec
 echo "\n--- TEST GROUP 9: DELIVERY STAFF HIJACKING (SEC-14) ---\n";
 
 // Create order 201 'To Deliver' assigned to Rider 1 (admin_id 2)
-$pdo->exec("INSERT INTO ORDERS (order_id, station_id, customer_id, product_id, quantity, jug_type, container_option, order_status, total_price) 
-    VALUES (201, 1, 1, 1, 1, 'Round', 'owned', 'To Deliver', 30.00)");
+$pdo->exec("INSERT INTO ORDERS (order_id, station_id, customer_id, product_id, quantity, jug_type, container_option, order_status, total_price, delivery_address) 
+    VALUES (201, 1, 1, 1, 1, 'Round', 'owned', 'To Deliver', 30.00, 'Barangay Mababanaba, Test House')");
 $pdo->exec("INSERT INTO DELIVERIES (order_id, admin_id, quantity) VALUES (201, 2, 1)");
 
 // Rider 2 (admin_id 3) tries to mark order 201 delivered
@@ -348,8 +348,8 @@ $rider1Allowed = ($delRecord && ($delRecord['role'] ?? '') === 'Delivery Staff' 
 assertTest("authorization: assigned rider 1 allowed to deliver assigned order", $rider1Allowed === true);
 
 // Create order 202 'To Deliver' dispatched by Station Admin (admin_id 4)
-$pdo->exec("INSERT INTO ORDERS (order_id, station_id, customer_id, product_id, quantity, jug_type, container_option, order_status, total_price) 
-    VALUES (202, 1, 1, 1, 1, 'Round', 'pour', 'To Deliver', 30.00)");
+$pdo->exec("INSERT INTO ORDERS (order_id, station_id, customer_id, product_id, quantity, jug_type, container_option, order_status, total_price, delivery_address) 
+    VALUES (202, 1, 1, 1, 1, 'Round', 'pour', 'To Deliver', 30.00, 'Barangay Mababanaba, Test House')");
 $pdo->exec("INSERT INTO DELIVERIES (order_id, admin_id, quantity) VALUES (202, 4, 1)");
 
 // Rider 1 (admin_id 2) delivers order dispatched by Station Admin (admin_id 4)
