@@ -739,6 +739,23 @@ const App = {
         await this.updateOrderStatus(orderId, 'Preparing');
     },
 
+    async cancelOrderFromProof(orderId) {
+        if (!orderId) return;
+        const confirmed = await CustomDialog.confirm("Are you sure you want to cancel this order?", "Cancel Order");
+        if (!confirmed) return;
+        State.viewedReceipts[orderId] = true;
+        const modal = document.querySelector('.fixed.z-\\[110\\]');
+        if (modal) modal.remove();
+        await this.updateOrderStatus(orderId, 'Cancelled');
+    },
+
+    async confirmCancelOrder(orderId) {
+        if (!orderId) return;
+        const confirmed = await CustomDialog.confirm("Are you sure you want to cancel this order?", "Cancel Order");
+        if (!confirmed) return;
+        await this.updateOrderStatus(orderId, 'Cancelled');
+    },
+
     async markCustomersSeen() {
         try {
             const res = await API.request('sa_mark_customers_seen', 'POST');
@@ -1231,13 +1248,24 @@ const App = {
             const cardWrap = document.querySelector(`[data-accept-container-id="${orderId}"]`);
             if (cardWrap) {
                 cardWrap.innerHTML = `
-                    <button type="button" onclick="App.updateOrderStatus(${orderId}, 'Preparing')" class="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-xs rounded-xl shadow-md shadow-blue-500/20 active:scale-[0.98] transition flex items-center justify-center gap-2">
-                        <i class="fa-solid fa-circle-check text-sm"></i>
-                        <span>Accept Order</span>
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button type="button" onclick="App.confirmCancelOrder(${orderId})" class="py-3 px-3.5 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs rounded-xl border border-rose-200/80 active:scale-[0.98] transition flex items-center justify-center gap-1.5 cursor-pointer">
+                            <i class="fa-solid fa-ban text-xs"></i>
+                            <span>Cancel</span>
+                        </button>
+                        <button type="button" onclick="App.updateOrderStatus(${orderId}, 'Preparing')" class="flex-1 py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-xs rounded-xl shadow-md shadow-blue-500/20 active:scale-[0.98] transition flex items-center justify-center gap-2 cursor-pointer">
+                            <i class="fa-solid fa-circle-check text-sm"></i>
+                            <span>Accept Order</span>
+                        </button>
+                    </div>
                 `;
             }
         }
+
+        const orderMatch = State.adminData?.orders?.find(o => o.order_id == orderId);
+        const isFinalized = orderMatch && ['Delivered', 'Cancelled'].includes(orderMatch.order_status);
+        const canCancel = (State.user?.type === 'admin') && !isFinalized;
+        const canAccept = (State.user?.type === 'admin') && (!orderMatch || orderMatch.order_status === 'Pending');
 
         const modal = document.createElement('div');
         modal.className = 'fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm opacity-0 transition-opacity duration-300';
@@ -1248,17 +1276,22 @@ const App = {
                 <div class="flex-1 overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-2 flex items-center justify-center min-h-[300px]">
                     <img id="proof-image-display" class="max-w-full h-auto rounded-lg shadow-sm" alt="Payment Proof">
                 </div>
-                <div class="mt-4 flex flex-wrap justify-between items-center gap-3">
-                    <a id="proof-download-link" download="Receipt-Order-${orderId}.jpg" class="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 font-bold rounded-xl text-sm flex items-center gap-2 transition active:scale-95">
+                <div class="mt-4 flex flex-wrap justify-between items-center gap-2 sm:gap-3">
+                    <a id="proof-download-link" download="Receipt-Order-${orderId}.jpg" class="px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 font-bold rounded-xl text-xs sm:text-sm flex items-center gap-1.5 transition active:scale-95">
                         <i class="fa-solid fa-download"></i> Save Receipt
                     </a>
                     <div class="flex items-center gap-2">
-                        ${(State.user?.type === 'admin') ? `
-                            <button type="button" onclick="App.acceptOrderFromProof(${orderId})" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 transition active:scale-95 shadow-md shadow-emerald-500/20 cursor-pointer">
+                        ${canCancel ? `
+                            <button type="button" onclick="App.cancelOrderFromProof(${orderId})" class="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold rounded-xl text-xs sm:text-sm flex items-center gap-1.5 transition active:scale-95 cursor-pointer border border-rose-200/80">
+                                <i class="fa-solid fa-ban"></i> Cancel Order
+                            </button>
+                        ` : ''}
+                        ${canAccept ? `
+                            <button type="button" onclick="App.acceptOrderFromProof(${orderId})" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs sm:text-sm flex items-center gap-1.5 transition active:scale-95 shadow-md shadow-emerald-500/20 cursor-pointer">
                                 <i class="fa-solid fa-circle-check"></i> Accept Order
                             </button>
                         ` : ''}
-                        <button class="btn btn-primary" onclick="this.closest('.fixed').remove()">Close</button>
+                        <button class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs sm:text-sm transition cursor-pointer" onclick="this.closest('.fixed').remove()">Close</button>
                     </div>
                 </div>
             </div>
@@ -5001,6 +5034,9 @@ App.Customer = {
 
 App.Admin = {
     updateOrderStatus: (...args) => App.updateOrderStatus(...args),
+    cancelOrderFromProof: (...args) => App.cancelOrderFromProof(...args),
+    acceptOrderFromProof: (...args) => App.acceptOrderFromProof(...args),
+    confirmCancelOrder: (...args) => App.confirmCancelOrder(...args),
     updateLogistics: (...args) => App.updateLogistics(...args),
     applyContainerPreset: (...args) => App.applyContainerPreset(...args),
     handleContainerOptionToggle: (...args) => App.handleContainerOptionToggle(...args),
@@ -5051,6 +5087,13 @@ function dismissLoader() {
 }
 
 async function boot() {
+    const curPath = (window.location.pathname || '').toLowerCase();
+    const curHash = (window.location.hash || '').toLowerCase();
+    if (curPath.endsWith('/download') || curPath.endsWith('/downlaod') || curHash === '#download' || curHash === '#downlaod') {
+        window.location.href = 'download.php';
+        return;
+    }
+
     setTimeout(dismissLoader, 3000);
     if (window.App && window.App.initBroadcastSync) {
         window.App.initBroadcastSync();

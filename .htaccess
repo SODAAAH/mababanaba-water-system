@@ -7,6 +7,8 @@ Options -Indexes
     # Prevent direct access to sensitive configuration, database, and repository files
     RewriteRule ^(\.env|\.git|\.gitignore|database|package\.json|package-lock\.json|tailwind\.config\.js|README\.md) - [F,L,NC]
 
+    RewriteRule ^downla?od/?$ public/download.php [L,QSA]
+
     # If DocumentRoot is set to this directory instead of public/, redirect root requests to /public/
     RewriteCond %{REQUEST_URI} !^/public/
     RewriteCond %{REQUEST_URI} !^/api/

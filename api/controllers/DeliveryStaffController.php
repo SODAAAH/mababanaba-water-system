@@ -113,7 +113,7 @@ class DeliveryStaffController {
                 }
             }
 
-            if ($oInfo['order_status'] === 'Pending' && $status !== 'Preparing') {
+            if ($oInfo['order_status'] === 'Pending' && !in_array($status, ['Preparing', 'Cancelled'], true)) {
                 $this->pdo->rollBack();
                 SecurityContext::jsonResponse(400, [
                     'error' => "Order #{$oid} must be accepted before its status can be changed."
@@ -147,7 +147,7 @@ class DeliveryStaffController {
                 }
             }
 
-            $receiptClause = ($status === 'Preparing') ? ", receipt_viewed = 1" : "";
+            $receiptClause = in_array($status, ['Preparing', 'Cancelled'], true) ? ", receipt_viewed = 1" : "";
             if (!empty($son)) {
                 $this->pdo->prepare("UPDATE ORDERS SET order_status = ?{$receiptClause} WHERE station_order_number = ? AND customer_id = ? AND station_id = ?")->execute([$status, $son, $oInfo['customer_id'], $sid]);
             } else {

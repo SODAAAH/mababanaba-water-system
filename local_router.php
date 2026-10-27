@@ -37,6 +37,12 @@ if (str_starts_with($uri, '/api/')) {
     }
 }
 
+$checkUri = rtrim(strtolower($uri), '/');
+if ($checkUri === '/download' || $checkUri === '/downlaod') {
+    require __DIR__ . '/public/download.php';
+    return true;
+}
+
 $publicRoot = realpath(__DIR__ . '/public');
 $targetPath = realpath(__DIR__ . '/public' . $uri);
 

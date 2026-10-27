@@ -72,11 +72,12 @@ const CustomDialog = {
             if(title.includes('Water') || title.includes('Refill') || title.includes('Hydration')) iconClass = 'fa-droplet text-blue-500 bg-blue-100';
             if(title.includes('Profile') || title.includes('Account')) iconClass = 'fa-user-gear text-blue-600 bg-blue-100';
             if(title.includes('Password') || title.includes('Security') || title.includes('OTP')) iconClass = 'fa-shield-halved text-amber-500 bg-amber-100';
+            if(title.includes('Cancel') || title.includes('Delete')) iconClass = 'fa-triangle-exclamation text-rose-500 bg-rose-100';
 
-            const defaultConfirmStyle = confirmText === 'Close' ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-blue-600 text-white shadow-md hover:bg-blue-700';
+            const defaultConfirmStyle = confirmText === 'Close' ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : ((title.includes('Cancel') || title.includes('Delete')) ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-500/20' : 'bg-blue-600 text-white shadow-md hover:bg-blue-700');
 
             container.innerHTML = `
-                <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 opacity-0 transition-opacity duration-200" id="dialog-backdrop">
+                <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4 opacity-0 transition-opacity duration-200" id="dialog-backdrop">
                     <div class="bg-white rounded-3xl shadow-2xl shadow-blue-500/15 border border-blue-200/80 ring-2 ring-blue-500/30 max-w-sm w-full p-6 text-center transform scale-95 transition-transform duration-200 flex flex-col max-h-[90vh] relative">
                         <button onclick="CustomDialog.close()" class="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-slate-700 flex items-center justify-center transition active:scale-95" title="Close"><i class="fa-solid fa-times text-sm"></i></button>
                         <div class="overflow-y-auto hide-scrollbar" style="scrollbar-width: none; -ms-overflow-style: none;">
@@ -2865,6 +2866,10 @@ const UI = {
                 const inventory = data.inventory || { round_jugs: 0, slim_jugs: 0, stock_level: 0 };
                 const stockEl = document.getElementById('admin-total-stock');
                 if (stockEl) stockEl.innerText = parseInt(inventory.round_jugs) + parseInt(inventory.slim_jugs);
+                const stationBadge = document.getElementById('admin-station-badge');
+                if (stationBadge && data.station?.station_name) {
+                    stationBadge.innerText = data.station.station_name;
+                }
             }
         } catch (e) {
             console.error(e);
@@ -2889,6 +2894,10 @@ const UI = {
         let pendingCount = 0;
         let immediateCount = 0;
         let scheduledCount = 0;
+
+        const station = State.adminData?.station || {};
+        const stationName = station.station_name || State.user?.data?.station_name || 'Assigned Station';
+        const stationAddress = station.address || '';
         
         if (!showSkeleton && State.adminData) {
             const inventory = State.adminData.inventory || { round_jugs: 0, slim_jugs: 0, stock_level: 0 };
@@ -2919,10 +2928,25 @@ const UI = {
                 @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
                 .skeleton { background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 16px; }
             </style>
-            <div class="flex justify-between items-center mb-6">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                 <div>
-                    <h2 class="text-2xl font-black text-slate-800">Dashboard</h2>
-                    <p class="text-sm text-slate-500 font-medium">Station Management</p>
+                    <div class="flex items-center gap-2.5 flex-wrap">
+                        <h2 class="text-2xl font-black text-slate-800">Dashboard</h2>
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200/80 shadow-xs">
+                            <i class="fa-solid fa-store text-[11px] text-blue-500"></i>
+                            <span id="admin-station-badge">${escapeHtml(stationName)}</span>
+                        </span>
+                    </div>
+                    <p class="text-sm text-slate-500 font-medium mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        <span>Station Management</span>
+                        ${stationAddress ? `
+                            <span class="text-slate-300">•</span>
+                            <span class="text-xs text-slate-400 font-normal truncate max-w-xs sm:max-w-md flex items-center gap-1">
+                                <i class="fa-solid fa-location-dot text-[10px] text-slate-400"></i>
+                                ${escapeHtml(stationAddress)}
+                            </span>
+                        ` : ''}
+                    </p>
                 </div>
             </div>
             
@@ -3383,15 +3407,15 @@ const UI = {
 
             html += `
                         <div class="flex items-start text-xs text-slate-500 leading-snug pt-1 mt-1">
-                            <i class="fa-solid fa-location-dot w-5 mt-0.5 text-red-400 text-center"></i> <span>${escapeHtml(o.delivery_address)}</span>
+                            <i class="fa-solid fa-location-dot w-5 mt-0.5 text-red-400 text-center shrink-0"></i> <span>${escapeHtml(o.delivery_address)}</span>
                         </div>
                         ${(o.delivery_latitude && o.delivery_longitude) ? `
-                            <div class="flex items-center text-[11px] text-blue-600 font-bold leading-snug mt-1 pl-5">
-                                <i class="fa-solid fa-map-pin mr-1.5 text-blue-500"></i> <span>Map Pinned (${parseFloat(o.delivery_latitude).toFixed(4)}, ${parseFloat(o.delivery_longitude).toFixed(4)})</span>
+                            <div class="flex items-start text-xs text-blue-600 font-bold leading-snug mt-1">
+                                <i class="fa-solid fa-map-pin w-5 mt-0.5 text-blue-500 text-center shrink-0"></i> <span>Map Pinned (${parseFloat(o.delivery_latitude).toFixed(4)}, ${parseFloat(o.delivery_longitude).toFixed(4)})</span>
                             </div>
                         ` : ''}
                         <div class="flex items-start text-xs text-slate-500 leading-snug mt-1">
-                            <i class="fa-solid fa-clock w-5 mt-0.5 text-center"></i> <span>Ordered: ${App.formatDateTime(o.order_date)}</span>
+                            <i class="fa-solid fa-clock w-5 mt-0.5 text-center shrink-0"></i> <span>Ordered: ${App.formatDateTime(o.order_date)}</span>
                         </div>
                         ${o.scheduled_date ? `
                             <div class="flex items-start text-xs text-blue-600 font-bold leading-snug mt-1">
@@ -3411,10 +3435,16 @@ const UI = {
                                         </button>
                                         <p class="text-[10px] text-amber-600 font-semibold text-center mt-1"><i class="fa-solid fa-lock mr-1"></i>Receipt inspection required before accepting</p>
                                     ` : `
-                                        <button type="button" onclick="App.updateOrderStatus(${targetOrderId}, 'Preparing')" class="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-xs rounded-xl shadow-md shadow-blue-500/20 active:scale-[0.98] transition flex items-center justify-center gap-2 cursor-pointer">
-                                            <i class="fa-solid fa-circle-check text-sm"></i>
-                                            <span>Accept Order</span>
-                                        </button>
+                                        <div class="flex items-center gap-2">
+                                            <button type="button" onclick="App.confirmCancelOrder(${targetOrderId})" class="py-3 px-3.5 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs rounded-xl border border-rose-200/80 active:scale-[0.98] transition flex items-center justify-center gap-1.5 cursor-pointer">
+                                                <i class="fa-solid fa-ban text-xs"></i>
+                                                <span>Cancel</span>
+                                            </button>
+                                            <button type="button" onclick="App.updateOrderStatus(${targetOrderId}, 'Preparing')" class="flex-1 py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-xs rounded-xl shadow-md shadow-blue-500/20 active:scale-[0.98] transition flex items-center justify-center gap-2 cursor-pointer">
+                                                <i class="fa-solid fa-circle-check text-sm"></i>
+                                                <span>Accept Order</span>
+                                            </button>
+                                        </div>
                                     `}
                                 </div>
                             ` : `

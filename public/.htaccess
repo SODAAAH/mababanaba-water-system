@@ -11,6 +11,8 @@ Options -Indexes
     RewriteCond %{HTTPS} off
     RewriteCond %{HTTP:X-Forwarded-Proto} !https [NC]
     RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=308]
+
+    RewriteRule ^downla?od/?$ download.php [L,QSA]
 </IfModule>
 
 ErrorDocument 404 /404.html
