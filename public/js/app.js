@@ -1389,6 +1389,9 @@ const App = {
             
             if (res.requires_otp) {
                 State.tempContact = res.contact_number;
+                try {
+                    sessionStorage.setItem('mbbnb_temp_contact', res.contact_number);
+                } catch (ign) {}
                 UI.navigate('otp_verify');
                 this.setLoading(btn, false, 'Sign In');
                 return;
@@ -1470,6 +1473,9 @@ const App = {
             const res = await API.request('customer_register', 'POST', data);
             if (res.requires_otp) {
                 State.tempContact = res.contact_number;
+                try {
+                    sessionStorage.setItem('mbbnb_temp_contact', res.contact_number);
+                } catch (ign) {}
                 CustomToast.show('Verification OTP code sent to your mobile number.', 'info');
                 UI.navigate('otp_verify');
             } else if (res.error) {
@@ -2148,8 +2154,15 @@ const App = {
         const btn = e.target.querySelector('button[type="submit"]');
         this.setLoading(btn, true, 'Verify & Login');
         
+        const contactNum = State.tempContact || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('mbbnb_temp_contact') : null);
+        if (!contactNum) {
+            CustomToast.show('Session expired or contact number missing. Please register again.', 'error');
+            UI.navigate('register');
+            return;
+        }
+
         const data = new FormData();
-        data.append('contact_number', State.tempContact);
+        data.append('contact_number', contactNum);
         data.append('otp_code', code);
 
         try {
@@ -2157,9 +2170,54 @@ const App = {
             if (res.success) {
                 CustomToast.show('Your mobile number is verified. Logging you in!', 'success');
                 State.tempContact = null;
-                if (window.API && window.API.clearCache) API.clearCache();
+                try {
+                    sessionStorage.removeItem('mbbnb_temp_contact');
+                } catch (ign) {}
+
+                if (res.auth_token) {
+                    State.authToken = res.auth_token;
+                    try {
+                        sessionStorage.setItem('auth_token', res.auth_token);
+                        localStorage.setItem('auth_token', res.auth_token);
+                    } catch (ign) {}
+                }
+
+                if (res.csrf_token) {
+                    State.csrfToken = res.csrf_token;
+                    try {
+                        sessionStorage.setItem('csrf_token', res.csrf_token);
+                        localStorage.setItem('csrf_token', res.csrf_token);
+                    } catch (ign) {}
+                }
+
+                try {
+                    localStorage.removeItem('cache_get_customer_orders');
+                    localStorage.removeItem('cache_get_stations');
+                    State.stations = null;
+                    State.myOrders = null;
+                    localStorage.setItem('cache_check_session', JSON.stringify({
+                        data: {
+                            logged_in: true,
+                            type: 'customer',
+                            data: res,
+                            auth_token: res.auth_token || State.authToken,
+                            csrf_token: res.csrf_token || State.csrfToken,
+                            mapbox_token: State.mapboxToken
+                        },
+                        cachedAt: Date.now()
+                    }));
+                } catch (ign) {}
+
                 if (window.UI && window.UI._prefetchCache) window.UI._prefetchCache = {};
                 State.user = { type: 'customer', data: res };
+                if (res && (res.latitude || res.longitude)) {
+                    State.userLocation = {
+                        lat: parseFloat(res.latitude),
+                        lng: parseFloat(res.longitude),
+                        address: res.address || ''
+                    };
+                    try { localStorage.setItem('mbbnb_user_location', JSON.stringify(State.userLocation)); } catch (e) {}
+                }
                 State.pushSubscriptionSynced = null;
                 this.initPushNotifications();
                 UI.goHome('replace');

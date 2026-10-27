@@ -141,18 +141,38 @@ class CustomerController {
         $this->pdo->prepare("UPDATE CUSTOMER SET is_verified = 1, otp_code = NULL, otp_expiry = NULL, failed_otp_attempts = 0, last_active = CURRENT_TIMESTAMP WHERE customer_id = ?")->execute([$u['customer_id']]);
         
         session_regenerate_id(true);
+        unset($_SESSION['admin_id'], $_SESSION['station_id'], $_SESSION['role']);
         $_SESSION['customer_id'] = $u['customer_id'];
         $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
         SecurityContext::clearRateLimits($this->pdo, ['customer_register', 'verify_registration_otp', 'customer_login']);
         $authToken = SecurityContext::generateAuthToken((int)$u['customer_id'], 'customer');
+
+        $stmtCust = $this->pdo->prepare("SELECT customer_id, full_name, contact_number, address, is_verified, latitude, longitude, created_at FROM CUSTOMER WHERE customer_id = ?");
+        $stmtCust->execute([$u['customer_id']]);
+        $cust = $stmtCust->fetch();
+
+        $loyaltyStmt = $this->pdo->prepare("SELECT IFNULL(SUM(points), 0) as total_points, IFNULL(SUM(lifetime_points), 0) as lifetime_points FROM CUSTOMER_LOYALTY WHERE customer_id = ?");
+        $loyaltyStmt->execute([$u['customer_id']]);
+        $loyaltyData = $loyaltyStmt->fetch();
+        $totPts = (int)($loyaltyData['total_points'] ?? 0);
+        $totLife = (int)($loyaltyData['lifetime_points'] ?? 0);
+
+        $csrfToken = $_SESSION['csrf_token'] ?? null;
+        session_write_close();
+
         echo json_encode([
             'success' => true, 
-            'customer_id' => $u['customer_id'], 
-            'full_name' => $u['full_name'], 
-            'contact_number' => $u['contact_number'], 
-            'address' => $u['address'],
-            'auth_token' => $authToken,
-            'csrf_token' => $_SESSION['csrf_token']
+            'customer_id' => $cust['customer_id'], 
+            'full_name' => $cust['full_name'], 
+            'contact_number' => $cust['contact_number'], 
+            'address' => $cust['address'], 
+            'is_verified' => (int)($cust['is_verified'] ?? 1), 
+            'latitude' => $cust['latitude'], 
+            'longitude' => $cust['longitude'], 
+            'total_points' => $totPts, 
+            'lifetime_points' => $totLife, 
+            'auth_token' => $authToken, 
+            'csrf_token' => $csrfToken
         ]);
         exit;
     }

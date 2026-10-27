@@ -1006,13 +1006,14 @@ const UI = {
     },
 
     renderOTPVerify() {
+        const contactNum = State.tempContact || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('mbbnb_temp_contact') : '') || 'your number';
         this.html(`
             <div class="max-w-md w-full mx-auto bg-white rounded-3xl shadow-xl p-8 border border-slate-100 text-center">
                 <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-600 text-3xl shadow-inner">
                     <i class="fa-solid fa-comment-sms"></i>
                 </div>
                 <h2 class="text-2xl font-black text-slate-800 mb-2">Verify Mobile Number</h2>
-                <p class="text-sm text-slate-500 mb-6 leading-relaxed">We sent a 6-digit code to <strong>${State.tempContact || 'your number'}</strong>. Please enter it below.</p>
+                <p class="text-sm text-slate-500 mb-6 leading-relaxed">We sent a 6-digit code to <strong>${contactNum}</strong>. Please enter it below.</p>
                 
                 <form onsubmit="App.handleOTPVerify(event)" class="space-y-6">
                     <div>
@@ -3963,8 +3964,8 @@ const UI = {
                             <label class="text-[10px] font-bold text-slate-500 uppercase">End Date</label>
                             <input type="text" id="rep-end" value="${end || ''}" placeholder="Select end date" class="w-full mt-1 p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none cursor-pointer">
                         </div>
-                        <button onclick="UI.generateCustomSalesReport()" class="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold px-5 rounded-lg self-end h-[38px] text-sm transition shrink-0 flex items-center gap-1.5 shadow-sm">
-                            <i class="fa-solid fa-bolt text-xs"></i> Generate
+                        <button onclick="UI.generateCustomSalesReport()" class="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold px-5 rounded-lg self-end h-[38px] text-sm transition shrink-0 flex items-center justify-center shadow-sm">
+                            Generate
                         </button>
                     </div>
                     <p class="text-[11px] text-slate-400 mt-2 flex items-center gap-1.5"><i class="fa-solid fa-calendar-check text-blue-500"></i> Available order history: <strong>${App.formatDate(minDate)}</strong> to <strong>${App.formatDate(maxDate)}</strong></p>
