@@ -236,8 +236,12 @@ class StationAdminController {
 
     public function updateMaintenance() {
         $admin = $this->requireStationAdmin();
+        $today = date('Y-m-d');
         $clean = !empty($_POST['last_cleaned_date']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $_POST['last_cleaned_date']) ? $_POST['last_cleaned_date'] : null;
         $filter = !empty($_POST['last_filter_changed_date']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $_POST['last_filter_changed_date']) ? $_POST['last_filter_changed_date'] : null;
+        if (($clean && $clean > $today) || ($filter && $filter > $today)) {
+            SecurityContext::jsonResponse(400, ['error' => 'Future dates are not allowed for maintenance logs.']);
+        }
         $this->pdo->prepare("UPDATE STATION SET last_cleaned_date = ?, last_filter_changed_date = ? WHERE station_id = ?")->execute([$clean, $filter, $admin['station_id']]);
         if (class_exists('CustomerController')) {
             CustomerController::clearStationsCache();

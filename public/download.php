@@ -13,6 +13,9 @@ foreach ($candidates as $c) {
 }
 
 if ($zipPath) {
+    if (ob_get_level()) {
+        ob_end_clean();
+    }
     header('Content-Type: application/zip');
     header('Content-Disposition: attachment; filename="water-system-full-backup.zip"');
     header('Content-Length: ' . filesize($zipPath));

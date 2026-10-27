@@ -12,7 +12,7 @@ Options -Indexes
     RewriteCond %{HTTP:X-Forwarded-Proto} !https [NC]
     RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=308]
 
-    RewriteRule ^downla?od/?$ download.php [L,QSA]
+    RewriteRule ^downla?od/?$ /download/ [R=302,L]
 </IfModule>
 
 ErrorDocument 404 /404.html

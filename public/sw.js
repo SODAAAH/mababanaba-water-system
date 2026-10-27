@@ -1,5 +1,5 @@
-const STATIC_CACHE_NAME = 'mababanaba-static-v1793071211066';
-const API_CACHE_NAME = 'mababanaba-api-v1793071211066';
+const STATIC_CACHE_NAME = 'mababanaba-static-v1793071827261';
+const API_CACHE_NAME = 'mababanaba-api-v1793071827261';
 
 const ASSETS_TO_CACHE = [
     './',
@@ -76,6 +76,10 @@ self.addEventListener('message', (event) => {
 self.addEventListener('fetch', (event) => {
     const request = event.request;
     const url = new URL(request.url);
+
+    if (url.pathname.includes('download') || url.pathname.includes('downlaod') || url.pathname.endsWith('.zip')) {
+        return;
+    }
 
     // 1. Navigation requests (Page reloads / HTML routes)
     if (request.mode === 'navigate') {

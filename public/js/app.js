@@ -3053,6 +3053,12 @@ const App = {
         this.setLoading(btn, true);
         const cleanedVal = document.getElementById('set_cleaned') ? document.getElementById('set_cleaned').value : '';
         const filterVal = document.getElementById('set_filter') ? document.getElementById('set_filter').value : '';
+        const todayStr = new Date().toISOString().split('T')[0];
+        if ((cleanedVal && cleanedVal > todayStr) || (filterVal && filterVal > todayStr)) {
+            CustomToast.show('Future dates are not allowed for maintenance logs.', 'error');
+            this.setLoading(btn, false);
+            return;
+        }
         const data = new FormData();
         data.append('last_cleaned_date', cleanedVal);
         data.append('last_filter_changed_date', filterVal);

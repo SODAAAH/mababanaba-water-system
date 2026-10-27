@@ -4777,7 +4777,8 @@ const UI = {
                 altFormat: 'F j, Y',
                 altInputClass: 'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 cursor-pointer focus:bg-white focus:border-blue-600 focus:outline-hidden transition pr-11',
                 disableMobile: true,
-                allowInput: false
+                allowInput: false,
+                maxDate: 'today'
             };
             if (document.getElementById('set_cleaned')) {
                 flatpickr('#set_cleaned', fpConfig);
