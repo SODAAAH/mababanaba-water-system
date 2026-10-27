@@ -512,49 +512,43 @@ class CustomerController {
         $aid = $_SESSION['admin_id'] ?? null;
         if (!$cid && !$aid) { echo json_encode(['error' => 'Unauthorized']); exit; }
 
-        $newContact = SecurityContext::normalizePhone(trim($_POST['new_contact_number'] ?? ''));
-        if (empty($newContact) || !preg_match('/^09\d{9}$/', $newContact)) {
-            echo json_encode(['error' => 'Please enter a valid 11-digit mobile number starting with 09.']);
-            exit;
-        }
-
         if ($cid) {
-            $stmt = $this->pdo->prepare("SELECT customer_id FROM CUSTOMER WHERE contact_number = ? AND customer_id != ?");
-            $stmt->execute([$newContact, $cid]);
-            if ($stmt->fetch()) {
-                echo json_encode(['error' => 'This mobile number is already registered by another customer.']);
+            $stmt = $this->pdo->prepare("SELECT customer_id, contact_number FROM CUSTOMER WHERE customer_id = ?");
+            $stmt->execute([$cid]);
+            $u = $stmt->fetch();
+            if (!$u || empty($u['contact_number'])) {
+                echo json_encode(['error' => 'No mobile number registered for this account.']);
                 exit;
             }
-        }
-        if ($aid) {
-            $stmt = $this->pdo->prepare("SELECT admin_id FROM ADMIN WHERE contact_number = ? AND admin_id != ?");
-            $stmt->execute([$newContact, $aid]);
-            if ($stmt->fetch()) {
-                echo json_encode(['error' => 'This mobile number is already associated with another staff account.']);
-                exit;
-            }
-        }
-
-        $otp = random_int(100000, 999999);
-        $expiry = date('Y-m-d H:i:s', strtotime('+10 minutes'));
-
-        if ($cid) {
-            $this->pdo->prepare("UPDATE CUSTOMER SET new_temp_contact = ?, otp_code = ?, otp_expiry = ? WHERE customer_id = ?")
-                ->execute([$newContact, $otp, $expiry, $cid]);
+            $oldContact = $u['contact_number'];
+            $otp = random_int(100000, 999999);
+            $expiry = date('Y-m-d H:i:s', strtotime('+10 minutes'));
+            $this->pdo->prepare("UPDATE CUSTOMER SET otp_code = ?, otp_expiry = ?, failed_otp_attempts = 0 WHERE customer_id = ?")
+                ->execute([$otp, $expiry, $cid]);
         } else {
-            $this->pdo->prepare("UPDATE ADMIN SET new_temp_contact = ?, otp_code = ?, otp_expiry = ? WHERE admin_id = ?")
-                ->execute([$newContact, $otp, $expiry, $aid]);
+            $stmt = $this->pdo->prepare("SELECT admin_id, contact_number FROM ADMIN WHERE admin_id = ?");
+            $stmt->execute([$aid]);
+            $u = $stmt->fetch();
+            if (!$u || empty($u['contact_number'])) {
+                echo json_encode(['error' => 'No mobile number registered for this account.']);
+                exit;
+            }
+            $oldContact = $u['contact_number'];
+            $otp = random_int(100000, 999999);
+            $expiry = date('Y-m-d H:i:s', strtotime('+10 minutes'));
+            $this->pdo->prepare("UPDATE ADMIN SET otp_code = ?, otp_expiry = ?, failed_otp_attempts = 0 WHERE admin_id = ?")
+                ->execute([$otp, $expiry, $aid]);
         }
 
         $msg = "Your Mababanaba Waters OTP to update your mobile number is {$otp}. Valid for 10 minutes. Do not share.";
-        $this->sendSemaphoreSMS($newContact, $msg);
+        $this->sendSemaphoreSMS($oldContact, $msg);
 
-        $masked = substr($newContact, 0, 4) . '****' . substr($newContact, -3);
-        echo json_encode(['success' => true, 'masked_new_contact' => $masked, 'raw_new_contact' => $newContact]);
+        $masked = substr($oldContact, 0, 4) . '****' . substr($oldContact, -3);
+        echo json_encode(['success' => true, 'masked_contact' => $masked]);
         exit;
     }
 
-    public function changePhoneSubmit() {
+    public function verifyPhoneChangeOtp() {
         $cid = $_SESSION['customer_id'] ?? null;
         $aid = $_SESSION['admin_id'] ?? null;
         if (!$cid && !$aid) { echo json_encode(['error' => 'Unauthorized']); exit; }
@@ -566,7 +560,7 @@ class CustomerController {
         }
 
         if ($cid) {
-            $stmt = $this->pdo->prepare("SELECT customer_id, new_temp_contact, otp_code, otp_expiry, failed_otp_attempts FROM CUSTOMER WHERE customer_id = ?");
+            $stmt = $this->pdo->prepare("SELECT customer_id, otp_code, otp_expiry, failed_otp_attempts FROM CUSTOMER WHERE customer_id = ?");
             $stmt->execute([$cid]);
             $u = $stmt->fetch();
             if (!$u) { echo json_encode(['error' => 'Customer not found.']); exit; }
@@ -576,17 +570,10 @@ class CustomerController {
                 echo json_encode(['error' => $chk['error']]);
                 exit;
             }
-            if (empty($u['new_temp_contact'])) { echo json_encode(['error' => 'No pending phone number change found.']); exit; }
-
-            $newContact = $u['new_temp_contact'];
-            $this->pdo->prepare("UPDATE CUSTOMER SET contact_number = ?, new_temp_contact = NULL, otp_code = NULL, otp_expiry = NULL, failed_otp_attempts = 0 WHERE customer_id = ?")
-                ->execute([$newContact, $cid]);
-
-            SecurityContext::clearRateLimits($this->pdo, ['request_phone_change_otp', 'change_phone_submit']);
-            echo json_encode(['success' => true, 'new_contact' => $newContact, 'message' => 'Mobile number updated successfully!']);
-            exit;
+            $_SESSION['phone_change_verified_cid'] = (int)$cid;
+            $_SESSION['phone_change_verified_exp'] = time() + 600;
         } else {
-            $stmt = $this->pdo->prepare("SELECT admin_id, new_temp_contact, otp_code, otp_expiry, failed_otp_attempts FROM ADMIN WHERE admin_id = ?");
+            $stmt = $this->pdo->prepare("SELECT admin_id, otp_code, otp_expiry, failed_otp_attempts FROM ADMIN WHERE admin_id = ?");
             $stmt->execute([$aid]);
             $u = $stmt->fetch();
             if (!$u) { echo json_encode(['error' => 'Staff account not found.']); exit; }
@@ -596,13 +583,115 @@ class CustomerController {
                 echo json_encode(['error' => $chk['error']]);
                 exit;
             }
-            if (empty($u['new_temp_contact'])) { echo json_encode(['error' => 'No pending phone number change found.']); exit; }
+            $_SESSION['phone_change_verified_aid'] = (int)$aid;
+            $_SESSION['phone_change_verified_exp'] = time() + 600;
+        }
 
-            $newContact = $u['new_temp_contact'];
+        echo json_encode(['success' => true]);
+        exit;
+    }
+
+    public function changePhoneSubmit() {
+        $cid = $_SESSION['customer_id'] ?? null;
+        $aid = $_SESSION['admin_id'] ?? null;
+        if (!$cid && !$aid) { echo json_encode(['error' => 'Unauthorized']); exit; }
+
+        $newContact = SecurityContext::normalizePhone(trim($_POST['new_contact_number'] ?? ''));
+        if (empty($newContact) || !preg_match('/^09\d{9}$/', $newContact)) {
+            echo json_encode(['error' => 'Please enter a valid 11-digit mobile number starting with 09.']);
+            exit;
+        }
+
+        $code = trim($_POST['otp_code'] ?? '');
+
+        if ($cid) {
+            $stmt = $this->pdo->prepare("SELECT customer_id, contact_number, otp_code, otp_expiry, failed_otp_attempts FROM CUSTOMER WHERE customer_id = ?");
+            $stmt->execute([$cid]);
+            $u = $stmt->fetch();
+            if (!$u) { echo json_encode(['error' => 'Customer not found.']); exit; }
+
+            $isVerified = (!empty($_SESSION['phone_change_verified_cid']) && (int)$_SESSION['phone_change_verified_cid'] === (int)$cid && ($_SESSION['phone_change_verified_exp'] ?? 0) >= time());
+            if (!$isVerified) {
+                if (empty($code)) {
+                    echo json_encode(['error' => 'Verification required. Please enter the OTP code.']);
+                    exit;
+                }
+                $chk = SecurityContext::verifyOtp($this->pdo, 'CUSTOMER', 'customer_id', (int)$cid, $u['otp_code'], $u['otp_expiry'], (int)($u['failed_otp_attempts'] ?? 0), $code);
+                if (!$chk['valid']) {
+                    echo json_encode(['error' => $chk['error']]);
+                    exit;
+                }
+            }
+
+            if ($newContact === $u['contact_number']) {
+                echo json_encode(['error' => 'The new mobile number must be different from your current number.']);
+                exit;
+            }
+
+            $stmtCheck = $this->pdo->prepare("SELECT customer_id FROM CUSTOMER WHERE contact_number = ? AND customer_id != ?");
+            $stmtCheck->execute([$newContact, $cid]);
+            if ($stmtCheck->fetch()) {
+                echo json_encode(['error' => 'This mobile number is already registered by another customer.']);
+                exit;
+            }
+
+            $stmtCheckAdmin = $this->pdo->prepare("SELECT admin_id FROM ADMIN WHERE contact_number = ?");
+            $stmtCheckAdmin->execute([$newContact]);
+            if ($stmtCheckAdmin->fetch()) {
+                echo json_encode(['error' => 'This mobile number is already associated with an account.']);
+                exit;
+            }
+
+            $this->pdo->prepare("UPDATE CUSTOMER SET contact_number = ?, new_temp_contact = NULL, otp_code = NULL, otp_expiry = NULL, failed_otp_attempts = 0 WHERE customer_id = ?")
+                ->execute([$newContact, $cid]);
+
+            unset($_SESSION['phone_change_verified_cid'], $_SESSION['phone_change_verified_exp']);
+            SecurityContext::clearRateLimits($this->pdo, ['request_phone_change_otp', 'verify_phone_change_otp', 'change_phone_submit']);
+            echo json_encode(['success' => true, 'new_contact' => $newContact, 'message' => 'Mobile number updated successfully!']);
+            exit;
+        } else {
+            $stmt = $this->pdo->prepare("SELECT admin_id, contact_number, otp_code, otp_expiry, failed_otp_attempts FROM ADMIN WHERE admin_id = ?");
+            $stmt->execute([$aid]);
+            $u = $stmt->fetch();
+            if (!$u) { echo json_encode(['error' => 'Staff account not found.']); exit; }
+
+            $isVerified = (!empty($_SESSION['phone_change_verified_aid']) && (int)$_SESSION['phone_change_verified_aid'] === (int)$aid && ($_SESSION['phone_change_verified_exp'] ?? 0) >= time());
+            if (!$isVerified) {
+                if (empty($code)) {
+                    echo json_encode(['error' => 'Verification required. Please enter the OTP code.']);
+                    exit;
+                }
+                $chk = SecurityContext::verifyOtp($this->pdo, 'ADMIN', 'admin_id', (int)$aid, $u['otp_code'], $u['otp_expiry'], (int)($u['failed_otp_attempts'] ?? 0), $code);
+                if (!$chk['valid']) {
+                    echo json_encode(['error' => $chk['error']]);
+                    exit;
+                }
+            }
+
+            if ($newContact === $u['contact_number']) {
+                echo json_encode(['error' => 'The new mobile number must be different from your current number.']);
+                exit;
+            }
+
+            $stmtCheck = $this->pdo->prepare("SELECT admin_id FROM ADMIN WHERE contact_number = ? AND admin_id != ?");
+            $stmtCheck->execute([$newContact, $aid]);
+            if ($stmtCheck->fetch()) {
+                echo json_encode(['error' => 'This mobile number is already associated with another staff account.']);
+                exit;
+            }
+
+            $stmtCheckCust = $this->pdo->prepare("SELECT customer_id FROM CUSTOMER WHERE contact_number = ?");
+            $stmtCheckCust->execute([$newContact]);
+            if ($stmtCheckCust->fetch()) {
+                echo json_encode(['error' => 'This mobile number is already registered by a customer.']);
+                exit;
+            }
+
             $this->pdo->prepare("UPDATE ADMIN SET contact_number = ?, new_temp_contact = NULL, otp_code = NULL, otp_expiry = NULL, failed_otp_attempts = 0 WHERE admin_id = ?")
                 ->execute([$newContact, $aid]);
 
-            SecurityContext::clearRateLimits($this->pdo, ['request_phone_change_otp', 'change_phone_submit']);
+            unset($_SESSION['phone_change_verified_aid'], $_SESSION['phone_change_verified_exp']);
+            SecurityContext::clearRateLimits($this->pdo, ['request_phone_change_otp', 'verify_phone_change_otp', 'change_phone_submit']);
             echo json_encode(['success' => true, 'new_contact' => $newContact, 'message' => 'Mobile number updated successfully!']);
             exit;
         }

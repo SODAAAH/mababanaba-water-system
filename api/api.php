@@ -239,7 +239,7 @@ try {
 
 OrderHelper::autoCancelExpiredOrders($pdo);
 
-$rate_limit_actions = ['customer_login', 'customer_register', 'verify_registration_otp', 'forgot_password_request', 'reset_password_submit', 'request_password_change_otp', 'change_password_submit', 'request_phone_change_otp', 'change_phone_submit', 'admin_login'];
+$rate_limit_actions = ['customer_login', 'customer_register', 'verify_registration_otp', 'forgot_password_request', 'reset_password_submit', 'request_password_change_otp', 'change_password_submit', 'request_phone_change_otp', 'verify_phone_change_otp', 'change_phone_submit', 'admin_login'];
 $ip = $_SERVER['REMOTE_ADDR'] ?? '';
 if (in_array($action, $rate_limit_actions) && !in_array($ip, ['127.0.0.1', '::1'])) {
     $stmt = $pdo->prepare("SELECT attempts, last_attempt FROM rate_limits WHERE ip_address = ? AND action = ?");
@@ -482,6 +482,7 @@ switch ($action) {
     case 'request_password_change_otp': getCustomerController($pdo)->requestPasswordChangeOtp(); break;
     case 'change_password_submit': getCustomerController($pdo)->changePasswordSubmit(); break;
     case 'request_phone_change_otp': getCustomerController($pdo)->requestPhoneChangeOtp(); break;
+    case 'verify_phone_change_otp': getCustomerController($pdo)->verifyPhoneChangeOtp(); break;
     case 'change_phone_submit': getCustomerController($pdo)->changePhoneSubmit(); break;
     case 'place_order': getCustomerController($pdo)->placeOrder(); break;
     case 'get_customer_orders': getCustomerController($pdo)->getOrders(); break;

@@ -1907,56 +1907,21 @@ const App = {
     },
 
     async startChangePhoneFlow() {
-        const step1Html = `
-            <div class="text-left text-sm space-y-3 mt-3">
-                <div class="bg-blue-50/70 p-3 rounded-xl border border-blue-100 text-xs text-blue-900 font-medium">
-                    <i class="fa-solid fa-mobile-screen mr-1 text-blue-600"></i> Enter your new mobile phone number. We will send a 6-digit OTP code to verify it.
-                </div>
-                <div>
-                    <label class="text-[10px] font-black uppercase text-slate-500 block mb-1">New Mobile Number</label>
-                    <input type="tel" id="cpn-new-phone" placeholder="09XXXXXXXXX" maxlength="11" class="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none">
-                </div>
-            </div>
-        `;
-
-        const step1Data = await CustomDialog.show({
-            type: 'custom',
-            title: 'Change Phone Number',
-            message: 'Enter your new mobile number to receive an OTP verification code.',
-            confirmText: 'Send OTP Code',
-            cancelText: 'Cancel',
-            extraHtml: step1Html
-        });
-
-        if (!step1Data) return;
-
-        const phoneInput = document.getElementById('cpn-new-phone');
-        let newPhone = phoneInput ? phoneInput.value.trim() : (step1Data.phone || '');
-        newPhone = newPhone.replace(/[^0-9]/g, '');
-        if (newPhone.length === 10 && newPhone.startsWith('9')) newPhone = '0' + newPhone;
-
-        if (!/^09\d{9}$/.test(newPhone)) {
-            CustomToast.show('Please enter a valid 11-digit mobile number (e.g. 09123456789).', 'error');
-            return;
-        }
-
         try {
-            CustomToast.show('Sending verification OTP...', 'info');
-            const data = new FormData();
-            data.append('new_contact_number', newPhone);
-            const reqRes = await API.request('request_phone_change_otp', 'POST', data);
+            CustomToast.show('Sending verification OTP to your registered phone...', 'info');
+            const reqRes = await API.request('request_phone_change_otp', 'POST');
 
-            if (!reqRes.success) {
-                CustomToast.show(reqRes.error || 'Failed to send OTP code.', 'error');
+            if (!reqRes || !reqRes.success) {
+                CustomToast.show(reqRes?.error || 'Failed to send OTP code.', 'error');
                 return;
             }
 
-            const maskedNum = reqRes.masked_new_contact || newPhone;
+            const maskedNum = reqRes.masked_contact || 'your registered number';
 
-            const step2Html = `
+            const step1Html = `
                 <div class="text-left text-sm space-y-3 mt-3">
                     <div class="bg-blue-50/70 p-3 rounded-xl border border-blue-100 text-xs text-blue-900 font-medium">
-                        <i class="fa-solid fa-envelope mr-1 text-blue-600"></i> We sent a 6-digit OTP code to <strong>${maskedNum}</strong>.
+                        <i class="fa-solid fa-shield-halved mr-1 text-blue-600"></i> We sent a 6-digit OTP code to your registered mobile number <strong>${maskedNum}</strong>.
                     </div>
                     <div>
                         <label class="text-[10px] font-black uppercase text-slate-500 block mb-1 text-center">6-Digit OTP Code</label>
@@ -1965,40 +1930,90 @@ const App = {
                 </div>
             `;
 
-            const step2Data = await CustomDialog.show({
-                type: 'custom',
-                title: 'Verify New Phone Number',
-                message: 'Enter the 6-digit code sent to your new mobile number.',
-                confirmText: 'Verify & Update',
-                cancelText: 'Cancel',
-                extraHtml: step2Html
-            });
+            let otpVal = '';
+            while (true) {
+                const step1Data = await CustomDialog.show({
+                    type: 'custom',
+                    title: 'Verify Current Phone',
+                    message: 'Enter the 6-digit OTP code sent to your registered number to verify your identity.',
+                    confirmText: 'Verify & Continue',
+                    cancelText: 'Cancel',
+                    extraHtml: step1Html
+                });
 
-            if (!step2Data) return;
+                if (!step1Data) return;
 
-            const otpVal = (UI._syncOtpValue('cpn-otp') || step2Data.otp || '').trim();
-            if (otpVal.length !== 6) {
-                CustomToast.show('Please enter the full 6-digit OTP code.', 'error');
-                return;
+                otpVal = (UI._syncOtpValue('cpn-otp') || step1Data.otp || '').trim();
+                if (otpVal.length !== 6) {
+                    CustomToast.show('Please enter the full 6-digit OTP code.', 'error');
+                    continue;
+                }
+
+                CustomToast.show('Verifying OTP code...', 'info');
+                const verifyData = new FormData();
+                verifyData.append('otp_code', otpVal);
+                const verifyRes = await API.request('verify_phone_change_otp', 'POST', verifyData);
+                if (!verifyRes || !verifyRes.success) {
+                    CustomToast.show(verifyRes?.error || 'Invalid or expired OTP code.', 'error');
+                    continue;
+                }
+                break;
             }
 
-            CustomToast.show('Updating phone number...', 'info');
-            const verifyData = new FormData();
-            verifyData.append('otp_code', otpVal);
-            const updateRes = await API.request('change_phone_submit', 'POST', verifyData);
+            const step2Html = `
+                <div class="text-left text-sm space-y-3 mt-3">
+                    <div class="bg-emerald-50/70 p-3 rounded-xl border border-emerald-100 text-xs text-emerald-900 font-medium">
+                        <i class="fa-solid fa-circle-check mr-1 text-emerald-600"></i> Current phone verified. Enter your new mobile phone number below.
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black uppercase text-slate-500 block mb-1">New Mobile Number</label>
+                        <input type="tel" id="cpn-new-phone" placeholder="09XXXXXXXXX" maxlength="11" class="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                </div>
+            `;
 
-            if (updateRes.success) {
-                if (State.user && State.user.data) {
-                    State.user.data.contact_number = updateRes.new_contact || newPhone;
-                }
-                CustomDialog.show({
-                    type: 'success',
-                    title: 'Phone Number Updated!',
-                    message: `Your account mobile number is now ${updateRes.new_contact || newPhone}.`,
-                    confirmText: 'Done'
+            while (true) {
+                const step2Data = await CustomDialog.show({
+                    type: 'custom',
+                    title: 'Enter New Mobile Number',
+                    message: 'Enter your new 11-digit mobile number.',
+                    confirmText: 'Update Mobile Number',
+                    cancelText: 'Cancel',
+                    extraHtml: step2Html
                 });
-            } else {
-                CustomToast.show(updateRes.error || 'Failed to verify OTP.', 'error');
+
+                if (!step2Data) return;
+
+                const phoneInput = document.getElementById('cpn-new-phone');
+                let newPhone = phoneInput ? phoneInput.value.trim() : (step2Data.phone || '');
+                newPhone = newPhone.replace(/[^0-9]/g, '');
+                if (newPhone.length === 10 && newPhone.startsWith('9')) newPhone = '0' + newPhone;
+
+                if (!/^09\d{9}$/.test(newPhone)) {
+                    CustomToast.show('Please enter a valid 11-digit mobile number starting with 09.', 'error');
+                    continue;
+                }
+
+                CustomToast.show('Updating mobile number...', 'info');
+                const submitData = new FormData();
+                submitData.append('new_contact_number', newPhone);
+                submitData.append('otp_code', otpVal);
+                const updateRes = await API.request('change_phone_submit', 'POST', submitData);
+
+                if (updateRes && updateRes.success) {
+                    if (State.user && State.user.data) {
+                        State.user.data.contact_number = updateRes.new_contact || newPhone;
+                    }
+                    CustomDialog.show({
+                        type: 'success',
+                        title: 'Phone Number Updated!',
+                        message: `Your account mobile number has been changed to ${updateRes.new_contact || newPhone}.`,
+                        confirmText: 'Done'
+                    });
+                    break;
+                } else {
+                    CustomToast.show(updateRes?.error || 'Failed to update phone number.', 'error');
+                }
             }
         } catch (e) {
             CustomToast.show(e.message || 'Failed to update phone number.', 'error');

@@ -231,3 +231,45 @@ textarea::-webkit-scrollbar {
     fill: #2563eb !important;
 }
 
+.login-tab-pill {
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    left: 4px;
+    width: calc(50% - 4px);
+    background-color: #ffffff;
+    border-radius: 0.5rem;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+    transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: none;
+    will-change: transform;
+}
+
+.login-tab-pill.admin-active {
+    transform: translateX(100%);
+}
+
+.login-field-fade {
+    transition: opacity 0.18s ease, transform 0.18s ease;
+    will-change: opacity, transform;
+}
+
+.login-field-fade.switching {
+    opacity: 0.2;
+    transform: translateY(3px);
+}
+
+.login-collapsible {
+    transition: max-height 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.24s ease, margin 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    overflow: hidden;
+    will-change: max-height, opacity, margin;
+}
+
+.login-collapsible.collapsed {
+    max-height: 0 !important;
+    opacity: 0 !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    pointer-events: none !important;
+}
+

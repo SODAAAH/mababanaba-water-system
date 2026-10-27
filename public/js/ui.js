@@ -134,6 +134,12 @@ const CustomDialog = {
                     const cpnOtp = document.getElementById('cpn-otp');
                     if(rEl && sEl) {
                         res = { round: rEl.value, slim: sEl.value };
+                    } else if(cpnOtp && cpnPhone) {
+                        UI._syncOtpValue('cpn-otp');
+                        res = { 
+                            otp: (cpnOtp?.value || '').trim(),
+                            phone: (cpnPhone?.value || '').trim()
+                        };
                     } else if(cpnOtp) {
                         UI._syncOtpValue('cpn-otp');
                         res = { otp: (cpnOtp?.value || '').trim() };
@@ -815,14 +821,15 @@ const UI = {
                         <p class="text-sm text-slate-500 mt-1">Sign in to Mababanaba Waters</p>
                     </div>
                     
-                    <div class="flex bg-slate-100 p-1 rounded-xl mb-6">
-                        <button id="tab-cust" onclick="UI.switchLoginTab('customer')" class="flex-1 py-2 text-sm font-bold rounded-lg bg-white shadow text-blue-600 transition">Customer</button>
-                        <button id="tab-adm" onclick="UI.switchLoginTab('admin')" class="flex-1 py-2 text-sm font-bold rounded-lg text-slate-500 hover:text-slate-700 transition">Staff / Admin</button>
+                    <div class="relative flex bg-slate-100 p-1 rounded-xl mb-6 select-none" id="login-tabs-wrapper">
+                        <div id="login-tab-pill" class="login-tab-pill"></div>
+                        <button id="tab-cust" type="button" onclick="UI.switchLoginTab('customer')" class="relative z-10 flex-1 py-2 text-sm font-bold rounded-lg transition-colors duration-200 text-blue-600">Customer</button>
+                        <button id="tab-adm" type="button" onclick="UI.switchLoginTab('admin')" class="relative z-10 flex-1 py-2 text-sm font-bold rounded-lg transition-colors duration-200 text-slate-500 hover:text-slate-700">Staff / Admin</button>
                     </div>
 
                     <form id="login-form" onsubmit="App.handleLogin(event)" class="space-y-4">
                         <input type="hidden" id="login-type" value="customer">
-                        <div>
+                        <div id="login-user-group" class="login-field-fade">
                             <label class="block text-sm font-bold text-slate-700 mb-1" id="login-user-label">Mobile Number</label>
                             <input type="tel" id="login-user" required maxlength="11" oninput="if(document.getElementById('login-type').value === 'customer'){ this.value=this.value.replace(/[^0-9]/g,'').slice(0,11); }" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition">
                         </div>
@@ -832,7 +839,7 @@ const UI = {
                                 <input type="password" id="login-pass" required class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition pr-12">
                                 <button type="button" onclick="App.togglePassword('login-pass', 'login-pass-icon')" class="absolute inset-y-0 right-4 flex items-center text-slate-400 hover:text-blue-500 transition"><i class="fa-solid fa-eye" id="login-pass-icon"></i></button>
                             </div>
-                            <div class="text-right mt-2" id="forgot-pass-container">
+                            <div class="login-collapsible text-right mt-2" id="forgot-pass-container" style="max-height: 40px; opacity: 1;">
                                 <button type="button" id="forgot-btn" onclick="UI.navigate('forgot_password')" class="text-xs font-bold text-blue-600 hover:underline">Forgot Password?</button>
                             </div>
                         </div>
@@ -842,7 +849,7 @@ const UI = {
                         </button>
                     </form>
                     
-                    <div id="register-prompt" class="text-center mt-8 text-sm font-medium text-slate-600">
+                    <div id="register-prompt" class="login-collapsible text-center mt-8 text-sm font-medium text-slate-600" style="max-height: 60px; opacity: 1;">
                         New customer? <button onclick="UI.navigate('register')" class="text-blue-600 font-bold hover:underline">Create an account</button>
                     </div>
                 </div>
@@ -851,33 +858,87 @@ const UI = {
     },
 
     switchLoginTab(type) {
-        document.getElementById('login-type').value = type;
+        const currentType = document.getElementById('login-type')?.value;
+        if (currentType === type) return;
+
+        const typeInput = document.getElementById('login-type');
+        if (typeInput) typeInput.value = type;
+
         const tabCust = document.getElementById('tab-cust');
         const tabAdm = document.getElementById('tab-adm');
+        const pill = document.getElementById('login-tab-pill');
+        const userGroup = document.getElementById('login-user-group');
         const label = document.getElementById('login-user-label');
         const regPrompt = document.getElementById('register-prompt');
         const forgotContainer = document.getElementById('forgot-pass-container');
         const inputUser = document.getElementById('login-user');
 
+        if (pill) {
+            if (type === 'admin') {
+                pill.classList.add('admin-active');
+            } else {
+                pill.classList.remove('admin-active');
+            }
+        }
+
         if (type === 'customer') {
-            tabCust.className = 'flex-1 py-2 text-sm font-bold rounded-lg bg-white shadow text-blue-600 transition';
-            tabAdm.className = 'flex-1 py-2 text-sm font-bold rounded-lg text-slate-500 hover:text-slate-700 transition';
-            label.innerText = 'Mobile Number';
-            inputUser.type = 'tel';
-            inputUser.placeholder = '09xxxxxxxxx';
-            inputUser.maxLength = 11;
-            inputUser.value = inputUser.value.replace(/[^0-9]/g, '').slice(0, 11);
-            if (regPrompt) regPrompt.style.display = 'block';
-            if (forgotContainer) forgotContainer.style.display = 'block';
+            if (tabCust) {
+                tabCust.className = 'relative z-10 flex-1 py-2 text-sm font-bold rounded-lg transition-colors duration-200 text-blue-600';
+            }
+            if (tabAdm) {
+                tabAdm.className = 'relative z-10 flex-1 py-2 text-sm font-bold rounded-lg transition-colors duration-200 text-slate-500 hover:text-slate-700';
+            }
+            if (regPrompt) regPrompt.classList.remove('collapsed');
+            if (forgotContainer) forgotContainer.classList.remove('collapsed');
         } else {
-            tabAdm.className = 'flex-1 py-2 text-sm font-bold rounded-lg bg-white shadow text-blue-600 transition';
-            tabCust.className = 'flex-1 py-2 text-sm font-bold rounded-lg text-slate-500 hover:text-slate-700 transition';
-            label.innerText = 'Username';
-            inputUser.type = 'text';
-            inputUser.placeholder = 'Enter username';
-            inputUser.removeAttribute('maxlength');
-            if (regPrompt) regPrompt.style.display = 'none';
-            if (forgotContainer) forgotContainer.style.display = 'none';
+            if (tabAdm) {
+                tabAdm.className = 'relative z-10 flex-1 py-2 text-sm font-bold rounded-lg transition-colors duration-200 text-blue-600';
+            }
+            if (tabCust) {
+                tabCust.className = 'relative z-10 flex-1 py-2 text-sm font-bold rounded-lg transition-colors duration-200 text-slate-500 hover:text-slate-700';
+            }
+            if (regPrompt) regPrompt.classList.add('collapsed');
+            if (forgotContainer) forgotContainer.classList.add('collapsed');
+        }
+
+        if (userGroup) {
+            userGroup.classList.add('switching');
+            setTimeout(() => {
+                if (type === 'customer') {
+                    if (label) label.innerText = 'Mobile Number';
+                    if (inputUser) {
+                        inputUser.type = 'tel';
+                        inputUser.placeholder = '09xxxxxxxxx';
+                        inputUser.maxLength = 11;
+                        inputUser.value = inputUser.value.replace(/[^0-9]/g, '').slice(0, 11);
+                    }
+                } else {
+                    if (label) label.innerText = 'Username';
+                    if (inputUser) {
+                        inputUser.type = 'text';
+                        inputUser.placeholder = 'Enter username';
+                        inputUser.removeAttribute('maxlength');
+                    }
+                }
+                userGroup.classList.remove('switching');
+            }, 90);
+        } else {
+            if (type === 'customer') {
+                if (label) label.innerText = 'Mobile Number';
+                if (inputUser) {
+                    inputUser.type = 'tel';
+                    inputUser.placeholder = '09xxxxxxxxx';
+                    inputUser.maxLength = 11;
+                    inputUser.value = inputUser.value.replace(/[^0-9]/g, '').slice(0, 11);
+                }
+            } else {
+                if (label) label.innerText = 'Username';
+                if (inputUser) {
+                    inputUser.type = 'text';
+                    inputUser.placeholder = 'Enter username';
+                    inputUser.removeAttribute('maxlength');
+                }
+            }
         }
     },
 
